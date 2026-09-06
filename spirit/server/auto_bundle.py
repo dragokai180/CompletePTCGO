@@ -134,11 +134,21 @@ def _is_pokemon_tool(card_def) -> bool:
 
 
 def _detect_emblem_circle(img):
-    """(cx, cy, r) of the special energy's circular emblem, or None.
+    """(cx, cy, r) of the special energy's strongest circular emblem, or None."""
+    found = _detect_emblem_circles(img, limit=1)
+    return found[0] if found else None
+
+
+def _detect_emblem_circles(img, limit=1):
+    """Up to `limit` circular emblems, strongest first, as (cx, cy, r).
 
     Hough-gradient vote on the art window: edge pixels vote along their
     gradient for circle centers; only centers near the art middle compete,
     and a radius bonus prefers the full ball over sharp inner details.
+
+    limit > 1 is for the energies that print one emblem per unit they
+    provide (Double Colorless): the pip has to show the pair, or on the
+    board it reads as an ordinary one-unit Energy.
     """
 
     w, h = img.size
@@ -188,7 +198,7 @@ def _detect_emblem_circle(img):
     cx_lo, cx_hi = sw * 0.25, sw * 0.75
     cy_lo, cy_hi = sh * 0.15, sh * 0.85
     min_votes = len(edges) * 0.02
-    best, best_weighted = None, -1
+    ranked = []
     for (cx, cy) in list(acc.keys()):
         if not (cx_lo <= cx <= cx_hi and cy_lo <= cy <= cy_hi):
             continue
@@ -197,20 +207,48 @@ def _detect_emblem_circle(img):
             for dy in (-1, 0, 1):
                 for r, v in acc.get((cx+dx, cy+dy), {}).items():
                     pooled[r] = pooled.get(r, 0) + v
+        best_here, best_here_weighted = None, -1
         for r in pooled:
             score = pooled.get(r-2, 0) + pooled[r] + pooled.get(r+2, 0)
             weighted = score * (1 + 1.5 * r / rmax)
-            if weighted > best_weighted and score >= min_votes:
-                best, best_weighted = (cx, cy, r), weighted
+            if weighted > best_here_weighted and score >= min_votes:
+                best_here, best_here_weighted = (cx, cy, r), weighted
+        if best_here is not None:
+            ranked.append((best_here_weighted, best_here))
 
-    if best is None:
-        return None
+    if not ranked:
+        return []
+    # Strongest first, then non-maximum suppression so a second emblem is a
+    # genuinely different circle and not the same one re-detected a pixel over.
+    ranked.sort(key=lambda t: -t[0])
     inv = 1 / scale
-    return (rx0 + best[0] * inv, ry0 + best[1] * inv, best[2] * inv)
+    picked = []
+    for _, (cx, cy, r) in ranked:
+        if any((cx - ox) ** 2 + (cy - oy) ** 2 < (0.75 * max(r, orr)) ** 2
+               for ox, oy, orr in picked):
+            continue
+        picked.append((cx, cy, r))
+        if len(picked) >= limit:
+            break
+    return [(rx0 + cx * inv, ry0 + cy * inv, r * inv) for cx, cy, r in picked]
+
+
+def _energy_units(card_def) -> int:
+    """How much Energy one copy provides at once, off ENERGY_INFO (Double
+    Colorless: 2). Drives how many emblems the pip crop has to hold."""
+    spec = (getattr(card_def, "extra_attributes", None) or {}).get(
+        str(AttrID.ENERGY_INFO.value))
+    if not isinstance(spec, dict):
+        return 1
+    try:
+        options = json.loads(spec.get("value") or "{}").get("options") or []
+    except (ValueError, TypeError):
+        return 1
+    return max((len(option) for option in options), default=1)
 
 
 def _generate_pip_png(png_path, set_code, asset_name, suffix, detect,
-                      art_window=(0.12, 0.68), out_dir=None):
+                      art_window=(0.12, 0.68), out_dir=None, units=1):
     out_dir = out_dir or PIP_CACHE_DIR
     out_path = os.path.join(out_dir, f"{set_code}_{asset_name}_{suffix}.png")
     # Regenerate when the source art OR this module (the crop logic) changes.
@@ -222,10 +260,28 @@ def _generate_pip_png(png_path, set_code, asset_name, suffix, detect,
     w, h = img.size
     # Keep the crop inside the art window (title above, text box below).
     art_top, art_bottom = int(h * art_window[0]), int(h * art_window[1])
-    found = _detect_emblem_circle(img) if detect else None
-    if found:
-        cx, cy, r = found
-        side = int(2 * r * 1.16)
+    circles = _detect_emblem_circles(img, limit=max(1, units)) if detect else []
+    if circles:
+        # The square that holds every emblem found -- one for most cards, the
+        # pair for a two-unit Energy whose art prints two. A pair already
+        # fills the frame, so it gets a thinner margin than a lone emblem;
+        # 1.16 around two balls reaches the title bar and the name plate.
+        margin = 1.16 if len(circles) == 1 else 1.02
+        # A pair spans most of the art, so its square lands hard against the
+        # window edges. Pull the bottom up for that case only: the name plate
+        # sits just under 0.68h on the older frames (Double Dragon Energy) and
+        # bleeds into the crop otherwise. Single-emblem pips keep the window
+        # they have always used.
+        lo = art_top
+        hi = art_bottom if len(circles) == 1 else int(h * 0.64)
+        left_edge = min(cx - r for cx, _, r in circles)
+        right_edge = max(cx + r for cx, _, r in circles)
+        top_edge = max(min(cy - r for _, cy, r in circles), lo)
+        bottom_edge = min(max(cy + r for _, cy, r in circles), hi)
+        art_top, art_bottom = lo, hi
+        cx = (left_edge + right_edge) / 2
+        cy = (top_edge + bottom_edge) / 2
+        side = int(max(right_edge - left_edge, bottom_edge - top_edge) * margin)
     else:
         cx, cy, side = w / 2, (art_top + art_bottom) / 2, art_bottom - art_top
     side = min(side, w, art_bottom - art_top)
@@ -235,14 +291,22 @@ def _generate_pip_png(png_path, set_code, asset_name, suffix, detect,
     return out_path
 
 
-def generate_energy_pip_png(png_path, set_code, asset_name, out_dir=None):
+def generate_energy_pip_png(png_path, set_code, asset_name, out_dir=None,
+                            units=1):
     """Square crop around the card's circular emblem for the attachment pip.
 
     The in-match pip requests bundle asset "{set}/{num}_energypip" for special
     energies (EnergyPipTextureRenderer); without it the type symbol shows.
+
+    `units` is how much Energy the card provides at once. The client draws
+    exactly one pip per attached card and picks its texture from
+    EnergyProvided[0], so a two-unit Energy cropped to a single emblem is
+    indistinguishable on the board from a one-unit Energy of the same type.
+    Widening the crop to the emblems the art already prints is the only way
+    to tell them apart, since the pip count is the client's to decide.
     """
     return _generate_pip_png(png_path, set_code, asset_name, "energypip",
-                             detect=True, out_dir=out_dir)
+                             detect=True, out_dir=out_dir, units=units)
 
 
 def generate_tool_pip_png(png_path, set_code, asset_name, out_dir=None):
@@ -348,7 +412,9 @@ def check_and_generate_bundles() -> int:
                                 kind_map[asset_name] = gen_path
 
                     if _is_special_energy(card_def) and os.path.exists(png_path):
-                        pip_path = generate_energy_pip_png(png_path, set_code, asset_name)
+                        pip_path = generate_energy_pip_png(
+                            png_path, set_code, asset_name,
+                            units=_energy_units(card_def))
                         if pip_path:
                             card_assets[f"{asset_name}_energypip"] = pip_path
                     elif _is_pokemon_tool(card_def) and os.path.exists(png_path):
