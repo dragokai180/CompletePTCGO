@@ -181,7 +181,13 @@ def _detect_emblem_circles(img, limit=1):
     edges.sort(key=lambda e: -e[4])
     edges = edges[:max(1, len(edges) // 4)]
 
-    rmin = max(6, int(min(sw, sh) * 0.16))
+    # A card that prints one emblem per unit draws the extras smaller and
+    # further out (Team Rocket's Energy puts its second ball at 0.78w), so
+    # looking for a pair means a smaller floor on the radius and a wider
+    # window for the center. Single-emblem detection keeps the tight gates,
+    # which are what stop it locking onto an inner highlight.
+    pair = limit > 1
+    rmin = max(6, int(min(sw, sh) * (0.10 if pair else 0.16)))
     rmax = int(min(sw, sh) * 0.60)
     acc = {}
     for x, y, gx, gy, mag in edges:
@@ -195,8 +201,8 @@ def _detect_emblem_circles(img, limit=1):
                     acc.setdefault((cx, cy), {})
                     acc[(cx, cy)][r] = acc[(cx, cy)].get(r, 0) + 1
 
-    cx_lo, cx_hi = sw * 0.25, sw * 0.75
-    cy_lo, cy_hi = sh * 0.15, sh * 0.85
+    cx_lo, cx_hi = (sw * 0.12, sw * 0.88) if pair else (sw * 0.25, sw * 0.75)
+    cy_lo, cy_hi = (sh * 0.10, sh * 0.90) if pair else (sh * 0.15, sh * 0.85)
     min_votes = len(edges) * 0.02
     ranked = []
     for (cx, cy) in list(acc.keys()):
@@ -284,7 +290,11 @@ def _generate_pip_png(png_path, set_code, asset_name, suffix, detect,
         side = int(max(right_edge - left_edge, bottom_edge - top_edge) * margin)
     else:
         cx, cy, side = w / 2, (art_top + art_bottom) / 2, art_bottom - art_top
-    side = min(side, w, art_bottom - art_top)
+    # Leave the pair case a sliver of room inside the window: at exactly the
+    # window height the square is pinned to art_top and picks up the bottom
+    # edge of the title bar.
+    room = art_bottom - art_top
+    side = min(side, w, room if len(circles) <= 1 else int(room * 0.94))
     left = int(min(max(cx - side / 2, 0), w - side))
     top = int(min(max(cy - side / 2, art_top), art_bottom - side))
     img.crop((left, top, left + side, top + side)).save(out_path)
