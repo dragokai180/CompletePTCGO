@@ -4992,6 +4992,9 @@ class GameSession:
             moves.append(self._entity_moved_msg(
                 stadium_card.entity_id, stadium_area.entity_id, position
             ))
+        # Spend the turn's one Stadium play. Before the Chaotic Swell branch
+        # below returns, so a swept Stadium still counts as played.
+        self.turn_state.stadium_played = True
         self._record_trainer_played(card)
         self.stat_add(player_id, "trainersplayed")
         logging.info(

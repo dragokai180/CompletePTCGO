@@ -93,6 +93,11 @@ class TurnState:
     turn_number: int = 0
     active_player_id: Optional[str] = None
     supporter_played: bool = False
+    # A player may play only 1 Stadium per turn, the same way they may
+    # play only 1 Supporter. Set even when the Stadium never reaches the
+    # board (Chaotic Swell sweeps it): playing it is what spends the turn's
+    # allowance, not it staying in play.
+    stadium_played: bool = False
     energy_attached: bool = False
     retreated: bool = False
     # entity_id -> turn number it entered play (or last evolved). Entities
@@ -202,6 +207,7 @@ class TurnState:
         self.turn_number += 1
         self.active_player_id = player_id
         self.supporter_played = False
+        self.stadium_played = False
         self.energy_attached = False
         self.retreated = False
         self.used_abilities = set()
@@ -543,7 +549,7 @@ def compute_legal_actions(
                         action_id_for(card.entity_id, "supporter"), ACTION_USE_TRAINER,
                     ))
             elif trainer_type == TrainerType.STADIUM.value:
-                if not _same_stadium_in_play(board, card):
+                if not state.stadium_played and not _same_stadium_in_play(board, card):
                     entries.append(_target_map_entry(
                         game_id, card.entity_id,
                         action_id_for(card.entity_id, "stadium"), ACTION_PLAY_STADIUM,
