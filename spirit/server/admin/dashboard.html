@@ -1,0 +1,2281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpiritPTCGO Admin</title>
+<style>
+  :root {
+    --bg: #10141c; --panel: #1a2130; --panel2: #212a3d; --line: #2d3950;
+    --text: #e8edf6; --muted: #8fa0bd; --accent: #ffcb05; --accent2: #3d7dca;
+    --good: #4caf7d; --bad: #e05c5c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+  header { display: flex; align-items: center; gap: 14px; padding: 14px 22px; background: var(--panel); border-bottom: 2px solid var(--accent); }
+  header h1 { font-size: 18px; letter-spacing: .5px; }
+  header h1 span { color: var(--accent); }
+  header .stats { margin-left: auto; color: var(--muted); font-size: 12px; }
+  nav { display: flex; gap: 4px; padding: 10px 22px 0; background: var(--panel); overflow-x: auto; }
+  nav button { flex: none; background: none; border: none; color: var(--muted); padding: 9px 18px; font-size: 14px; cursor: pointer; border-radius: 8px 8px 0 0; }
+  nav button.active { background: var(--bg); color: var(--accent); font-weight: 600; }
+  main { padding: 22px; max-width: 1440px; margin: 0 auto; }
+  section { display: none; }
+  section.active { display: block; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-bottom: 18px; }
+  .card h2 { font-size: 15px; margin-bottom: 12px; color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: .6px; }
+  tr:hover td { background: var(--panel2); }
+  input, select, textarea { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; font-size: 13px; font-family: inherit; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent2); }
+  textarea { width: 100%; font-family: Consolas, monospace; }
+  label { color: var(--muted); font-size: 12px; display: block; margin-bottom: 3px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px; }
+  .row > div { display: flex; flex-direction: column; }
+  button.btn { background: var(--accent2); border: none; color: #fff; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }
+  button.btn:hover { filter: brightness(1.15); }
+  button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+  button.btn.warn { background: var(--bad); }
+  button.btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+  button.mini { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 5px; padding: 3px 9px; cursor: pointer; font-size: 12px; margin-right: 4px; }
+  button.mini:hover { color: var(--text); border-color: var(--accent2); }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .pill.on { background: rgba(76,175,125,.15); color: var(--good); }
+  .pill.off { background: rgba(224,92,92,.15); color: var(--bad); }
+  .pill.tag { background: rgba(61,125,202,.18); color: #7fb1e8; margin-right: 3px; }
+  code { background: var(--bg); padding: 2px 7px; border-radius: 5px; font-size: 12px; color: var(--accent); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+  .stat { background: var(--panel2); border-radius: 8px; padding: 14px; text-align: center; }
+  .stat .n { font-size: 26px; font-weight: 700; color: var(--accent); }
+  .stat .l { color: var(--muted); font-size: 12px; }
+  #toast { position: fixed; bottom: 20px; right: 20px; background: var(--panel2); border: 1px solid var(--line); border-left: 4px solid var(--good); padding: 12px 18px; border-radius: 8px; display: none; z-index: 10; }
+  #toast.err { border-left-color: var(--bad); }
+  .muted { color: var(--muted); font-size: 12px; }
+
+  /* ---- Versus ladder ---- */
+  .season-pill { border: 1px solid var(--line); background: var(--panel2); color: var(--muted); border-radius: 20px; padding: 5px 16px; cursor: pointer; font-size: 13px; }
+  .season-pill.sel { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .ladder { margin: 4px 0 16px 6px; }
+  .milestone { display: flex; gap: 18px; padding-bottom: 26px; position: relative; align-items: flex-start; }
+  .milestone::before { content: ''; position: absolute; left: 29px; top: 60px; bottom: 0; width: 2px; background: var(--line); }
+  .milestone:last-child::before { display: none; }
+  .ms-badge { width: 60px; height: 60px; border-radius: 50%; background: var(--panel2); border: 2px solid var(--accent); display: flex; flex-direction: column; align-items: center; justify-content: center; flex: none; z-index: 1; }
+  .ms-badge input { width: 46px; background: none; border: none; text-align: center; font-weight: 700; font-size: 16px; color: var(--accent); padding: 0; }
+  .ms-badge input:focus { outline: none; }
+  .ms-badge .pts { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-top: -3px; }
+  .ms-body { flex: 1; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; min-height: 60px; }
+  .reward-chip { display: flex; align-items: center; gap: 9px; background: var(--panel2); border: 1px solid var(--line); border-radius: 9px; padding: 6px 10px 6px 6px; }
+  .reward-chip img { height: 58px; width: 42px; object-fit: cover; border-radius: 4px; display: block; background: #0b0e14; }
+  .reward-chip .coin { width: 42px; height: 42px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-size: 21px; background: radial-gradient(circle at 35% 30%, #ffe98a, #d4a017 70%); box-shadow: inset 0 0 0 3px rgba(0,0,0,.18); }
+  .reward-chip .rc-name { font-size: 12px; max-width: 150px; line-height: 1.3; }
+  .reward-chip .rc-amt { color: var(--accent); font-weight: 700; font-size: 12px; min-width: 26px; text-align: center; }
+  .rc-step { display: flex; align-items: center; gap: 3px; }
+  .rc-pm { width: 20px; height: 20px; border-radius: 5px; border: 1px solid var(--line); background: var(--panel); color: var(--accent); font-size: 14px; line-height: 1; cursor: pointer; padding: 0; }
+  .rc-pm:hover { border-color: var(--accent); }
+  .chip-x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 2px 4px; }
+  .chip-x:hover { color: var(--bad); }
+  .add-chip { border: 1px dashed var(--line); color: var(--muted); background: none; border-radius: 9px; padding: 18px 16px; cursor: pointer; font-size: 13px; }
+  .add-chip:hover { color: var(--accent); border-color: var(--accent); }
+  .ms-del { align-self: center; }
+  .tier-box { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px 4px; margin-bottom: 16px; background: rgba(255,255,255,.015); }
+  .tier-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .tier-head h3 { font-size: 13px; color: var(--accent); text-transform: uppercase; letter-spacing: .8px; flex: 1; }
+  .ms-warn { color: var(--bad); font-size: 11px; width: 100%; }
+
+  /* ---- Reward picker modal ---- */
+  #pickerOverlay { position: fixed; inset: 0; background: rgba(5,8,13,.75); display: none; z-index: 30; align-items: center; justify-content: center; }
+  #pickerOverlay.open { display: flex; }
+  .picker { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; width: min(780px, 94vw); max-height: 88vh; display: flex; flex-direction: column; }
+  .picker .p-head { display: flex; align-items: center; padding: 14px 18px 0; }
+  .picker .p-head h3 { font-size: 15px; color: var(--accent); flex: 1; }
+  .type-tiles { display: flex; gap: 10px; padding: 12px 18px 0; }
+  .type-tile { flex: 1; background: var(--panel2); border: 2px solid var(--line); border-radius: 10px; padding: 11px; text-align: center; cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 600; }
+  .type-tile .ico { font-size: 26px; display: block; margin-bottom: 3px; }
+  .type-tile.sel { border-color: var(--accent); color: var(--accent); }
+  .picker-body { padding: 14px 18px; overflow-y: auto; flex: 1; min-height: 220px; }
+  .thumb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 10px; margin-top: 12px; }
+  .thumb { background: var(--panel2); border: 2px solid transparent; border-radius: 8px; padding: 7px; text-align: center; cursor: pointer; }
+  .thumb img { width: 100%; aspect-ratio: 63/88; object-fit: contain; border-radius: 4px; background: #0b0e14; display: block; }
+  .thumb.product img { aspect-ratio: auto; height: 92px; }
+  .thumb.sel { border-color: var(--accent); }
+  .thumb .t-name { font-size: 11px; margin-top: 5px; line-height: 1.25; height: 27px; overflow: hidden; }
+  .thumb .t-sub { font-size: 10px; color: var(--muted); }
+  .picker .p-foot { display: flex; gap: 12px; align-items: flex-end; padding: 12px 18px; border-top: 1px solid var(--line); }
+  .preset { background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 7px 13px; cursor: pointer; font-size: 13px; }
+  .preset:hover, .preset.sel { border-color: var(--accent); color: var(--accent); }
+  .filter-chip { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 20px; padding: 4px 12px; cursor: pointer; font-size: 12px; margin-right: 5px; }
+  .filter-chip.sel { border-color: var(--accent2); color: #7fb1e8; }
+
+  /* ---- Login overlay + tournament prize rows ---- */
+  #loginOverlay { position: fixed; inset: 0; background: rgba(5,8,13,.92); display: none; z-index: 40; align-items: center; justify-content: center; }
+  #loginOverlay.open { display: flex; }
+  .prize-row { display: flex; gap: 12px; align-items: flex-start; border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; margin-bottom: 10px; background: rgba(255,255,255,.015); }
+  .prize-range { display: flex; flex-direction: column; gap: 4px; flex: none; }
+  .prize-range input { width: 70px; }
+  .prize-rewards { flex: 1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+  /* ---- Dynamic page visual studio ---- */
+  .page-studio { display: grid; grid-template-columns: minmax(360px, .78fr) minmax(560px, 1.35fr); gap: 18px; align-items: start; }
+  .page-studio > .card { margin-bottom: 0; }
+  .page-editor-card { min-width: 0; }
+  .page-panel-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+  .page-panel-head > div:first-child { flex: 1; }
+  .page-panel-head h2 { margin-bottom: 2px; }
+  .page-kicker { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .8px; }
+  .page-meta-grid { display: grid; grid-template-columns: 1.5fr .7fr 1fr; gap: 10px; margin-bottom: 18px; }
+  .page-meta-grid input, .page-meta-grid select { width: 100%; }
+  .switch-field { min-height: 34px; display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); }
+  .switch-field input { width: auto; }
+  .page-section-title { display: flex; align-items: center; gap: 9px; color: var(--text); font-weight: 650; margin: 17px 0 9px; }
+  .page-section-title::after { content: ''; height: 1px; background: var(--line); flex: 1; }
+  .template-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .template-choice { border: 2px solid var(--line); background: var(--bg); color: var(--muted); border-radius: 8px; padding: 9px; cursor: pointer; text-align: left; }
+  .template-choice:hover { border-color: var(--accent2); }
+  .template-choice.sel { border-color: var(--accent); color: var(--text); box-shadow: 0 0 0 2px rgba(255,203,5,.08); }
+  .template-mini { display: block; position: relative; aspect-ratio: 16/9; border-radius: 5px; background: linear-gradient(135deg,#17314f,#315d7d); overflow: hidden; margin-bottom: 6px; }
+  .template-mini::before { content: ''; position: absolute; top: 27%; width: 31%; height: 25%; border-radius: 3px; background: rgba(255,255,255,.72); }
+  .template-mini::after { content: ''; position: absolute; top: 59%; width: 24%; height: 12%; border-radius: 10px; background: #3d7dca; }
+  .template-mini.visual-left::before, .template-mini.visual-left::after { right: 18%; }
+  .template-mini.visual-right::before, .template-mini.visual-right::after { left: 18%; }
+  .template-mini.no-buttons::after { display: none; }
+  .template-choice strong { display: block; font-size: 12px; }
+  .template-choice small { display: block; color: var(--muted); font-size: 10px; margin-top: 1px; }
+  .page-field { margin-bottom: 11px; }
+  .page-field input, .page-field select, .page-field textarea { width: 100%; }
+  .page-help { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .schedule-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+  .asset-selection { display: grid; grid-template-columns: 150px 1fr; gap: 10px; padding: 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); }
+  .asset-selected-thumb { aspect-ratio: 16/9; border-radius: 6px; overflow: hidden; background: #09101b; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 10px; }
+  .asset-selected-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .asset-controls { min-width: 0; }
+  .asset-controls input { width: 100%; margin-bottom: 7px; }
+  .asset-action-row { display: flex; flex-wrap: wrap; gap: 7px; }
+  .asset-status { margin-top: 5px; min-height: 18px; }
+  .page-form-actions { display: flex; gap: 8px; align-items: center; padding-top: 14px; margin-top: 14px; border-top: 1px solid var(--line); }
+  .page-form-actions .save-state { flex: 1; font-size: 11px; color: var(--muted); }
+  details.page-advanced { border: 1px solid var(--line); border-radius: 8px; margin-top: 14px; overflow: hidden; }
+  details.page-advanced summary { cursor: pointer; padding: 9px 11px; color: var(--muted); font-size: 12px; background: rgba(255,255,255,.018); }
+  .advanced-body { padding: 10px; }
+  .advanced-body textarea { min-height: 190px; }
+
+  .page-preview-card { position: sticky; top: 14px; }
+  .preview-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+  .preview-head h2 { margin: 0; flex: 1; }
+  .resolution-badge { color: #9cc5ef; background: rgba(61,125,202,.18); border: 1px solid rgba(61,125,202,.45); border-radius: 20px; padding: 2px 9px; font-size: 10px; }
+  .game-shell { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid #3f5875; background: #07111e; box-shadow: 0 14px 35px rgba(0,0,0,.35); }
+  .game-stage { position: relative; aspect-ratio: 16/9; overflow: hidden; background: radial-gradient(circle at 50% 45%, #274b6d, #07111e 72%); }
+  .game-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
+  .game-art.show { display: block; }
+  .game-art-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: rgba(255,255,255,.6); background: linear-gradient(135deg,#183755,#0b1f36); }
+  .game-art-placeholder .pokeball { width: 48px; height: 48px; border: 4px solid rgba(255,255,255,.55); border-radius: 50%; position: relative; opacity: .7; }
+  .game-art-placeholder .pokeball::before { content: ''; position: absolute; left: -4px; right: -4px; top: 18px; height: 4px; background: rgba(255,255,255,.55); }
+  .game-art-placeholder .pokeball::after { content: ''; position: absolute; left: 13px; top: 13px; width: 14px; height: 14px; border: 4px solid rgba(255,255,255,.55); border-radius: 50%; background: #183755; }
+  .game-topbar { position: absolute; z-index: 4; left: 0; right: 0; top: 0; height: 8.5%; padding: 0 2.2%; display: flex; align-items: center; gap: 2%; color: white; background: linear-gradient(to bottom,rgba(3,12,23,.88),rgba(8,22,38,.52),transparent); text-shadow: 0 1px 2px #000; }
+  .game-logo { font-weight: 900; font-size: clamp(9px,1.2vw,17px); font-style: italic; color: var(--accent); letter-spacing: -.3px; }
+  .game-logo span { color: #79b7ef; }
+  .game-profile { margin-left: auto; font-size: clamp(6px,.65vw,10px); opacity: .85; }
+  .game-bottomnav { position: absolute; z-index: 4; left: 0; right: 0; bottom: 0; height: 9%; display: flex; align-items: flex-end; justify-content: center; gap: .5%; padding-bottom: 1%; background: linear-gradient(to top,rgba(2,10,19,.94),rgba(5,17,30,.6),transparent); }
+  .game-navitem { min-width: 10%; padding: .6% 1%; border-radius: 3px 3px 0 0; text-align: center; color: #c7d8e8; background: rgba(15,45,72,.8); border-top: 1px solid rgba(126,183,231,.5); font-size: clamp(5px,.55vw,9px); text-transform: uppercase; }
+  .game-copy { position: absolute; z-index: 3; width: 28%; top: 44%; transform: translateY(-50%); color: white; text-align: center; text-shadow: 0 2px 4px #000,0 0 12px rgba(0,0,0,.8); }
+  .game-copy.side-left { left: 21.2%; }
+  .game-copy.side-right { right: 21.2%; }
+  .game-message { font-weight: 750; font-size: clamp(11px,1.42vw,22px); line-height: 1.12; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .game-message:empty::before { content: 'Your page message'; opacity: .45; }
+  .game-cta { display: inline-flex; align-items: center; justify-content: center; min-width: 42%; max-width: 90%; margin-top: 4.5%; padding: 2.2% 5.5%; border-radius: 999px; color: white; border: 1px solid #8fc8fb; background: linear-gradient(#4f9ce0,#24649f); box-shadow: 0 2px 0 #102d49, inset 0 1px rgba(255,255,255,.5), 0 0 12px rgba(59,142,216,.55); font-weight: 800; font-size: clamp(6px,.72vw,11px); text-shadow: 0 1px 2px #17456d; }
+  .game-cta.gold { color: #26364b; border-color: #fff0a4; background: linear-gradient(#ffe775,#e1aa21); box-shadow: 0 2px 0 #74560d, inset 0 1px #fff9c6, 0 0 12px rgba(255,203,5,.55); text-shadow: 0 1px rgba(255,255,255,.65); }
+  .maintenance-preview { position: absolute; z-index: 3; left: 3.2%; bottom: 12%; width: 48%; padding: 2.2%; border: 2px solid #7ba4c5; border-radius: 7px; color: white; background: linear-gradient(135deg,rgba(18,49,75,.96),rgba(7,25,43,.96)); box-shadow: 0 7px 20px rgba(0,0,0,.55), inset 0 0 0 2px rgba(255,255,255,.08); }
+  .maintenance-title { color: var(--accent); font-weight: 800; font-size: clamp(8px,1vw,15px); margin-bottom: 1.5%; }
+  .maintenance-message { font-size: clamp(6px,.72vw,11px); line-height: 1.25; white-space: pre-wrap; }
+  .maintenance-time { display: flex; gap: 4%; margin-top: 3%; color: #b8d0e4; font-size: clamp(5px,.58vw,9px); }
+  .preview-caption { display: flex; align-items: center; gap: 8px; margin-top: 9px; color: var(--muted); font-size: 11px; }
+  .preview-caption .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+  .page-validation { margin-top: 10px; display: grid; gap: 5px; }
+  .validation-row { display: flex; gap: 7px; align-items: flex-start; padding: 7px 9px; border-radius: 6px; font-size: 11px; background: rgba(76,175,125,.08); color: #90d5b0; }
+  .validation-row.warn { color: #e7c66c; background: rgba(255,203,5,.08); }
+  .validation-row.err { color: #ef9a9a; background: rgba(224,92,92,.1); }
+
+  .page-library-head { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+  .page-library-head h2 { margin: 0; flex: 1; }
+  .page-card-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(270px,1fr)); gap: 12px; }
+  .page-card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel2); }
+  .page-card:hover { border-color: #486489; transform: translateY(-1px); }
+  .page-card-art { position: relative; aspect-ratio: 16/9; background: linear-gradient(135deg,#17314f,#091421); overflow: hidden; }
+  .page-card-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .page-card-art::after { content: ''; position: absolute; inset: 55% 0 0; background: linear-gradient(transparent,rgba(5,12,20,.9)); pointer-events: none; }
+  .page-card-badges { position: absolute; z-index: 2; left: 8px; top: 8px; right: 8px; display: flex; gap: 5px; align-items: center; }
+  .page-card-badges .right { margin-left: auto; }
+  .page-order { position: absolute; z-index: 2; right: 9px; bottom: 7px; color: white; font-size: 10px; }
+  .page-card-body { padding: 10px; }
+  .page-card-title { font-weight: 650; line-height: 1.3; min-height: 34px; }
+  .page-card-meta { color: var(--muted); font-size: 10px; margin: 3px 0 9px; }
+  .page-card-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+  .page-card-actions button.mini { margin: 0; }
+  .empty-page-library { grid-column: 1/-1; padding: 34px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 10px; }
+
+  #pageAssetOverlay { position: fixed; inset: 0; z-index: 35; display: none; align-items: center; justify-content: center; padding: 3vh 3vw; background: rgba(4,8,14,.82); }
+  #pageAssetOverlay.open { display: flex; }
+  .page-asset-picker { width: min(1120px,95vw); height: min(900px,92vh); min-height: 520px; display: flex; flex-direction: column; border: 1px solid #435778; border-radius: 12px; overflow: hidden; background: var(--panel); box-shadow: 0 20px 60px rgba(0,0,0,.55); }
+  .asset-picker-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .asset-picker-head > div:first-child { flex: 1; }
+  .asset-picker-head h3 { color: var(--accent); font-size: 15px; }
+  details.custom-artwork-panel { flex: 0 0 auto; border-bottom: 1px solid var(--line); background: rgba(61,125,202,.06); }
+  details.custom-artwork-panel > summary { cursor: pointer; padding: 10px 16px; color: #bcd9f3; font-size: 12px; font-weight: 650; }
+  .custom-artwork-body { display: grid; grid-template-columns: 180px minmax(0,1fr); gap: 13px; padding: 2px 16px 14px; }
+  .custom-artwork-preview { aspect-ratio: 16/9; border: 1px dashed #4d6788; border-radius: 7px; overflow: hidden; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 10px; background: #07111e; }
+  .custom-artwork-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .custom-artwork-fields { min-width: 0; }
+  .custom-artwork-fields input[type="file"] { width: 100%; margin-bottom: 8px; }
+  .custom-upload-row { display: grid; grid-template-columns: minmax(180px,1fr) auto auto; align-items: center; gap: 8px; }
+  .custom-upload-row input[type="text"] { width: 100%; }
+  .custom-replace { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; white-space: nowrap; }
+  .custom-upload-help { margin-top: 7px; color: var(--muted); font-size: 10px; }
+  .custom-upload-status { min-height: 17px; margin-top: 5px; font-size: 10px; color: #9ec8ec; }
+  .asset-picker-tools { display: grid; grid-template-columns: minmax(220px,1fr) auto; gap: 10px; padding: 12px 16px; }
+  .asset-picker-tools input { width: 100%; }
+  .landing-asset-grid { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 12px; scrollbar-gutter: stable; }
+  .landing-asset { flex: 0 0 auto; display: grid; grid-template-columns: minmax(340px,48%) minmax(0,1fr); align-items: stretch; border: 2px solid transparent; border-radius: 9px; background: var(--panel2); overflow: hidden; cursor: pointer; color: var(--text); text-align: left; padding: 0; }
+  .landing-asset:hover { border-color: var(--accent2); }
+  .landing-asset.sel { border-color: var(--accent); }
+  .landing-asset img { width: 100%; height: auto; aspect-ratio: 16/9; object-fit: cover; display: block; background: #07111e; }
+  .landing-asset-info { min-width: 0; padding: 14px 16px; display: flex; flex-direction: column; justify-content: center; }
+  .landing-asset-name { display: block; font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .landing-asset-path { display: block; color: #9ec8ec; font-size: 10px; margin: 5px 0 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .landing-asset-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; }
+  .asset-source-summary { color: var(--muted); font-size: 10px; padding: 0 16px 10px; }
+
+  @media (max-width: 980px) {
+    .page-studio { grid-template-columns: 1fr; }
+    .page-preview-card { position: static; grid-row: 1; }
+  }
+  @media (max-width: 600px) {
+    main { padding: 12px; }
+    .page-meta-grid, .schedule-grid { grid-template-columns: 1fr; }
+    .asset-selection { grid-template-columns: 1fr; }
+    .asset-selected-thumb { max-width: 220px; }
+    .template-grid { grid-template-columns: 1fr; }
+    .page-asset-picker { min-height: 0; }
+    .custom-artwork-body, .custom-upload-row { grid-template-columns: 1fr; }
+    .custom-artwork-preview { max-width: 240px; }
+    .landing-asset { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Spirit<span>PTCGO</span> &nbsp;Admin Dashboard</h1>
+  <div class="stats" id="headerStats"></div>
+  <div class="stats" id="whoami"></div>
+  <button class="mini" id="logoutBtn" style="display:none" onclick="logout()">Log out</button>
+</header>
+<nav>
+  <button data-tab="overview" class="active">Overview</button>
+  <button data-tab="accounts">Accounts</button>
+  <button data-tab="codes">Redemption Codes</button>
+  <button data-tab="versus">Versus Seasons</button>
+  <button data-tab="tournaments">Tournaments</button>
+  <button data-tab="formats">Formats</button>
+  <button data-tab="shop">Shop</button>
+  <button data-tab="pages">Dynamic Pages</button>
+  <button data-tab="trades">Trades</button>
+</nav>
+<main>
+
+<section id="tab-overview" class="active">
+  <div class="card"><h2>Server Overview</h2><div class="grid" id="overviewGrid"></div></div>
+  <div class="card"><h2>Card Sets (booster-eligible sets need &gt;10 scripts)</h2>
+    <table id="setsTable"><thead><tr><th>Set</th><th>Scripted Cards</th><th>Booster Eligible</th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<section id="tab-accounts">
+  <div class="card"><h2>Accounts</h2>
+    <div class="muted">Debug tools. "Give 4× all cards" grants 4 <b>tradable</b> copies of every card (basic energy excluded) for testing the trade system; "Give 1× all products" grants 1 tradable copy of every product (boosters, decks, coins, sleeves, deck boxes). The player sees them on their next collection refresh / login.</div>
+    <table id="accountsTable"><thead><tr><th>Username</th><th>Screen Name</th><th>Account ID</th><th>Admin</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<section id="tab-codes">
+  <div class="card">
+    <h2>Generate Code</h2>
+    <div class="row">
+      <div><label>Code (blank = auto)</label><input id="codeInput" placeholder="SPIRIT-XXXX-XXXX-XXXX" style="width:220px"></div>
+      <div><label>How many</label><input id="codeCount" type="number" value="1" min="1" style="width:80px"></div>
+      <div><label>Max uses (0 = unlimited)</label><input id="codeMaxUses" type="number" value="1" min="0" style="width:120px"></div>
+      <div><label>Coins</label><input id="codeCoins" type="number" value="0" style="width:90px"></div>
+      <div><label>Gems</label><input id="codeGems" type="number" value="0" style="width:90px"></div>
+      <div><label>Tickets</label><input id="codeTickets" type="number" value="0" style="width:90px"></div>
+    </div>
+    <div class="row">
+      <div><button class="btn ghost" onclick="openRewardPicker('codes')">🎴 Add card / product reward…</button></div>
+      <div><button class="btn" onclick="createCode()">Generate Code</button></div>
+    </div>
+    <div id="rewardItems" style="display:flex;flex-wrap:wrap;gap:10px"></div>
+    <div id="rewardPreview" class="muted" style="margin-top:8px"></div>
+  </div>
+  <div class="card"><h2>Existing Codes</h2>
+    <table id="codesTable"><thead><tr><th>Code</th><th>Reward</th><th>Uses</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<section id="tab-versus">
+  <div class="card">
+    <h2>Versus Seasons</h2>
+    <div class="row" id="seasonPills"></div>
+    <div class="row">
+      <div><label>Season ID</label><input id="vsSeasonId" style="width:150px" oninput="vsField('seasonID', this.value)"></div>
+      <div><label>Description</label><input id="vsDesc" style="width:250px" oninput="vsDescInput(this.value)"></div>
+      <div><label>Starts</label><input id="vsStart" type="datetime-local" onchange="vsField('startTime', localToMs(this.value))"></div>
+      <div><label>Ends</label><input id="vsEnd" type="datetime-local" onchange="vsField('endTime', localToMs(this.value))"></div>
+      <div><button class="btn" onclick="saveSeasons()">Save Seasons</button></div>
+      <div><span id="vsDirty" class="pill off" style="display:none">unsaved changes</span></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Reward Ladder</h2>
+    <div class="muted" style="margin-bottom:14px">Players earn ladder points per Versus match (win &gt; loss). When their season points cross a milestone, its rewards are granted automatically — tokens go to the wallet, cards and products go to the collection. The ladder is split into <b>tiers</b>: the in-game screen shows one tier at a time and auto-advances to the tier holding the player's next milestone. Click a milestone's number to edit its point threshold. The game renders up to 3 reward arts per milestone (cards fan out, packs show a single tile); a milestone with several rewards must include at least one card or product.</div>
+    <div id="tiersWrap"></div>
+    <button class="btn ghost" onclick="addTier()">+ Add tier</button>
+  </div>
+</section>
+
+<section id="tab-tournaments">
+  <div class="card">
+    <h2>Tournaments (in-game Events tab)</h2>
+    <div class="muted" style="margin-bottom:12px">Tournaments appear on the client's <b>Events</b> screen while entries are open. Players pay the entry fee to queue; when the queue fills to the bracket size, a live single-elimination bracket starts and pays the <b>prize rows by final PLACE</b> (1 = champion). The win/loss caps and leaderboard below additionally drive the (currently UI-less) async run system.</div>
+    <div class="row" id="tourPills"></div>
+    <div class="row">
+      <div><label>Name (internal)</label><input id="tName" style="width:170px" oninput="tField('name', this.value)"></div>
+      <div><label>Title (shown to players)</label><input id="tTitle" style="width:200px" oninput="tField('title', this.value)"></div>
+      <div><label>Description</label><input id="tDesc" style="width:280px" oninput="tField('description', this.value)"></div>
+      <div><label>Max runs / player (0 = ∞)</label><input id="tMaxRuns" type="number" min="0" style="width:100px" onchange="tField('maxRuns', parseInt(this.value) || 0)"></div>
+    </div>
+    <div class="row">
+      <div><label>Bracket size</label>
+        <select id="tMaxSize" onchange="tField('maxSize', parseInt(this.value) || 8)">
+          <option value="2">2 players</option>
+          <option value="4">4 players</option>
+          <option value="8" selected>8 players</option>
+        </select></div>
+      <div><label>Format badge</label>
+        <select id="tFormat" onchange="tField('format', this.value)">
+          <option value="Unlimited" selected>Unlimited</option>
+          <option value="ThemeDeck">ThemeDeck</option>
+          <option value="Modified">Modified</option>
+          <option value="Expanded">Expanded</option>
+          <option value="Legacy">Legacy</option>
+        </select></div>
+      <div><label>Round length (min, display)</label><input id="tRoundLength" type="number" min="1" style="width:90px" onchange="tField('roundLength', parseInt(this.value) || 30)"></div>
+      <div><label>Delay between rounds (s)</label><input id="tRoundDelay" type="number" min="3" style="width:90px" onchange="tField('delayBetweenRounds', parseInt(this.value) || 10)"></div>
+    </div>
+    <div class="row">
+      <div><label>Preview from</label><input id="tPreview" type="datetime-local" onchange="tField('previewTime', localToMs(this.value))"></div>
+      <div><label>Entries open</label><input id="tStart" type="datetime-local" onchange="tField('startTime', localToMs(this.value))"></div>
+      <div><label>Entries close</label><input id="tEntryClose" type="datetime-local" onchange="tField('entryClosingTime', localToMs(this.value))"></div>
+      <div><label>Resolution (rank rewards)</label><input id="tResolve" type="datetime-local" onchange="tField('resolutionTime', localToMs(this.value))"></div>
+      <div><label>Disappears</label><input id="tDisappear" type="datetime-local" onchange="tField('disappearTime', localToMs(this.value))"></div>
+    </div>
+    <div class="row">
+      <div><button class="btn" onclick="saveTournament()">Save Tournament</button></div>
+      <div><button class="mini" id="tToggleBtn" onclick="toggleTournament()">Disable</button></div>
+      <div><button class="mini" onclick="deleteTournament()">Delete</button></div>
+      <div><span id="tDirty" class="pill off" style="display:none">unsaved changes</span></div>
+      <div class="muted" id="tMeta"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Run Rules &amp; Entry Fee</h2>
+    <div class="row">
+      <div><label>Max wins (0 = off)</label><input id="tMaxWins" type="number" min="0" style="width:90px" onchange="tRunField('maxWins', parseInt(this.value) || 0)"></div>
+      <div><label>Max losses (0 = off)</label><input id="tMaxLosses" type="number" min="0" style="width:90px" onchange="tRunField('maxLosses', parseInt(this.value) || 0)"></div>
+      <div><label>Max games (0 = off)</label><input id="tMaxGames" type="number" min="0" style="width:90px" onchange="tRunField('maxGames', parseInt(this.value) || 0)"></div>
+      <div><label>&nbsp;</label><label><input type="checkbox" id="tDeckSwitch" onchange="tRunField('allowDeckSwitching', this.checked)"> Allow deck switching between games</label></div>
+    </div>
+    <div class="row">
+      <div><label>Entry fee: Coins (0 = not offered)</label><input id="tFeeTokens" type="number" min="0" style="width:100px" onchange="tFeesChanged()"></div>
+      <div><label>Gems</label><input id="tFeeGems" type="number" min="0" style="width:100px" onchange="tFeesChanged()"></div>
+      <div><label>Tickets</label><input id="tFeeTickets" type="number" min="0" style="width:100px" onchange="tFeesChanged()"></div>
+      <div class="muted" style="align-self:center">All fees at 0 = free entry. The Events bracket charges every non-zero fee together (gems show as Coins in-client); the async system lets the player pick one.</div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Prizes — Events bracket: row = final PLACE range (1 = champion); async runs: row = final win count</h2>
+    <div id="tRunPrizes"></div>
+    <button class="btn ghost" onclick="addPrizeRow('run')">+ Add prize row</button>
+  </div>
+  <div class="card">
+    <h2>Leaderboard</h2>
+    <div class="row">
+      <div><label>Points per win</label><input id="tWinValue" type="number" style="width:90px" onchange="tLbField('winValue', parseInt(this.value) || 0)"></div>
+      <div><label>Points per loss</label><input id="tLossValue" type="number" style="width:90px" onchange="tLbField('lossValue', parseInt(this.value) || 0)"></div>
+      <div><button class="mini" onclick="viewStandings()">View current standings</button></div>
+    </div>
+    <h2 style="margin-top:10px">Leaderboard Prizes (row matching the player's final rank)</h2>
+    <div id="tLbPrizes"></div>
+    <button class="btn ghost" onclick="addPrizeRow('leaderboard')">+ Add prize row</button>
+    <div id="tStandings" style="margin-top:14px"></div>
+  </div>
+</section>
+
+<section id="tab-formats">
+  <div class="card">
+    <h2>Play Formats (deck legality)</h2>
+    <div class="muted" style="margin-bottom:12px">Which card sets are legal in each format. Decks are validated against this table when they are saved and when the client asks at login. Backed by <code>spirit/database/json_data/formats.json</code> (hand-editable; Save hot-reloads the server). <b>Unlimited</b> allows every set; basic energy is always legal everywhere.</div>
+    <div class="row">
+      <div><button class="btn" onclick="saveFormats()">Save Formats</button></div>
+      <div><span id="fmtDirty" class="pill off" style="display:none">unsaved changes</span></div>
+    </div>
+    <table id="formatMatrix"><thead></thead><tbody></tbody></table>
+  </div>
+  <div class="card">
+    <h2>Card Exceptions</h2>
+    <div class="muted" style="margin-bottom:12px">Per-format overrides beating the set rule. Accepts archetype GUIDs or <code>SET/number</code> refs (e.g. <code>SWSH8/215</code>), separated by commas or new lines. Find GUIDs/numbers via the card search in the Codes reward picker.</div>
+    <div id="formatExceptions"></div>
+  </div>
+</section>
+
+<section id="tab-shop">
+  <div class="card">
+    <h2>Add / Edit Shop Item</h2>
+    <div class="row">
+      <div><label>Product</label><select id="shopProduct" style="width:340px"></select></div>
+      <div><label>Display name</label><input id="shopName" style="width:200px"></div>
+      <div><label>Currency</label>
+        <select id="shopCurrency" style="width:140px">
+          <option value="-1784319558">Coins (Tokens)</option>
+          <option value="2012906479">Gems</option>
+          <option value="-992199324">Tickets</option>
+        </select></div>
+      <div><label>Price</label><input id="shopPrice" type="number" value="200" style="width:100px"></div>
+      <div><label>Sort</label><input id="shopSort" type="number" value="0" style="width:70px"></div>
+    </div>
+    <div class="row">
+      <div><label>&nbsp;</label><label><input type="checkbox" id="shopEnabled" checked> Enabled</label></div>
+      <div><label>&nbsp;</label><label><input type="checkbox" id="shopFeatured"> Featured</label></div>
+      <div><label>&nbsp;</label><label><input type="checkbox" id="shopTop"> Top Selling</label></div>
+      <div><button class="btn" onclick="saveShopItem()">Save Item</button></div>
+      <div><button class="btn ghost" onclick="clearShopForm()">Clear</button></div>
+      <input type="hidden" id="shopItemId">
+    </div>
+    <div class="muted">Booster packs for every set with &gt;10 scripted cards are offered automatically; items added here override or extend that list.</div>
+  </div>
+  <div class="card"><h2>Shop Items</h2>
+    <table id="shopTable"><thead><tr><th>Product</th><th>Price</th><th>Flags</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<section id="tab-pages">
+  <div class="page-studio">
+    <div class="card page-editor-card">
+      <div class="page-panel-head">
+        <div>
+          <div class="page-kicker" id="pageEditorKicker">New dynamic page</div>
+          <h2 id="pageEditorTitle">Build a landing page</h2>
+          <div class="muted">Use the real client templates and artwork without hand-writing the wire JSON.</div>
+        </div>
+        <button class="mini" onclick="newDynamicPage()">+ New</button>
+      </div>
+
+      <input type="hidden" id="pageId">
+      <input type="hidden" id="pageTemplate" value="LandingPageLeft">
+      <div class="page-meta-grid">
+        <div><label>Page type</label>
+          <select id="pageType" onchange="pageTypeChanged()">
+            <option value="landing">Landing carousel</option>
+            <option value="maintenance">Maintenance notice</option>
+          </select>
+        </div>
+        <div><label>Order</label><input id="pageSort" type="number" value="1" oninput="pageEditorChanged()"></div>
+        <div><label>Visibility</label><label class="switch-field"><input type="checkbox" id="pageEnabled" checked onchange="pageEditorChanged()"> Enabled</label></div>
+      </div>
+
+      <div id="pageLandingFields">
+        <div class="page-section-title">Layout</div>
+        <div id="pageTemplateChoices" class="template-grid"></div>
+
+        <div class="page-section-title">Background artwork</div>
+        <div class="asset-selection">
+          <div class="asset-selected-thumb" id="pageAssetThumb"><span>Select artwork</span></div>
+          <div class="asset-controls">
+            <label>Client asset path</label>
+            <input id="pageAssetPath" placeholder="LandingPage/asset_name" oninput="pageAssetPathChanged()">
+            <div class="asset-action-row">
+              <button class="btn ghost" onclick="openPageAssetPicker()">Browse game artwork...</button>
+              <button class="btn ghost" onclick="openCustomPageArtwork()">+ Add custom artwork</button>
+            </div>
+            <div class="asset-status" id="pageAssetStatus"></div>
+          </div>
+        </div>
+
+        <div class="page-section-title">Message and action</div>
+        <div class="page-field">
+          <label>Page message <span class="muted">(English fallback)</span></label>
+          <textarea id="pageMessage" rows="4" placeholder="Tell players what is new..." oninput="pageEditorChanged()"></textarea>
+          <div class="page-help">This is the real <code>GameText</code> area from the selected client template.</div>
+        </div>
+        <div class="page-field">
+          <label>Call to action</label>
+          <select id="pageCta" onchange="pageCtaChanged()">
+            <option value="none">No button</option>
+            <option value="shop">Open the Shop</option>
+            <option value="redeem">Redeem a code</option>
+            <option value="tournament">Open Tournaments</option>
+            <option value="trade">Open Trade</option>
+            <option value="url">Open a website</option>
+          </select>
+          <div class="page-help" id="pageCtaHelp">The client has one CTA position; choosing one avoids overlapping buttons.</div>
+        </div>
+        <div class="page-field" id="pageCtaLabelField" style="display:none">
+          <label>Button label <span class="muted">(shown in game)</span></label>
+          <input id="pageCtaLabel" maxlength="60" placeholder="LEARN MORE" oninput="this.dataset.auto='false'; pageEditorChanged()">
+          <div class="page-help">The client binds this text to the active template button.</div>
+        </div>
+        <div class="page-field" id="pageUrlField" style="display:none">
+          <label>Website URL</label>
+          <input id="pageCtaUrl" type="url" placeholder="https://example.com/news" oninput="pageEditorChanged()">
+        </div>
+      </div>
+
+      <div id="pageMaintenanceFields" style="display:none">
+        <div class="page-section-title">Maintenance notice</div>
+        <div class="page-field">
+          <label>Notice text <span class="muted">(English fallback)</span></label>
+          <textarea id="pageMaintenanceMessage" rows="5" placeholder="Servers will be unavailable while maintenance is completed." oninput="pageEditorChanged()"></textarea>
+          <div class="page-help">Shown in the client's native <code>SplashMaintenanceWindow</code>.</div>
+        </div>
+      </div>
+
+      <div class="page-section-title">Schedule</div>
+      <div class="schedule-grid">
+        <div class="page-field"><label>Starts <span class="muted" id="pageStartHint">(blank = immediately)</span></label><input id="pageStart" type="datetime-local" onchange="pageEditorChanged()"></div>
+        <div class="page-field"><label>Ends <span class="muted" id="pageEndHint">(blank = no end date)</span></label><input id="pageEnd" type="datetime-local" onchange="pageEditorChanged()"></div>
+      </div>
+      <div class="page-help" id="pageScheduleHelp">Landing pages are sent to players only during this window.</div>
+
+      <details class="page-advanced">
+        <summary>Advanced: inspect or edit the client JSON</summary>
+        <div class="advanced-body">
+          <div class="muted" style="margin-bottom:7px">Unknown fields are preserved. Apply changes here to repopulate the visual editor.</div>
+          <textarea id="pageContent" rows="12" spellcheck="false"></textarea>
+          <div class="row" style="margin:8px 0 0">
+            <button class="mini" onclick="applyPageJson()">Apply JSON to editor</button>
+            <button class="mini" onclick="copyPageJson()">Copy JSON</button>
+          </div>
+        </div>
+      </details>
+
+      <div class="page-form-actions">
+        <div class="save-state" id="pageSaveState">Ready to create</div>
+        <button class="btn ghost" onclick="newDynamicPage()">Clear</button>
+        <button class="btn" id="pageSaveButton" onclick="savePage()">Save page</button>
+      </div>
+    </div>
+
+    <div class="card page-preview-card">
+      <div class="preview-head">
+        <h2>In-game preview</h2>
+        <span class="resolution-badge">1920 x 1080 composition</span>
+      </div>
+      <div class="game-shell">
+        <div class="game-stage" id="pagePreviewStage">
+          <img class="game-art" id="pagePreviewArt" alt="">
+          <div class="game-art-placeholder" id="pagePreviewPlaceholder"><span class="pokeball"></span><span>Choose artwork to preview the page</span></div>
+          <div class="game-topbar"><div class="game-logo">SPIRIT<span>PTCGO</span></div><div class="game-profile">PLAYER &nbsp; 1,000 tokens</div></div>
+          <div class="game-copy side-left" id="pagePreviewCopy">
+            <div class="game-message" id="pagePreviewMessage"></div>
+            <div class="game-cta" id="pagePreviewCta" style="display:none"></div>
+          </div>
+          <div class="maintenance-preview" id="pageMaintenancePreview" style="display:none">
+            <div class="maintenance-title">Scheduled maintenance</div>
+            <div class="maintenance-message" id="pageMaintenancePreviewMessage"></div>
+            <div class="maintenance-time"><span id="pageMaintenanceStart"></span><span>through</span><span id="pageMaintenanceEnd"></span></div>
+          </div>
+          <div class="game-bottomnav">
+            <div class="game-navitem">Home</div><div class="game-navitem">Collection</div><div class="game-navitem">Decks</div><div class="game-navitem">Play</div><div class="game-navitem">Shop</div>
+          </div>
+        </div>
+      </div>
+      <div class="preview-caption"><span class="dot"></span><span id="pagePreviewCaption">Uses the client's crop and template placement.</span></div>
+      <div class="page-validation" id="pageValidation"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <div class="page-library-head">
+      <div><h2>Published pages</h2><div class="muted">Edit, duplicate, or disable a page without touching its JSON.</div></div>
+      <select id="pageLibraryFilter" onchange="renderPageLibrary()">
+        <option value="all">All page types</option><option value="landing">Landing only</option><option value="maintenance">Maintenance only</option>
+      </select>
+      <button class="mini" onclick="loadPages()">Refresh</button>
+    </div>
+    <div id="pagesGrid" class="page-card-grid"></div>
+  </div>
+</section>
+
+<section id="tab-trades">
+  <div class="card"><h2>Recent Trade Offers</h2>
+    <table id="tradesTable"><thead><tr><th>Offer</th><th>Sender</th><th>Recipient</th><th>Offering</th><th>Requesting</th><th>Status</th></tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+</main>
+
+<div id="pickerOverlay" onclick="if(event.target===this) closePicker()">
+  <div class="picker">
+    <div class="p-head">
+      <h3 id="pickerTitle">Add Reward</h3>
+      <button class="mini" onclick="closePicker()">✕ Close</button>
+    </div>
+    <div class="type-tiles" id="pickerTiles">
+      <button class="type-tile" data-ptype="tokens" onclick="pickerSetType('tokens')"><span class="ico">🪙</span>Tokens</button>
+      <button class="type-tile" data-ptype="card" onclick="pickerSetType('card')"><span class="ico">🎴</span>Card</button>
+      <button class="type-tile" data-ptype="product" onclick="pickerSetType('product')"><span class="ico">📦</span>Pack / Product</button>
+    </div>
+    <div class="picker-body" id="pickerBody"></div>
+    <div class="p-foot">
+      <div><label>Count</label><input id="pickerCount" type="number" value="1" min="1" style="width:80px"></div>
+      <div style="flex:1" class="muted" id="pickerSelInfo"></div>
+      <button class="btn" id="pickerAddBtn" onclick="pickerAdd()" disabled>Add Reward</button>
+    </div>
+  </div>
+</div>
+
+<div id="loginOverlay">
+  <div class="picker" style="width:min(380px, 94vw)">
+    <div class="p-head"><h3>Admin Login</h3></div>
+    <div class="picker-body" style="min-height:0">
+      <div class="muted" style="margin-bottom:12px">Sign in with a game account that has admin rights. If no admin exists yet, the first valid login becomes the admin.</div>
+      <label>Username</label>
+      <input id="loginUser" style="width:100%; margin-bottom:10px" autocomplete="username">
+      <label>Password</label>
+      <input id="loginPass" type="password" style="width:100%" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter') doLogin()">
+      <div id="loginError" class="ms-warn" style="margin-top:10px"></div>
+    </div>
+    <div class="p-foot">
+      <div style="flex:1"></div>
+      <button class="btn" onclick="doLogin()">Sign in</button>
+    </div>
+  </div>
+</div>
+
+<div id="pageAssetOverlay" onclick="if(event.target===this) closePageAssetPicker()">
+  <div class="page-asset-picker">
+    <div class="asset-picker-head">
+      <div><h3>Landing-page artwork</h3><div class="muted">Extracted directly from the local PTCGO Unity bundle cache.</div></div>
+      <button class="mini" onclick="refreshPageAssets()">Rescan bundles</button>
+      <button class="mini" onclick="closePageAssetPicker()">Close</button>
+    </div>
+    <details class="custom-artwork-panel" id="pageCustomArtworkPanel">
+      <summary>+ Add your own landing-page artwork</summary>
+      <div class="custom-artwork-body">
+        <div class="custom-artwork-preview" id="pageCustomPreview"><span>Choose an image</span></div>
+        <div class="custom-artwork-fields">
+          <input id="pageCustomFile" type="file" accept="image/png,image/jpeg,image/webp" onchange="customPageFileChanged()">
+          <div class="custom-upload-row">
+            <input id="pageCustomName" type="text" maxlength="96" placeholder="summer_event" aria-label="Unity asset name" oninput="this.dataset.auto='false'">
+            <label class="custom-replace"><input id="pageCustomReplace" type="checkbox"> Replace existing</label>
+            <button class="btn" id="pageCustomUploadButton" onclick="uploadCustomPageArtwork()">Build &amp; add</button>
+          </div>
+          <div class="custom-upload-help">Use a 16:9 image (1920×1080 recommended). Spirit center-crops it, packs it into the native LandingPage texture layout, and builds a Unity bundle for players.</div>
+          <div class="custom-upload-status" id="pageCustomStatus"></div>
+        </div>
+      </div>
+    </details>
+    <div class="asset-picker-tools">
+      <input id="pageAssetSearch" placeholder="Search artwork (set, Pokemon, ladder...)" oninput="renderPageAssetGrid()">
+      <select id="pageAssetFilter" onchange="renderPageAssetGrid()"><option value="all">All artwork</option><option value="custom">My custom artwork</option><option value="installed">Ready for players</option><option value="source">Needs install</option></select>
+    </div>
+    <div class="asset-source-summary" id="pageAssetSourceSummary">Looking for LandingPage bundles...</div>
+    <div class="landing-asset-grid" id="pageAssetGrid"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let PRODUCTS = [], REWARD = {products:{}};
+
+function toast(msg, err=false) {
+  const t = $('#toast');
+  t.textContent = msg; t.className = err ? 'err' : ''; t.style.display = 'block';
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3000);
+}
+async function api(path, body) {
+  const opts = body ? {method:'POST', body: JSON.stringify(body)} : {};
+  const res = await fetch('/admin/api/' + path, opts);
+  const data = await res.json();
+  if (res.status === 401) { showLogin(); throw new Error(data.error || 'authentication required'); }
+  if (!data.ok) throw new Error(data.error || 'request failed');
+  return data;
+}
+
+/* ---------------- Auth ---------------- */
+function showLogin() {
+  $('#loginOverlay').classList.add('open');
+  setTimeout(() => $('#loginUser').focus(), 50);
+}
+async function doLogin() {
+  $('#loginError').textContent = '';
+  try {
+    const res = await fetch('/admin/api/login', {
+      method: 'POST',
+      body: JSON.stringify({username: $('#loginUser').value.trim(), password: $('#loginPass').value})
+    });
+    const data = await res.json();
+    if (!data.ok) { $('#loginError').textContent = data.error || 'Login failed'; return; }
+    $('#loginOverlay').classList.remove('open');
+    $('#loginPass').value = '';
+    $('#whoami').textContent = data.username;
+    $('#logoutBtn').style.display = '';
+    bootData();
+  } catch(e) { $('#loginError').textContent = e.message; }
+}
+async function logout() {
+  try { await fetch('/admin/api/logout', {method: 'POST'}); } catch(e) {}
+  location.reload();
+}
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const CURRENCY_NAMES = {'-1784319558':'Coins','2012906479':'Gems','-992199324':'Tickets'};
+const TYPE_NAMES = {21:'Booster', 4:'Deck', 22:'Coin', 24:'Sleeve', 23:'Deck Box', 6:'Currency'};
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('section').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  $('#tab-' + b.dataset.tab).classList.add('active');
+  if (b.dataset.tab === 'pages') { loadPageAssets(); loadPages(); }
+});
+
+async function loadOverview() {
+  try {
+    const d = await api('overview');
+    $('#headerStats').textContent = `${d.accounts} accounts · ${d.codes} codes · ${d.shop_items} shop items`;
+    $('#overviewGrid').innerHTML = [
+      ['Accounts', d.accounts], ['Redemption Codes', d.codes], ['Shop Items', d.shop_items],
+      ['Dynamic Pages', d.pages], ['Trade Offers', d.trades], ['Eligible Sets', d.eligible_sets.length]
+    ].map(([l,n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+    const rows = Object.entries(d.set_counts).sort((a,b) => a[0].localeCompare(b[0]));
+    $('#setsTable tbody').innerHTML = rows.map(([code,count]) =>
+      `<tr><td><code>${esc(code)}</code></td><td>${count}</td>
+       <td>${d.eligible_sets.includes(code) ? '<span class="pill on">yes</span>' : '<span class="pill off">no</span>'}</td></tr>`).join('');
+  } catch(e) { toast('Overview: ' + e.message, true); }
+}
+
+async function loadProducts() {
+  try {
+    const d = await api('products');
+    PRODUCTS = d.products;
+    $('#shopProduct').innerHTML = PRODUCTS.map(p =>
+      `<option value="${p.guid}">[${esc(p.key)}] ${esc(p.name || p.guid)} (${TYPE_NAMES[p.product_type] || p.product_type})</option>`).join('');
+  } catch(e) { toast('Products: ' + e.message, true); }
+}
+
+/* guid -> {name, image} resolution for reward chips (cards + products) */
+let CARD_META = {};
+function metaFor(guid) {
+  const g = String(guid || '').toLowerCase();
+  if (CARD_META[g]) return CARD_META[g];
+  const p = PRODUCTS.find(p => p.guid.toLowerCase() === g);
+  if (p) return {name: p.name || p.guid, image: p.image ? `/products/${p.image}.png` : null, product: true};
+  return null;
+}
+async function resolveCardMeta(guids) {
+  const missing = [...new Set(guids.map(g => String(g).toLowerCase()))].filter(g => !metaFor(g));
+  if (!missing.length) return false;
+  try {
+    const d = await api('cards/lookup', {guids: missing});
+    for (const [g, c] of Object.entries(d.cards)) {
+      CARD_META[g] = {name: c.name ? `${c.name} (${c.set} ${c.number})` : g, image: c.image};
+    }
+    for (const g of missing) if (!CARD_META[g]) CARD_META[g] = {name: g.slice(0, 8) + '…', image: null};
+    return true;
+  } catch(e) { return false; }
+}
+
+/* ---------------- Accounts ---------------- */
+async function loadAccounts() {
+  try {
+    const d = await api('accounts');
+    $('#accountsTable tbody').innerHTML = d.accounts.map(a => `
+      <tr><td>${esc(a.username)}</td><td>${esc(a.screen_name)}</td>
+      <td class="muted">${esc(a.account_id)}</td>
+      <td>${a.is_admin ? '<span class="pill on">admin</span>' : '<span class="muted">—</span>'}</td>
+      <td><button class="mini" onclick="grantAllCards('${esc(a.account_id)}', this)">Give 4× all cards</button>
+          <button class="mini" onclick="grantAllProducts('${esc(a.account_id)}', this)">Give 1× all products</button>
+          <button class="mini" onclick="setAdmin('${esc(a.account_id)}', ${!a.is_admin})">${a.is_admin ? 'Revoke admin' : 'Make admin'}</button></td></tr>`).join('')
+      || '<tr><td colspan="5" class="muted">No accounts.</td></tr>';
+  } catch(e) { toast('Accounts: ' + e.message, true); }
+}
+async function setAdmin(account_id, is_admin) {
+  if (!confirm((is_admin ? 'Grant' : 'Revoke') + ' dashboard admin rights for this account?')) return;
+  try { await api('accounts/set-admin', {account_id, is_admin}); toast('Updated'); loadAccounts(); }
+  catch(e) { toast(e.message, true); }
+}
+async function grantAllCards(account_id, btn) {
+  if (!confirm('Give 4 tradable copies of every card to this account?')) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Granting…'; }
+  try {
+    const d = await api('accounts/grant-all-cards', {account_id, count: 4});
+    toast(`Granted 4× of ${d.granted} cards`);
+  } catch(e) { toast(e.message, true); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = 'Give 4× all cards'; } }
+}
+async function grantAllProducts(account_id, btn) {
+  if (!confirm('Give 1 tradable copy of every product (boosters, decks, coins, sleeves, deck boxes) to this account?')) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Granting…'; }
+  try {
+    const d = await api('accounts/grant-all-products', {account_id, count: 1});
+    toast(`Granted 1× of ${d.granted} products`);
+  } catch(e) { toast(e.message, true); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = 'Give 1× all products'; } }
+}
+
+/* ---------------- Codes ---------------- */
+function rewardSummary(r) {
+  const parts = [];
+  for (const [g,c] of Object.entries(r.products || {})) {
+    const m = metaFor(g);
+    parts.push(`${c}× ${m ? m.name : g.slice(0,8) + '…'}`);
+  }
+  if (r.coins) parts.push(r.coins + ' coins');
+  if (r.gems) parts.push(r.gems + ' gems');
+  if (r.tickets) parts.push(r.tickets + ' tickets');
+  return parts.length ? parts.map(x => `<span class="pill tag">${esc(x)}</span>`).join('') : '<span class="muted">empty</span>';
+}
+function updateRewardItems() {
+  $('#rewardItems').innerHTML = Object.entries(REWARD.products).map(([g, c]) => {
+    const m = metaFor(g) || {name: g.slice(0,8) + '…', image: null};
+    const art = m.image ? `<img src="${esc(m.image)}" onerror="this.remove()">` : '<div class="coin">🎴</div>';
+    return `<div class="reward-chip">${art}<span class="rc-name">${esc(m.name)}</span>
+      <span class="rc-amt">×${c}</span>
+      <button class="chip-x" onclick="removeRewardItem('${esc(g)}')">✕</button></div>`;
+  }).join('');
+}
+function removeRewardItem(guid) {
+  delete REWARD.products[guid];
+  updateRewardItems();
+}
+function currentReward() {
+  return {
+    products: REWARD.products,
+    coins: parseInt($('#codeCoins').value || 0),
+    gems: parseInt($('#codeGems').value || 0),
+    tickets: parseInt($('#codeTickets').value || 0)
+  };
+}
+async function createCode() {
+  try {
+    await api('codes', {
+      code: $('#codeInput').value.trim() || undefined,
+      count: parseInt($('#codeCount').value || 1),
+      max_uses: parseInt($('#codeMaxUses').value || 1),
+      reward: currentReward()
+    });
+    REWARD = {products:{}}; $('#rewardPreview').textContent = ''; $('#codeInput').value = '';
+    updateRewardItems();
+    toast('Code created'); loadCodes(); loadOverview();
+  } catch(e) { toast(e.message, true); }
+}
+async function loadCodes() {
+  try {
+    const d = await api('codes');
+    const guids = d.codes.flatMap(c => Object.keys((c.reward_json || {}).products || {}));
+    if (await resolveCardMeta(guids)) { /* meta now cached for the render below */ }
+    $('#codesTable tbody').innerHTML = d.codes.map(c => `
+      <tr><td><code>${esc(c.code_string)}</code></td>
+      <td>${rewardSummary(c.reward_json || {})}</td>
+      <td>${c.current_uses} / ${c.max_uses === 0 ? '∞' : c.max_uses}</td>
+      <td>${c.enabled ? '<span class="pill on">active</span>' : '<span class="pill off">disabled</span>'}</td>
+      <td><button class="mini" onclick="toggleCode('${esc(c.code_string)}', ${!c.enabled})">${c.enabled ? 'Disable' : 'Enable'}</button>
+          <button class="mini" onclick="deleteCode('${esc(c.code_string)}')">Delete</button></td></tr>`).join('');
+  } catch(e) { toast('Codes: ' + e.message, true); }
+}
+async function toggleCode(code, enabled) {
+  try { await api('codes/update', {code, enabled}); loadCodes(); } catch(e) { toast(e.message, true); }
+}
+async function deleteCode(code) {
+  if (!confirm('Delete code ' + code + '?')) return;
+  try { await api('codes/delete', {code}); toast('Deleted'); loadCodes(); loadOverview(); } catch(e) { toast(e.message, true); }
+}
+
+/* ---------------- Shop ---------------- */
+async function loadShop() {
+  try {
+    const d = await api('shop');
+    $('#shopTable tbody').innerHTML = d.items.map(i => {
+      const p = PRODUCTS.find(p => p.guid === i.product_guid);
+      const flags = [i.featured && 'Featured', i.top_selling && 'Top'].filter(Boolean)
+        .map(f => `<span class="pill tag">${f}</span>`).join('') || '<span class="muted">—</span>';
+      return `<tr><td>${esc(i.display_name || (p ? p.name : i.product_guid))}<div class="muted">${esc(i.product_guid)}</div></td>
+        <td>${i.price} ${CURRENCY_NAMES[i.currency] || i.currency}</td>
+        <td>${flags}</td>
+        <td>${i.enabled ? '<span class="pill on">on</span>' : '<span class="pill off">off</span>'}</td>
+        <td><button class="mini" onclick='editShopItem(${JSON.stringify(i)})'>Edit</button>
+            <button class="mini" onclick="toggleShopItem(${i.id})">${i.enabled ? 'Disable' : 'Enable'}</button>
+            <button class="mini" onclick="deleteShopItem(${i.id})">Delete</button></td></tr>`;
+    }).join('') || '<tr><td colspan="5" class="muted">No custom shop items — auto boosters only.</td></tr>';
+  } catch(e) { toast('Shop: ' + e.message, true); }
+}
+function editShopItem(i) {
+  $('#shopItemId').value = i.id; $('#shopProduct').value = i.product_guid;
+  $('#shopName').value = i.display_name; $('#shopCurrency').value = i.currency;
+  $('#shopPrice').value = i.price; $('#shopSort').value = i.sort_order;
+  $('#shopEnabled').checked = i.enabled; $('#shopFeatured').checked = i.featured; $('#shopTop').checked = i.top_selling;
+}
+function clearShopForm() {
+  $('#shopItemId').value = ''; $('#shopName').value = ''; $('#shopPrice').value = 200; $('#shopSort').value = 0;
+  $('#shopEnabled').checked = true; $('#shopFeatured').checked = false; $('#shopTop').checked = false;
+}
+async function saveShopItem() {
+  try {
+    await api('shop', {
+      id: $('#shopItemId').value ? parseInt($('#shopItemId').value) : undefined,
+      product_guid: $('#shopProduct').value,
+      display_name: $('#shopName').value,
+      currency: parseInt($('#shopCurrency').value),
+      price: parseInt($('#shopPrice').value || 0),
+      sort_order: parseInt($('#shopSort').value || 0),
+      enabled: $('#shopEnabled').checked,
+      featured: $('#shopFeatured').checked,
+      top_selling: $('#shopTop').checked
+    });
+    toast('Shop item saved'); clearShopForm(); loadShop(); loadOverview();
+  } catch(e) { toast(e.message, true); }
+}
+async function toggleShopItem(id) {
+  try { await api('shop/toggle', {id}); loadShop(); } catch(e) { toast(e.message, true); }
+}
+async function deleteShopItem(id) {
+  if (!confirm('Delete shop item?')) return;
+  try { await api('shop/delete', {id}); loadShop(); loadOverview(); } catch(e) { toast(e.message, true); }
+}
+
+/* ---------------- Pages ---------------- */
+const PAGE_FOREVER = 4102444800000;
+const PAGE_TEMPLATES = [
+  // Unity names these prefabs for the TEXT side, not the artwork side.
+  {id:'LandingPageLeft', label:'Artwork on right', sub:'Message and CTA on the left', visual:'visual-right', copy:'left', buttons:true},
+  {id:'LandingPageRight', label:'Artwork on left', sub:'Message and CTA on the right', visual:'visual-left', copy:'right', buttons:true},
+  {id:'LandingPageLeftNoButtons', label:'Artwork right, no CTA', sub:'Message on the left', visual:'visual-right no-buttons', copy:'left', buttons:false},
+  {id:'LandingPageRightNoButtons', label:'Artwork left, no CTA', sub:'Message on the right', visual:'visual-left no-buttons', copy:'right', buttons:false}
+];
+const PAGE_CTA_LABELS = {
+  shop:'VISIT SHOP', redeem:'REDEEM CODE', tournament:'VIEW EVENTS', trade:'OPEN TRADE', url:'LEARN MORE'
+};
+let DYNAMIC_PAGES = [];
+let PAGE_ASSETS = [];
+let PAGE_ASSET_BY_NAME = {};
+let PAGE_ASSETS_LOADED = false;
+let PAGE_ASSET_REVISION = 0;
+let PAGE_BASE_CONTENT = {};
+let PAGE_EDITOR_INITIALIZED = false;
+let PAGE_CUSTOM_PREVIEW_URL = '';
+
+const cloneJson = value => JSON.parse(JSON.stringify(value || {}));
+const pageAssetName = path => String(path || '').trim().replaceAll('\\', '/').split('/').pop();
+const pageAssetUrl = (name, variant='preview') => `/admin/api/pages/assets/${variant}/${encodeURIComponent(pageAssetName(name))}?v=${PAGE_ASSET_REVISION}`;
+const pageAssetMeta = path => {
+  const normalized = normalizedPageAssetPath(path);
+  if (!/^LandingPage\/[^/]+$/i.test(normalized)) return null;
+  return PAGE_ASSET_BY_NAME[pageAssetName(normalized).toLowerCase()] || null;
+};
+
+function defaultDynamicContent(type='landing') {
+  if (type === 'maintenance') {
+    const start = Math.floor(Date.now() / 60000) * 60000;
+    return {
+      template: 'SplashMaintenanceWindow', sortOrder: nextPageOrder(), startTime:start, endTime:start + 2 * 60 * 60 * 1000,
+      labels: {NotificationBody: {token: 'spirit.dynamic_page.maintenance', bundle: {en_US: ''}}},
+      images: {}, actions: {}
+    };
+  }
+  return {
+    template: 'LandingPageLeft', sortOrder: nextPageOrder(), startTime: 0, endTime: PAGE_FOREVER,
+    labels: {GameText: {token: 'spirit.dynamic_page.game_text', bundle: {en_US: ''}}},
+    images: {}, actions: {}
+  };
+}
+
+function nextPageOrder() {
+  return DYNAMIC_PAGES.length ? Math.max(...DYNAMIC_PAGES.map(p => parseInt(p.sort_order) || 0)) + 1 : 1;
+}
+
+function labelText(content, key) {
+  const label = content?.labels?.[key];
+  const bundle = label?.bundle;
+  if (!bundle || typeof bundle !== 'object') return String(label?.token || '');
+  return String(bundle.en_US ?? Object.values(bundle)[0] ?? label?.token ?? '');
+}
+
+function backgroundPath(content) {
+  const map = content?.images?.GameBackground?.localeImageMap;
+  if (!map || typeof map !== 'object') return '';
+  return String(map.en_US ?? Object.values(map)[0] ?? '');
+}
+
+function actionEditorValue(content) {
+  const code = content?.actions?.CodeRedeemButton;
+  const action = code || content?.actions?.UpsellButton;
+  if (!action || typeof action !== 'object') return {kind:'none', url:''};
+  if (action.name === 'NavigateToUrl') return {kind:'url', url:String(action.value?.url || '')};
+  if (action.name === 'NavigateToUrls') {
+    const urls = action.value?.urls || {};
+    return {kind:'url', url:String(urls.en_US ?? Object.values(urls)[0] ?? '')};
+  }
+  const byScene = {Shop:'shop', ShopCodeRedemption:'redeem', Tournament:'tournament', Trade:'trade'};
+  return {kind:byScene[action.value?.scene] || 'none', url:''};
+}
+
+function newDynamicPage(type='landing') {
+  const content = defaultDynamicContent(type);
+  hydratePageEditor({page_type:type, sort_order:content.sortOrder, enabled:true, content_json:content});
+}
+
+// Kept as a compatibility alias for bookmarks/dev-console snippets from the old editor.
+function loadPageTemplate() { newDynamicPage($('#pageType').value || 'landing'); }
+
+function hydratePageEditor(page) {
+  const type = page.page_type === 'maintenance' ? 'maintenance' : 'landing';
+  const content = cloneJson(page.content_json || defaultDynamicContent(type));
+  PAGE_BASE_CONTENT = content;
+  $('#pageId').value = page.id ?? '';
+  $('#pageType').value = type;
+  $('#pageSort').value = page.sort_order ?? content.sortOrder ?? nextPageOrder();
+  $('#pageEnabled').checked = page.enabled !== false;
+
+  const template = PAGE_TEMPLATES.some(t => t.id === content.template) ? content.template : 'LandingPageLeft';
+  $('#pageTemplate').value = template;
+  $('#pageAssetPath').value = backgroundPath(content);
+  $('#pageMessage').value = labelText(content, 'GameText');
+  $('#pageMaintenanceMessage').value = labelText(content, 'NotificationBody');
+  const action = actionEditorValue(content);
+  $('#pageCta').value = action.kind;
+  $('#pageCtaUrl').value = action.url;
+  const storedButtonLabel = labelText(content, 'ButtonText');
+  $('#pageCtaLabel').value = storedButtonLabel || PAGE_CTA_LABELS[action.kind] || '';
+  $('#pageCtaLabel').dataset.auto = String(!storedButtonLabel || storedButtonLabel === PAGE_CTA_LABELS[action.kind]);
+  $('#pageCtaLabel').dataset.kind = action.kind;
+  const start = Number(content.startTime || 0);
+  const end = Number(content.endTime ?? PAGE_FOREVER);
+  $('#pageStart').value = start > 0 ? msToLocal(start) : '';
+  $('#pageEnd').value = end > 0 && (type === 'maintenance' || end < PAGE_FOREVER) ? msToLocal(end) : '';
+
+  $('#pageEditorKicker').textContent = page.id ? `Editing page #${page.id}` : 'New dynamic page';
+  $('#pageEditorTitle').textContent = type === 'maintenance' ? 'Build a maintenance notice' : 'Build a landing page';
+  $('#pageSaveButton').textContent = page.id ? 'Save changes' : 'Create page';
+  renderTemplateChoices();
+  updatePageTypeFields();
+  pageCtaChanged(false);
+  pageEditorChanged();
+}
+
+function renderTemplateChoices() {
+  const current = $('#pageTemplate').value;
+  $('#pageTemplateChoices').innerHTML = PAGE_TEMPLATES.map(t => `
+    <button class="template-choice ${t.id === current ? 'sel' : ''}" onclick="selectPageTemplate('${t.id}')">
+      <span class="template-mini ${t.visual}"></span><strong>${esc(t.label)}</strong><small>${esc(t.sub)}</small>
+    </button>`).join('');
+}
+
+function selectPageTemplate(template) {
+  $('#pageTemplate').value = template;
+  const def = PAGE_TEMPLATES.find(t => t.id === template);
+  if (def && !def.buttons) $('#pageCta').value = 'none';
+  renderTemplateChoices();
+  pageCtaChanged();
+}
+
+function pageTypeChanged() {
+  const maintenance = $('#pageType').value === 'maintenance';
+  if (!maintenance && !PAGE_TEMPLATES.some(t => t.id === $('#pageTemplate').value)) {
+    $('#pageTemplate').value = 'LandingPageLeft';
+  }
+  if (maintenance && !$('#pageStart').value && !$('#pageEnd').value) {
+    const start = Math.floor(Date.now() / 60000) * 60000;
+    $('#pageStart').value = msToLocal(start);
+    $('#pageEnd').value = msToLocal(start + 2 * 60 * 60 * 1000);
+  }
+  $('#pageEditorTitle').textContent = maintenance ? 'Build a maintenance notice' : 'Build a landing page';
+  updatePageTypeFields();
+  pageEditorChanged();
+}
+
+function updatePageTypeFields() {
+  const maintenance = $('#pageType').value === 'maintenance';
+  $('#pageLandingFields').style.display = maintenance ? 'none' : '';
+  $('#pageMaintenanceFields').style.display = maintenance ? '' : 'none';
+  $('#pageStartHint').textContent = maintenance ? '(required; printed in game)' : '(blank = immediately)';
+  $('#pageEndHint').textContent = maintenance ? '(required; printed in game)' : '(blank = no end date)';
+  $('#pageScheduleHelp').textContent = maintenance
+    ? 'These are the event dates printed in the native notice; the Enabled switch controls whether it is announced.'
+    : 'Landing pages are sent to players only during this window.';
+}
+
+function pageCtaChanged(update=true) {
+  const def = PAGE_TEMPLATES.find(t => t.id === $('#pageTemplate').value);
+  const disabled = def && !def.buttons;
+  if (disabled) $('#pageCta').value = 'none';
+  const kind = $('#pageCta').value;
+  const label = $('#pageCtaLabel');
+  const previousKind = label.dataset.kind || 'none';
+  const shouldAutofill = !label.value.trim() || label.dataset.auto === 'true'
+    || label.value === (PAGE_CTA_LABELS[previousKind] || '');
+  if (kind !== 'none' && shouldAutofill) {
+    label.value = PAGE_CTA_LABELS[kind] || 'LEARN MORE';
+    label.dataset.auto = 'true';
+  }
+  label.dataset.kind = kind;
+  $('#pageCta').disabled = !!disabled;
+  $('#pageCtaLabelField').style.display = kind === 'none' ? 'none' : '';
+  $('#pageUrlField').style.display = kind === 'url' ? '' : 'none';
+  $('#pageCtaHelp').textContent = disabled
+    ? 'This client template intentionally has no button slot.'
+    : 'The client has one CTA position; choosing one avoids overlapping buttons.';
+  if (update) pageEditorChanged();
+}
+
+function pageAssetPathChanged() {
+  renderSelectedPageAsset();
+  pageEditorChanged();
+}
+
+function normalizedPageAssetPath(path) {
+  path = String(path || '').trim().replaceAll('\\', '/');
+  if (path && !path.includes('/')) path = 'LandingPage/' + path;
+  return path;
+}
+
+function buildDynamicPageContent() {
+  const type = $('#pageType').value;
+  const content = cloneJson(PAGE_BASE_CONTENT);
+  content.sortOrder = parseInt($('#pageSort').value) || 0;
+  content.startTime = $('#pageStart').value ? localToMs($('#pageStart').value) : 0;
+  content.endTime = $('#pageEnd').value
+    ? localToMs($('#pageEnd').value)
+    : (type === 'maintenance' ? 0 : PAGE_FOREVER);
+  if (!content.labels || typeof content.labels !== 'object' || Array.isArray(content.labels)) content.labels = {};
+  if (!content.images || typeof content.images !== 'object' || Array.isArray(content.images)) content.images = {};
+  if (!content.actions || typeof content.actions !== 'object' || Array.isArray(content.actions)) content.actions = {};
+
+  if (type === 'maintenance') {
+    content.template = 'SplashMaintenanceWindow';
+    const old = content.labels.NotificationBody || {};
+    content.labels = {
+      ...content.labels,
+      NotificationBody: {
+        ...old,
+        token: old.token || 'spirit.dynamic_page.maintenance',
+        bundle: {...(old.bundle || {}), en_US:$('#pageMaintenanceMessage').value}
+      }
+    };
+    delete content.labels.GameText;
+    delete content.labels.ButtonText;
+    content.images = {};
+    content.actions = {};
+    return content;
+  }
+
+  content.template = $('#pageTemplate').value;
+  const oldText = content.labels.GameText || {};
+  content.labels.GameText = {
+    ...oldText,
+    token: oldText.token || 'spirit.dynamic_page.game_text',
+    bundle: {...(oldText.bundle || {}), en_US:$('#pageMessage').value}
+  };
+  delete content.labels.NotificationBody;
+
+  const path = normalizedPageAssetPath($('#pageAssetPath').value);
+  if (path) {
+    const oldBackground = content.images.GameBackground || {};
+    content.images.GameBackground = {
+      ...oldBackground,
+      localeImageMap: {...(oldBackground.localeImageMap || {}), en_US:path}
+    };
+  } else {
+    delete content.images.GameBackground;
+  }
+
+  delete content.actions.UpsellButton;
+  delete content.actions.CodeRedeemButton;
+  const kind = $('#pageCta').value;
+  const sceneByKind = {shop:'Shop', redeem:'ShopCodeRedemption', tournament:'Tournament', trade:'Trade'};
+  if (sceneByKind[kind]) {
+    const slot = kind === 'redeem' ? 'CodeRedeemButton' : 'UpsellButton';
+    content.actions[slot] = {name:'NavigateToScene', value:{scene:sceneByKind[kind]}};
+  } else if (kind === 'url') {
+    content.actions.UpsellButton = {name:'NavigateToUrl', value:{url:$('#pageCtaUrl').value.trim()}};
+  }
+  if (kind !== 'none') {
+    const oldButtonText = content.labels.ButtonText || {};
+    content.labels.ButtonText = {
+      ...oldButtonText,
+      token: oldButtonText.token || 'spirit.dynamic_page.button_text',
+      bundle: {...(oldButtonText.bundle || {}), en_US:$('#pageCtaLabel').value.trim()}
+    };
+  } else {
+    delete content.labels.ButtonText;
+  }
+  return content;
+}
+
+function validateDynamicPage(content) {
+  const issues = [];
+  const start = Number(content.startTime || 0), end = Number(content.endTime || 0);
+  if (end && end <= start) issues.push({type:'err', text:'The end time must be later than the start time.'});
+  if (!$('#pageEnabled').checked) issues.push({type:'info', text:'This page is disabled and will not be sent to players.'});
+
+  if ($('#pageType').value === 'maintenance') {
+    if (!labelText(content, 'NotificationBody').trim()) issues.push({type:'err', text:'Add notice text before saving.'});
+    if (!$('#pageStart').value) issues.push({type:'err', text:'Choose the maintenance start shown to players.'});
+    if (!$('#pageEnd').value) issues.push({type:'err', text:'Choose the maintenance end shown to players.'});
+    if ($('#pageEnabled').checked && end > 0 && end <= Date.now()) {
+      issues.push({type:'warn', text:'This maintenance window has ended but remains announced until you disable it.'});
+    }
+    const currentId = parseInt($('#pageId').value || 0);
+    const otherNotices = DYNAMIC_PAGES.filter(page =>
+      page.page_type === 'maintenance' && page.enabled && page.id !== currentId
+    );
+    if ($('#pageEnabled').checked && otherNotices.length) {
+      issues.push({type:'warn', text:`${otherNotices.length} other maintenance notice${otherNotices.length === 1 ? ' is' : 's are'} enabled; the client displays only the lowest-order one.`});
+    }
+    if (!issues.some(issue => issue.type === 'err')) issues.push({type:'info', text:'Uses the native SplashMaintenanceWindow and prints both dates in its native format.'});
+    return issues;
+  }
+
+  const path = backgroundPath(content);
+  const unknownActions = Object.keys(content.actions || {}).filter(
+    slot => slot !== 'UpsellButton' && slot !== 'CodeRedeemButton'
+  );
+  if (unknownActions.length) {
+    issues.push({type:'err', text:`Unknown client action slot: ${unknownActions.join(', ')}.`});
+  }
+  if (!path) {
+    issues.push({type:'err', text:'Choose background artwork for the landing page.'});
+  } else {
+    const meta = pageAssetMeta(path);
+    if (!meta) issues.push({type:'warn', text:'This custom asset is not in the local preview catalog; verify its client manifest path.'});
+    else if (!meta.installed) issues.push({type:'warn', text:`${meta.bundle} will be installed into the server cache when you save.`});
+    else issues.push({type:'info', text:'The selected artwork is ready for clients.'});
+  }
+  if (!labelText(content, 'GameText').trim()) issues.push({type:'warn', text:'No message is set; the page will rely on artwork only.'});
+  if ($('#pageEnabled').checked && start > Date.now()) {
+    issues.push({type:'info', text:'This landing page is scheduled and will be sent to players after its start time.'});
+  } else if ($('#pageEnabled').checked && end > 0 && end <= Date.now()) {
+    issues.push({type:'warn', text:'This landing page has expired and is no longer sent to players.'});
+  }
+  if ($('#pageCta').value !== 'none' && !labelText(content, 'ButtonText').trim()) {
+    issues.push({type:'err', text:'Add the text players should see on the action button.'});
+  }
+  if ($('#pageCta').value === 'url') {
+    try {
+      const url = new URL($('#pageCtaUrl').value);
+      if (!['http:','https:'].includes(url.protocol)) throw new Error('protocol');
+    } catch(e) { issues.push({type:'err', text:'Enter a complete http:// or https:// website URL.'}); }
+  }
+  return issues;
+}
+
+function pageEditorChanged() {
+  const content = buildDynamicPageContent();
+  $('#pageContent').value = JSON.stringify(content, null, 2);
+  renderPagePreview(content);
+  renderSelectedPageAsset();
+  const issues = validateDynamicPage(content);
+  $('#pageValidation').innerHTML = issues.map(i =>
+    `<div class="validation-row ${i.type === 'info' ? '' : i.type}"><span>${i.type === 'err' ? '!' : i.type === 'warn' ? '~' : 'OK'}</span><span>${esc(i.text)}</span></div>`
+  ).join('');
+  const errors = issues.filter(i => i.type === 'err');
+  $('#pageSaveButton').disabled = errors.length > 0;
+  $('#pageSaveState').textContent = errors.length
+    ? `${errors.length} item${errors.length === 1 ? '' : 's'} to fix`
+    : ($('#pageId').value ? 'Ready to save changes' : 'Ready to create');
+}
+
+function renderPagePreview(content) {
+  const maintenance = $('#pageType').value === 'maintenance';
+  const art = $('#pagePreviewArt');
+  const placeholder = $('#pagePreviewPlaceholder');
+  const copy = $('#pagePreviewCopy');
+  const maintenanceBox = $('#pageMaintenancePreview');
+
+  if (maintenance) {
+    art.classList.remove('show');
+    placeholder.style.display = 'none';
+    copy.style.display = 'none';
+    maintenanceBox.style.display = '';
+    $('#pageMaintenancePreviewMessage').textContent = labelText(content, 'NotificationBody') || 'Maintenance notice';
+    $('#pageMaintenanceStart').textContent = previewDate(content.startTime, 'Set a start');
+    $('#pageMaintenanceEnd').textContent = previewDate(content.endTime, 'Set an end');
+    $('#pagePreviewCaption').textContent = 'Native maintenance placement; the client prints these dates in the window.';
+    return;
+  }
+
+  maintenanceBox.style.display = 'none';
+  copy.style.display = '';
+  const path = backgroundPath(content);
+  const name = pageAssetName(path);
+  const meta = pageAssetMeta(path);
+  const placeholderText = placeholder.querySelector('span:last-child');
+  if (name && meta) {
+    const assetKey = `${name}:${PAGE_ASSET_REVISION}`;
+    if (art.dataset.asset !== assetKey) {
+      art.dataset.asset = assetKey;
+      art.classList.remove('show');
+      placeholder.style.display = '';
+      placeholderText.textContent = 'Loading artwork preview...';
+      art.onload = () => { art.classList.add('show'); placeholder.style.display = 'none'; };
+      art.onerror = () => {
+        art.classList.remove('show'); placeholder.style.display = '';
+        placeholderText.textContent = 'Artwork preview could not be rendered';
+      };
+      art.src = pageAssetUrl(name, 'preview');
+    } else if (art.complete && art.naturalWidth) {
+      art.classList.add('show'); placeholder.style.display = 'none';
+    }
+  } else {
+    art.dataset.asset = '';
+    art.removeAttribute('src');
+    art.classList.remove('show');
+    placeholder.style.display = '';
+    placeholderText.textContent = name
+      ? 'No local preview is available for this custom asset path'
+      : 'Choose artwork to preview the page';
+  }
+
+  const template = PAGE_TEMPLATES.find(t => t.id === content.template) || PAGE_TEMPLATES[0];
+  copy.className = `game-copy side-${template.copy}`;
+  $('#pagePreviewMessage').textContent = labelText(content, 'GameText');
+  const ctaKind = $('#pageCta').value;
+  const cta = $('#pagePreviewCta');
+  if (template.buttons && ctaKind !== 'none') {
+    cta.style.display = '';
+    cta.textContent = labelText(content, 'ButtonText') || PAGE_CTA_LABELS[ctaKind] || 'LEARN MORE';
+    cta.classList.toggle('gold', ctaKind === 'redeem');
+  } else {
+    cta.style.display = 'none';
+  }
+  $('#pagePreviewCaption').textContent = `${template.label}; exact client artwork crop and approximate NGUI styling.`;
+}
+
+function previewDate(ms, fallback) {
+  ms = Number(ms || 0);
+  if (!ms) return fallback;
+  return new Date(ms).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
+}
+
+function renderSelectedPageAsset() {
+  const path = normalizedPageAssetPath($('#pageAssetPath').value);
+  const name = pageAssetName(path);
+  const meta = pageAssetMeta(path);
+  const thumb = $('#pageAssetThumb');
+  if (!name) {
+    if (thumb.dataset.asset) thumb.innerHTML = '<span>Select artwork</span>';
+    thumb.dataset.asset = '';
+    $('#pageAssetStatus').innerHTML = '<span class="muted">Browse the original game art or enter a custom manifest path.</span>';
+    return;
+  }
+  const assetKey = `${name}:${PAGE_ASSET_REVISION}:${meta ? 'catalog' : 'custom'}`;
+  if (thumb.dataset.asset !== assetKey) {
+    thumb.dataset.asset = assetKey;
+    thumb.innerHTML = meta
+      ? `<img src="${pageAssetUrl(name, 'thumb')}" alt="" onerror="this.replaceWith(document.createTextNode('Preview unavailable'))">`
+      : '<span>Preview unavailable</span>';
+  }
+  if (!meta) {
+    $('#pageAssetStatus').innerHTML = `<span class="pill tag">Custom path</span> <span class="muted">${esc(name)}</span>`;
+  } else if (meta.custom) {
+    $('#pageAssetStatus').innerHTML = `<span class="pill tag">Custom · ready for players</span> <span class="muted">${esc(meta.title)}</span>`;
+  } else if (meta.installed) {
+    $('#pageAssetStatus').innerHTML = `<span class="pill on">Ready for players</span> <span class="muted">${esc(meta.title)}</span>`;
+  } else {
+    $('#pageAssetStatus').innerHTML = `<span class="pill tag">Installs on save</span> <span class="muted">${esc(meta.title)}</span>`;
+  }
+}
+
+function applyPageJson() {
+  try {
+    const content = JSON.parse($('#pageContent').value);
+    hydratePageEditor({
+      id:$('#pageId').value ? parseInt($('#pageId').value) : undefined,
+      page_type:$('#pageType').value,
+      sort_order:content.sortOrder ?? parseInt($('#pageSort').value || 0),
+      enabled:$('#pageEnabled').checked,
+      content_json:content
+    });
+    toast('JSON applied to the visual editor');
+  } catch(e) { toast('Invalid JSON: ' + e.message, true); }
+}
+
+async function copyPageJson() {
+  try { await navigator.clipboard.writeText($('#pageContent').value); toast('Page JSON copied'); }
+  catch(e) { toast('Clipboard access was blocked by the browser', true); }
+}
+
+async function savePage() {
+  const content = buildDynamicPageContent();
+  const issues = validateDynamicPage(content);
+  const error = issues.find(i => i.type === 'err');
+  if (error) return toast(error.text, true);
+  const button = $('#pageSaveButton');
+  button.disabled = true; button.textContent = 'Saving...';
+  try {
+    const d = await api('pages', {
+      id:$('#pageId').value ? parseInt($('#pageId').value) : undefined,
+      page_type:$('#pageType').value,
+      sort_order:parseInt($('#pageSort').value || 0),
+      enabled:$('#pageEnabled').checked,
+      content_json:content
+    });
+    let message = 'Page saved';
+    if (d.installed_bundles?.length) message += `; installed ${d.installed_bundles.length} artwork bundle${d.installed_bundles.length === 1 ? '' : 's'}`;
+    if (d.unresolved_assets?.length) message += '; custom asset path was not found locally';
+    toast(message, !!d.unresolved_assets?.length);
+    if (d.installed_bundles?.length) await loadPageAssets(true);
+    hydratePageEditor(d.page);
+    loadPages(); loadOverview();
+  } catch(e) { toast(e.message, true); }
+  finally { button.disabled = false; button.textContent = $('#pageId').value ? 'Save changes' : 'Create page'; }
+}
+
+async function loadPageAssets(force=false) {
+  if (PAGE_ASSETS_LOADED && !force) return;
+  try {
+    const d = await api(force ? 'pages/assets/refresh' : 'pages/assets', force ? {} : undefined);
+    if (force) PAGE_ASSET_REVISION += 1;
+    applyPageAssetCatalog(d);
+  } catch(e) {
+    $('#pageAssetSourceSummary').textContent = 'Could not scan landing-page bundles: ' + e.message;
+  }
+}
+
+function applyPageAssetCatalog(d) {
+  PAGE_ASSETS = d.assets || [];
+  PAGE_ASSET_BY_NAME = Object.fromEntries(PAGE_ASSETS.map(a => [a.name.toLowerCase(), a]));
+  PAGE_ASSETS_LOADED = true;
+  const installed = PAGE_ASSETS.filter(a => a.installed).length;
+  const custom = PAGE_ASSETS.filter(a => a.custom).length;
+  const sourceText = (d.sources || []).map(s => `${s.textures} from ${s.source}`).join(' + ');
+  const errorText = d.errors?.length
+    ? ` ${d.errors.length} bundle${d.errors.length === 1 ? '' : 's'} could not be read.`
+    : '';
+  const customText = custom ? ` ${custom} custom.` : '';
+  $('#pageAssetSourceSummary').textContent = PAGE_ASSETS.length
+    ? `${PAGE_ASSETS.length} artworks found (${installed} server-ready).${customText} ${sourceText}.${errorText}`
+    : `No LandingPage bundles were found. Set PTCGO_CACHE_DIR or place the original cache in this repository.${errorText}`;
+  renderPageAssetGrid();
+  renderSelectedPageAsset();
+  renderPageLibrary();
+  if (PAGE_EDITOR_INITIALIZED) pageEditorChanged();
+}
+
+async function refreshPageAssets() {
+  PAGE_ASSETS_LOADED = false;
+  await loadPageAssets(true);
+  toast(`Found ${PAGE_ASSETS.length} landing-page artworks, including ${PAGE_ASSETS.filter(a => a.custom).length} custom`);
+}
+
+function openPageAssetPicker() {
+  $('#pageAssetOverlay').classList.add('open');
+  loadPageAssets().then(() => {
+    renderPageAssetGrid();
+    setTimeout(() => $('#pageAssetSearch').focus(), 30);
+  });
+}
+function closePageAssetPicker() { $('#pageAssetOverlay').classList.remove('open'); }
+
+function openCustomPageArtwork() {
+  openPageAssetPicker();
+  $('#pageCustomArtworkPanel').open = true;
+  setTimeout(() => $('#pageCustomFile').focus(), 60);
+}
+
+function customPageAssetName(filename) {
+  let name = String(filename || '').replace(/\.[^.]+$/, '');
+  name = name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+  name = name.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
+  if (name && !name.endsWith('_landingpage')) name += '_landingpage';
+  return name;
+}
+
+function customPageFileChanged() {
+  const file = $('#pageCustomFile').files?.[0];
+  const preview = $('#pageCustomPreview');
+  $('#pageCustomStatus').textContent = '';
+  if (PAGE_CUSTOM_PREVIEW_URL) URL.revokeObjectURL(PAGE_CUSTOM_PREVIEW_URL);
+  PAGE_CUSTOM_PREVIEW_URL = '';
+  if (!file) {
+    preview.innerHTML = '<span>Choose an image</span>';
+    return;
+  }
+  const nameInput = $('#pageCustomName');
+  if (!nameInput.value.trim() || nameInput.dataset.auto !== 'false') {
+    nameInput.value = customPageAssetName(file.name);
+    nameInput.dataset.auto = 'true';
+  }
+  PAGE_CUSTOM_PREVIEW_URL = URL.createObjectURL(file);
+  preview.innerHTML = `<img src="${PAGE_CUSTOM_PREVIEW_URL}" alt="Custom artwork preview">`;
+  $('#pageCustomStatus').textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function readPageImageDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('The browser could not read that image'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadCustomPageArtwork() {
+  const file = $('#pageCustomFile').files?.[0];
+  const name = $('#pageCustomName').value.trim();
+  const status = $('#pageCustomStatus');
+  if (!file) return toast('Choose an artwork image first', true);
+  if (!name) return toast('Give the custom artwork an asset name', true);
+  if (file.size > 12 * 1024 * 1024) return toast('Custom artwork must be 12 MB or smaller', true);
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) return toast('Use a PNG, JPEG, or WebP image', true);
+
+  const button = $('#pageCustomUploadButton');
+  button.disabled = true;
+  button.textContent = 'Building Unity bundle...';
+  status.textContent = 'Uploading and packing the native 2048×2048 LandingPage texture...';
+  try {
+    const d = await api('pages/assets/custom', {
+      name,
+      image:await readPageImageDataUrl(file),
+      replace:$('#pageCustomReplace').checked
+    });
+    PAGE_ASSET_REVISION += 1;
+    applyPageAssetCatalog(d);
+    const imported = d.asset?.catalog_asset;
+    if (!imported) throw new Error('The bundle built, but the new artwork was not cataloged');
+    $('#pageCustomFile').value = '';
+    $('#pageCustomName').value = '';
+    $('#pageCustomName').dataset.auto = 'true';
+    $('#pageCustomReplace').checked = false;
+    if (PAGE_CUSTOM_PREVIEW_URL) URL.revokeObjectURL(PAGE_CUSTOM_PREVIEW_URL);
+    PAGE_CUSTOM_PREVIEW_URL = '';
+    $('#pageCustomPreview').innerHTML = '<span>Choose an image</span>';
+    selectPageAsset(imported.name);
+    toast(`${imported.title} is built, selected, and ready for players`);
+  } catch(e) {
+    status.textContent = e.message;
+    toast(e.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Build & add';
+  }
+}
+
+function renderPageAssetGrid() {
+  const grid = $('#pageAssetGrid');
+  if (!grid) return;
+  const query = ($('#pageAssetSearch')?.value || '').trim().toLowerCase();
+  const filter = $('#pageAssetFilter')?.value || 'all';
+  const selected = pageAssetName($('#pageAssetPath')?.value || '').toLowerCase();
+  const matches = PAGE_ASSETS.filter(a => {
+    if (filter === 'custom' && !a.custom) return false;
+    if (filter === 'installed' && !a.installed) return false;
+    if (filter === 'source' && a.installed) return false;
+    return !query || `${a.title} ${a.name} ${a.bundle}`.toLowerCase().includes(query);
+  });
+  grid.innerHTML = matches.map(a => `
+    <button class="landing-asset ${a.name.toLowerCase() === selected ? 'sel' : ''}" data-asset="${esc(a.name)}" onclick="selectPageAsset(this.dataset.asset)">
+      <img src="${pageAssetUrl(a.name, 'thumb')}" loading="lazy" decoding="async" alt="Preview of ${esc(a.title)}" onerror="this.style.visibility='hidden'">
+      <span class="landing-asset-info"><span class="landing-asset-name">${esc(a.title)}</span>
+        <span class="landing-asset-path">${esc(a.request_path)}</span>
+        <span class="landing-asset-sub"><span class="pill ${a.custom ? 'tag' : (a.installed ? 'on' : 'tag')}">${a.custom ? 'custom' : (a.installed ? 'ready' : 'installs on save')}</span><span>${a.width}×${a.height}</span><span>${esc(a.bundle)}</span></span>
+      </span>
+    </button>`).join('') || '<div class="empty-page-library">No artwork matches this filter.</div>';
+}
+
+function selectPageAsset(name) {
+  const meta = pageAssetMeta(name);
+  $('#pageAssetPath').value = meta?.request_path || `LandingPage/${name}`;
+  closePageAssetPicker();
+  pageAssetPathChanged();
+}
+
+async function loadPages() {
+  try {
+    const d = await api('pages');
+    DYNAMIC_PAGES = d.pages || [];
+    renderPageLibrary();
+    if (!PAGE_EDITOR_INITIALIZED) {
+      PAGE_EDITOR_INITIALIZED = true;
+      newDynamicPage('landing');
+    }
+  } catch(e) { toast('Pages: ' + e.message, true); }
+}
+
+function pageStatus(page) {
+  if (!page.enabled) return {label:'disabled', cls:'off'};
+  const now = Date.now(), start = Number(page.content_json?.startTime || 0), end = Number(page.content_json?.endTime || 0);
+  if (page.page_type === 'maintenance') {
+    if (end && end <= now) return {label:'needs disable', cls:'off'};
+    if (start > now) return {label:'announced', cls:'tag'};
+    return {label:'in progress', cls:'on'};
+  }
+  if (start > now) return {label:'upcoming', cls:'tag'};
+  if (end && end <= now) return {label:'expired', cls:'off'};
+  return {label:'live', cls:'on'};
+}
+
+function pageSummary(page) {
+  const key = page.page_type === 'maintenance' ? 'NotificationBody' : 'GameText';
+  return labelText(page.content_json, key).trim() || (page.page_type === 'maintenance' ? 'Maintenance notice' : 'Artwork-only landing page');
+}
+
+function renderPageLibrary() {
+  const filter = $('#pageLibraryFilter')?.value || 'all';
+  const pages = DYNAMIC_PAGES.filter(p => filter === 'all' || p.page_type === filter);
+  $('#pagesGrid').innerHTML = pages.map(p => {
+    const status = pageStatus(p);
+    const path = backgroundPath(p.content_json);
+    const name = pageAssetName(path);
+    const meta = pageAssetMeta(path);
+    const art = p.page_type === 'landing' && name && meta
+      ? `<img src="${pageAssetUrl(name, 'thumb')}" loading="lazy" alt="" onerror="this.style.display='none'">`
+      : `<div class="game-art-placeholder"><span class="pokeball"></span><span>${p.page_type === 'maintenance' ? 'Maintenance window' : 'No artwork'}</span></div>`;
+    const template = p.content_json?.template || '';
+    return `<article class="page-card">
+      <div class="page-card-art">${art}<div class="page-card-badges"><span class="pill tag">${p.page_type === 'maintenance' ? 'maintenance' : 'landing'}</span><span class="right pill ${status.cls}">${status.label}</span></div><span class="page-order">order ${p.sort_order}</span></div>
+      <div class="page-card-body"><div class="page-card-title">${esc(pageSummary(p).slice(0,110))}</div>
+        <div class="page-card-meta">#${p.id} &middot; ${esc(template)} &middot; ${esc(pageScheduleText(p.content_json))}</div>
+        <div class="page-card-actions"><button class="mini" onclick="editPageById(${p.id})">Edit</button><button class="mini" onclick="duplicatePage(${p.id})">Duplicate</button><button class="mini" onclick="togglePage(${p.id})">${p.enabled ? 'Disable' : 'Enable'}</button><button class="mini" onclick="deletePage(${p.id})">Delete</button></div>
+      </div></article>`;
+  }).join('') || '<div class="empty-page-library">No dynamic pages yet. Build one above and its in-game preview will appear here.</div>';
+}
+
+function pageScheduleText(content) {
+  const start = Number(content?.startTime || 0), end = Number(content?.endTime || 0);
+  if (!start && (!end || end >= PAGE_FOREVER)) return 'always available';
+  if (start > Date.now()) return 'starts ' + new Date(start).toLocaleDateString();
+  if (end && end < PAGE_FOREVER) return 'ends ' + new Date(end).toLocaleDateString();
+  return 'active now';
+}
+
+function editPageById(id) {
+  const page = DYNAMIC_PAGES.find(p => p.id === id);
+  if (!page) return;
+  hydratePageEditor(page);
+  document.querySelector('#tab-pages').scrollIntoView({behavior:'smooth', block:'start'});
+}
+function editPage(page) { hydratePageEditor(page); }
+
+function duplicatePage(id) {
+  const page = DYNAMIC_PAGES.find(p => p.id === id);
+  if (!page) return;
+  hydratePageEditor({...cloneJson(page), id:undefined, enabled:false, sort_order:(parseInt(page.sort_order) || 0) + 1});
+  $('#pageEditorKicker').textContent = `Duplicate of page #${id}`;
+  toast('Duplicate prepared as a disabled draft; review it and save');
+  document.querySelector('#tab-pages').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+async function togglePage(id) {
+  try { await api('pages/toggle', {id}); await loadPages(); loadOverview(); }
+  catch(e) { toast(e.message, true); }
+}
+
+async function deletePage(id) {
+  if (!confirm('Delete page ' + id + '? This cannot be undone.')) return;
+  try {
+    await api('pages/delete', {id});
+    if (String(id) === $('#pageId').value) newDynamicPage();
+    loadPages(); loadOverview(); toast('Page deleted');
+  } catch(e) { toast(e.message, true); }
+}
+
+/* ---------------- Trades ---------------- */
+async function loadTrades() {
+  try {
+    const d = await api('trades');
+    const fmt = o => Object.entries(o || {}).map(([g,c]) => `${c}× ${g.slice(0,8)}…`).join(', ') || '—';
+    $('#tradesTable tbody').innerHTML = d.trades.map(t => `
+      <tr><td class="muted">${esc(t.offer_id.slice(0,8))}…</td><td>${esc(t.sender_id.slice(0,8))}…</td>
+      <td>${t.recipient_id ? esc(t.recipient_id.slice(0,8)) + '…' : '<span class="pill tag">public</span>'}</td>
+      <td>${esc(fmt(t.offering))}</td><td>${esc(fmt(t.requesting))}</td>
+      <td><span class="pill ${t.status === 'open' ? 'on' : 'tag'}">${esc(t.status)}</span></td></tr>`).join('')
+      || '<tr><td colspan="6" class="muted">No trade offers.</td></tr>';
+  } catch(e) { toast('Trades: ' + e.message, true); }
+}
+
+/* ---------------- Versus Seasons ---------------- */
+let SEASONS = [], VS_SEL = 0;
+
+function msToLocal(ms) {
+  const d = new Date(ms || 0);
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+function localToMs(v) { return v ? new Date(v).getTime() : 0; }
+
+function vsDirty(on) { $('#vsDirty').style.display = on ? 'inline-block' : 'none'; }
+function vsSeason() { return SEASONS[VS_SEL]; }
+function vsField(field, value) { vsSeason()[field] = value; vsDirty(true); if (field === 'seasonID') renderSeasonPills(); }
+function vsDescInput(v) { vsSeason().description = {id: v}; vsDirty(true); }
+
+function defaultSeason(n) {
+  return {seasonID: `Season${n}`, startTime: Date.now(), endTime: 4102444800000,
+          description: {id: `SpiritPTCGO Season ${n}`}, resetRewardID: "", _tiers: [{ms: []}]};
+}
+function parseTiers(season) {
+  const tiers = (season.tiers || []).map(t => ({
+    ms: Object.entries(t.rewards || {})
+      .map(([pts, rewards]) => ({points: parseInt(pts) || 0, rewards: expandRewards(rewards)}))
+      .sort((a, b) => a.points - b.points)
+  }));
+  return tiers.length ? tiers : [{ms: []}];
+}
+
+async function loadVersus() {
+  try {
+    const d = await api('versus-seasons');
+    SEASONS = (d.seasons || []).map(s => ({...s, _tiers: parseTiers(s)}));
+    if (!SEASONS.length) SEASONS = [defaultSeason(1)];
+    VS_SEL = Math.min(VS_SEL, SEASONS.length - 1);
+    vsDirty(false);
+    renderVersus();
+    const guids = SEASONS.flatMap(s => s._tiers.flatMap(t => t.ms.flatMap(m => m.rewards)))
+      .filter(r => r.rewardType === 'Archetype' && r.rewardProductID)
+      .map(r => r.rewardProductID);
+    if (await resolveCardMeta(guids)) renderVersus();
+  } catch(e) { toast('Versus: ' + e.message, true); }
+}
+
+function renderSeasonPills() {
+  $('#seasonPills').innerHTML = SEASONS.map((s, i) =>
+    `<button class="season-pill ${i === VS_SEL ? 'sel' : ''}" onclick="selectSeason(${i})">${esc(s.seasonID || '(unnamed)')}</button>`
+  ).join('') +
+  `<button class="mini" onclick="addSeason()">+ New season</button>` +
+  (SEASONS.length > 1 ? `<button class="mini" onclick="deleteSeason()">Delete selected</button>` : '');
+}
+function selectSeason(i) { VS_SEL = i; renderVersus(); }
+function addSeason() { SEASONS.push(defaultSeason(SEASONS.length + 1)); VS_SEL = SEASONS.length - 1; vsDirty(true); renderVersus(); }
+function deleteSeason() {
+  if (!confirm(`Delete season "${vsSeason().seasonID}" from the config?`)) return;
+  SEASONS.splice(VS_SEL, 1); VS_SEL = 0; vsDirty(true); renderVersus();
+}
+
+/* The client shows a reward's quantity by COUNTING duplicate entries in the
+   milestone array (rewardAmount is ignored for Archetype rewards), so identical
+   products/cards are stored as N entries. Group them into one stepper chip. */
+function groupRewards(rewards) {
+  const groups = [], byKey = {};
+  (rewards || []).forEach((r, idx) => {
+    const key = r.rewardType === 'Archetype'
+      ? 'A:' + String(r.rewardProductID || '').toLowerCase()
+      : 'T:' + idx;                       // tokens never merge — they carry their own amount
+    if (byKey[key] === undefined) { byKey[key] = groups.length; groups.push({reward: r, indices: []}); }
+    groups[byKey[key]].indices.push(idx);
+  });
+  return groups;
+}
+function expandRewards(rewards) {
+  const out = [];
+  (rewards || []).forEach(r => {
+    if (r.rewardType === 'Archetype' && (r.rewardAmount || 1) > 1) {
+      const n = Math.max(1, r.rewardAmount | 0);
+      for (let k = 0; k < n; k++) out.push({...r, rewardAmount: 1});
+    } else { out.push(r); }
+  });
+  return out;
+}
+function rewardGroupChip(g, stepPrefix, removePrefix) {
+  const r = g.reward, n = g.indices.length;
+  if (r.rewardType === 'Archetype') {
+    const m = metaFor(r.rewardProductID) || {name: r.name || 'Unknown', image: null};
+    const art = m.image ? `<img src="${esc(m.image)}" onerror="this.remove()">` : '<div class="coin">🎴</div>';
+    return `<div class="reward-chip">${art}<span class="rc-name">${esc(m.name)}</span>
+      <span class="rc-step">
+        <button class="rc-pm" title="Remove one" onclick="${stepPrefix},-1)">−</button>
+        <span class="rc-amt">×${n}</span>
+        <button class="rc-pm" title="Add one" onclick="${stepPrefix},1)">+</button>
+      </span>
+      <button class="chip-x" title="Remove all" onclick="${removePrefix})">✕</button></div>`;
+  }
+  return `<div class="reward-chip"><div class="coin">🪙</div>
+    <span class="rc-name">${esc(r.name || 'Tokens')}</span><span class="rc-amt">${r.rewardAmount || 0}</span>
+    <button class="chip-x" title="Remove" onclick="${removePrefix})">✕</button></div>`;
+}
+
+function milestoneHTML(m, ti, mi) {
+  const hasArchetype = m.rewards.some(r => r.rewardType === 'Archetype' && r.rewardProductID);
+  const warn = m.rewards.length >= 2 && !hasArchetype
+    ? '<div class="ms-warn">⚠ A milestone with several rewards must include a card or product — the game crashes rendering an all-tokens group.</div>' : '';
+  return `
+    <div class="milestone">
+      <div class="ms-badge">
+        <input type="number" min="1" value="${m.points}" onchange="msPoints(${ti},${mi}, this.value)">
+        <span class="pts">pts</span>
+      </div>
+      <div class="ms-body">
+        ${groupRewards(m.rewards).map((g, gi) => rewardGroupChip(g,
+            `vsRewardStep(${ti},${mi},${gi}`, `vsRewardRemoveGroup(${ti},${mi},${gi}`)).join('')}
+        <button class="add-chip" onclick="openRewardPicker('versus', ${ti}, ${mi})">+ Reward</button>
+        ${warn}
+      </div>
+      <button class="mini ms-del" onclick="delMilestone(${ti},${mi})">✕ Milestone</button>
+    </div>`;
+}
+
+function renderVersus() {
+  renderSeasonPills();
+  const s = vsSeason();
+  $('#vsSeasonId').value = s.seasonID || '';
+  $('#vsDesc').value = (s.description && s.description.id) || '';
+  $('#vsStart').value = msToLocal(s.startTime);
+  $('#vsEnd').value = msToLocal(s.endTime);
+  $('#tiersWrap').innerHTML = s._tiers.map((t, ti) => `
+    <div class="tier-box">
+      <div class="tier-head">
+        <h3>Tier ${ti + 1}</h3>
+        ${s._tiers.length > 1 ? `<button class="mini" onclick="delTier(${ti})">✕ Tier</button>` : ''}
+      </div>
+      <div class="ladder">
+        ${t.ms.map((m, mi) => milestoneHTML(m, ti, mi)).join('')
+          || '<div class="muted" style="margin-bottom:12px">No milestones in this tier yet.</div>'}
+      </div>
+      <button class="btn ghost" style="margin-bottom:12px" onclick="addMilestone(${ti})">+ Add milestone</button>
+    </div>`).join('');
+}
+
+function msPoints(ti, mi, v) {
+  const t = vsSeason()._tiers[ti];
+  t.ms[mi].points = Math.max(1, parseInt(v) || 1);
+  t.ms.sort((a, b) => a.points - b.points);
+  vsDirty(true); renderVersus();
+}
+function lastPoints(tiers) {
+  const all = tiers.flatMap(t => t.ms.map(m => m.points));
+  return all.length ? Math.max(...all) : 0;
+}
+function addTier() {
+  vsSeason()._tiers.push({ms: []});
+  vsDirty(true); renderVersus();
+}
+function delTier(ti) {
+  const t = vsSeason()._tiers[ti];
+  if (t.ms.length && !confirm(`Delete Tier ${ti + 1} and its ${t.ms.length} milestone(s)?`)) return;
+  vsSeason()._tiers.splice(ti, 1);
+  vsDirty(true); renderVersus();
+}
+function addMilestone(ti) {
+  const last = lastPoints(vsSeason()._tiers);
+  vsSeason()._tiers[ti].ms.push({points: last ? last * 2 : 10, rewards: []});
+  vsDirty(true); renderVersus();
+}
+function delMilestone(ti, mi) { vsSeason()._tiers[ti].ms.splice(mi, 1); vsDirty(true); renderVersus(); }
+function vsRewardStep(ti, mi, gi, delta) {
+  const rewards = vsSeason()._tiers[ti].ms[mi].rewards;
+  const g = groupRewards(rewards)[gi]; if (!g) return;
+  if (delta > 0) rewards.push({...g.reward, rewardAmount: 1});
+  else rewards.splice(g.indices[g.indices.length - 1], 1);
+  vsDirty(true); renderVersus();
+}
+function vsRewardRemoveGroup(ti, mi, gi) {
+  const rewards = vsSeason()._tiers[ti].ms[mi].rewards;
+  const g = groupRewards(rewards)[gi]; if (!g) return;
+  g.indices.slice().sort((a, b) => b - a).forEach(idx => rewards.splice(idx, 1));
+  vsDirty(true); renderVersus();
+}
+
+async function saveSeasons() {
+  const out = SEASONS.map(s => ({
+    seasonID: s.seasonID, startTime: s.startTime, endTime: s.endTime,
+    description: s.description, resetRewardID: s.resetRewardID || "",
+    tiers: s._tiers.map(t => ({
+      rewards: Object.fromEntries(t.ms
+        .filter(m => m.points > 0 && m.rewards.length)
+        .sort((a, b) => a.points - b.points)
+        .map(m => [String(m.points), m.rewards]))
+    })).filter(t => Object.keys(t.rewards).length)
+  }));
+  try {
+    await api('versus-seasons', {seasons: out});
+    vsDirty(false);
+    toast('Versus seasons saved & reloaded');
+  } catch(e) { toast(e.message, true); }
+}
+
+/* ---------------- Async Tournaments ---------------- */
+let TOURS = [], T_SEL = 0;
+
+function defaultTournament(n) {
+  const now = Date.now(), day = 86400000;
+  return {tournament_id: null, enabled: true, entries: 0, definition: {
+    name: `Tournament ${n}`, title: `Tournament ${n}`, description: "",
+    img: "", background: "", url: "", prizeBy: "wins",
+    previewTime: now, startTime: now, entryClosingTime: now + 7 * day,
+    resolutionTime: now + 8 * day, disappearTime: now + 14 * day,
+    maxRuns: 0,
+    maxSize: 8, format: "Unlimited", matchStructure: "SingleElimination",
+    roundLength: 30, delayBetweenRounds: 10,
+    run: {entryFee: [], allowDeckSwitching: true, maxWins: 3, maxLosses: 3, maxGames: 0, prizeTable: []},
+    leaderboard: {runs: 0, winValue: 3, lossValue: 1, prizeTable: []}
+  }};
+}
+function tSel() { return TOURS[T_SEL]; }
+function tDef() { return tSel().definition; }
+function tDirty(on) { $('#tDirty').style.display = on ? 'inline-block' : 'none'; }
+function tField(field, value) { tDef()[field] = value; tDirty(true); if (field === 'name') renderTourPills(); }
+function tRunField(field, value) { tDef().run[field] = value; tDirty(true); }
+function tLbField(field, value) { tDef().leaderboard[field] = value; tDirty(true); }
+function tFeesChanged() {
+  const fees = [];
+  const add = (cur, id) => { const n = parseInt($(id).value) || 0; if (n > 0) fees.push({currency: cur, amount: n}); };
+  add('Tokens', '#tFeeTokens'); add('Gems', '#tFeeGems'); add('Tickets', '#tFeeTickets');
+  tDef().run.entryFee = fees; tDirty(true);
+}
+
+/* ---------------- Play formats ---------------- */
+let FORMATS = [], FORMAT_SETS = [];
+function fmtDirty(on) { $('#fmtDirty').style.display = on ? '' : 'none'; }
+async function loadFormats() {
+  try {
+    const d = await api('formats');
+    FORMATS = d.formats; FORMAT_SETS = d.sets;
+    renderFormats(); fmtDirty(false);
+  } catch(e) { toast('Formats: ' + e.message, true); }
+}
+function renderFormats() {
+  $('#formatMatrix thead').innerHTML = '<tr><th>Set</th>' +
+    FORMATS.map(f => `<th style="text-align:center">${esc(f.key)}</th>`).join('') + '</tr>';
+  $('#formatMatrix tbody').innerHTML = FORMAT_SETS.map(set =>
+    `<tr><td><code>${esc(set)}</code></td>` + FORMATS.map((f, fi) => {
+      const on = f.allSets || f.sets.includes(set);
+      return `<td style="text-align:center"><input type="checkbox" ${on ? 'checked' : ''}` +
+             `${f.allSets ? ' disabled title="format allows all sets"' : ''}` +
+             ` onchange="fmtToggleSet(${fi}, '${esc(set)}', this.checked)"></td>`;
+    }).join('') + '</tr>').join('');
+  $('#formatExceptions').innerHTML = FORMATS.map((f, fi) => `
+    <div style="margin-bottom:16px">
+      <b>${esc(f.key)}</b> <span class="muted">(${f.allSets ? 'all sets' : f.sets.length + ' sets'})</span>
+      <div class="row">
+        <div style="flex:1;min-width:280px"><label>Banned cards</label>
+          <textarea rows="2" style="width:100%" onchange="fmtRefs(${fi}, 'bannedCards', this.value)">${esc(f.bannedCards.join(', '))}</textarea></div>
+        <div style="flex:1;min-width:280px"><label>Extra legal cards</label>
+          <textarea rows="2" style="width:100%" onchange="fmtRefs(${fi}, 'extraLegalCards', this.value)">${esc(f.extraLegalCards.join(', '))}</textarea></div>
+      </div>
+    </div>`).join('');
+}
+function fmtToggleSet(fi, set, on) {
+  const sets = FORMATS[fi].sets;
+  const i = sets.indexOf(set);
+  if (on && i < 0) sets.push(set);
+  if (!on && i >= 0) sets.splice(i, 1);
+  fmtDirty(true);
+}
+function fmtRefs(fi, field, value) {
+  FORMATS[fi][field] = value.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+  fmtDirty(true);
+}
+async function saveFormats() {
+  try {
+    const d = await api('formats', {formats: FORMATS});
+    FORMATS = d.formats; renderFormats(); fmtDirty(false);
+    toast('Formats saved — deck validation reloaded');
+  } catch(e) { toast('Save failed: ' + e.message, true); }
+}
+
+async function loadTournaments() {
+  try {
+    const d = await api('tournaments');
+    TOURS = d.tournaments || [];
+    TOURS.forEach(t => [t.definition && t.definition.run, t.definition && t.definition.leaderboard]
+      .forEach(x => (x && x.prizeTable || []).forEach(p => { p.rewards = expandRewards(p.rewards); })));
+    if (!TOURS.length) TOURS = [defaultTournament(1)];
+    T_SEL = Math.min(T_SEL, TOURS.length - 1);
+    tDirty(false);
+    renderTournaments();
+    const guids = TOURS.flatMap(t => [t.definition.run, t.definition.leaderboard]
+      .flatMap(x => (x && x.prizeTable || []).flatMap(p => p.rewards || [])))
+      .filter(r => r.rewardType === 'Archetype' && r.rewardProductID)
+      .map(r => r.rewardProductID);
+    if (await resolveCardMeta(guids)) renderTournaments();
+  } catch(e) { toast('Tournaments: ' + e.message, true); }
+}
+function renderTourPills() {
+  $('#tourPills').innerHTML = TOURS.map((t, i) =>
+    `<button class="season-pill ${i === T_SEL ? 'sel' : ''}" onclick="selectTournament(${i})">
+       ${esc(t.definition.name || '(unnamed)')}${t.enabled ? '' : ' 🚫'}</button>`).join('') +
+    `<button class="mini" onclick="addTournament()">+ New tournament</button>`;
+}
+function selectTournament(i) { T_SEL = i; renderTournaments(); }
+function addTournament() { TOURS.push(defaultTournament(TOURS.length + 1)); T_SEL = TOURS.length - 1; tDirty(true); renderTournaments(); }
+
+function prizeRowHTML(kind, p, i) {
+  const unit = kind === 'run' ? 'place/wins' : 'rank';
+  return `<div class="prize-row">
+    <div class="prize-range">
+      <label>${unit} from</label><input type="number" min="0" value="${p.start}" onchange="prizeRange('${kind}',${i},'start',this.value)">
+      <label>to</label><input type="number" min="0" value="${p.end}" onchange="prizeRange('${kind}',${i},'end',this.value)">
+    </div>
+    <div class="prize-rewards">
+      ${groupRewards(p.rewards).map((g, gi) => rewardGroupChip(g,
+          `tourRewardStep('${kind}',${i},${gi}`, `tourRewardRemoveGroup('${kind}',${i},${gi}`)).join('')}
+      <button class="add-chip" style="padding:10px 14px" onclick="openRewardPicker('${kind === 'run' ? 'trun' : 'tlb'}', ${i})">+ Reward</button>
+    </div>
+    <button class="mini ms-del" onclick="delPrizeRow('${kind}',${i})">✕ Row</button>
+  </div>`;
+}
+function tourRewardStep(kind, i, gi, delta) {
+  const rewards = prizeTableOf(kind)[i].rewards;
+  const g = groupRewards(rewards)[gi]; if (!g) return;
+  if (delta > 0) rewards.push({...g.reward, rewardAmount: 1});
+  else rewards.splice(g.indices[g.indices.length - 1], 1);
+  tDirty(true); renderTournaments();
+}
+function tourRewardRemoveGroup(kind, i, gi) {
+  const rewards = prizeTableOf(kind)[i].rewards;
+  const g = groupRewards(rewards)[gi]; if (!g) return;
+  g.indices.slice().sort((a, b) => b - a).forEach(idx => rewards.splice(idx, 1));
+  tDirty(true); renderTournaments();
+}
+function prizeTableOf(kind) {
+  return kind === 'run' ? tDef().run.prizeTable : tDef().leaderboard.prizeTable;
+}
+function prizeRange(kind, i, field, v) { prizeTableOf(kind)[i][field] = Math.max(0, parseInt(v) || 0); tDirty(true); }
+function addPrizeRow(kind) {
+  const table = prizeTableOf(kind);
+  const last = table.length ? table[table.length - 1].end : (kind === 'run' ? -1 : 0);
+  table.push({start: last + 1, end: last + 1, rewards: []});
+  tDirty(true); renderTournaments();
+}
+function delPrizeRow(kind, i) { prizeTableOf(kind).splice(i, 1); tDirty(true); renderTournaments(); }
+
+function renderTournaments() {
+  renderTourPills();
+  const t = tSel(), d = t.definition, run = d.run || {}, lb = d.leaderboard || {};
+  $('#tName').value = d.name || '';
+  $('#tTitle').value = (d.title && d.title.id) || d.title || '';
+  $('#tDesc').value = (d.description && d.description.id) || d.description || '';
+  $('#tMaxRuns').value = d.maxRuns || 0;
+  $('#tMaxSize').value = String(d.maxSize || 8);
+  $('#tFormat').value = d.format || 'Unlimited';
+  $('#tRoundLength').value = d.roundLength || 30;
+  $('#tRoundDelay').value = d.delayBetweenRounds || 10;
+  $('#tPreview').value = msToLocal(d.previewTime);
+  $('#tStart').value = msToLocal(d.startTime);
+  $('#tEntryClose').value = msToLocal(d.entryClosingTime);
+  $('#tResolve').value = msToLocal(d.resolutionTime);
+  $('#tDisappear').value = msToLocal(d.disappearTime);
+  $('#tMaxWins').value = run.maxWins || 0;
+  $('#tMaxLosses').value = run.maxLosses || 0;
+  $('#tMaxGames').value = run.maxGames || 0;
+  $('#tDeckSwitch').checked = run.allowDeckSwitching !== false;
+  const fee = cur => (run.entryFee || []).find(f => f.currency === cur);
+  $('#tFeeTokens').value = (fee('Tokens') || {}).amount || 0;
+  $('#tFeeGems').value = (fee('Gems') || {}).amount || 0;
+  $('#tFeeTickets').value = (fee('Tickets') || {}).amount || 0;
+  $('#tWinValue').value = lb.winValue ?? 3;
+  $('#tLossValue').value = lb.lossValue ?? 1;
+  $('#tRunPrizes').innerHTML = (run.prizeTable || []).map((p, i) => prizeRowHTML('run', p, i)).join('')
+    || '<div class="muted" style="margin-bottom:10px">No run prizes yet.</div>';
+  $('#tLbPrizes').innerHTML = (lb.prizeTable || []).map((p, i) => prizeRowHTML('leaderboard', p, i)).join('')
+    || '<div class="muted" style="margin-bottom:10px">No leaderboard prizes yet.</div>';
+  $('#tToggleBtn').textContent = t.enabled ? 'Disable' : 'Enable';
+  $('#tMeta').textContent = t.tournament_id
+    ? `${t.tournament_id} · ${t.entries || 0} entries · ${t.enabled ? 'enabled' : 'disabled'}`
+    : 'not saved yet';
+  $('#tStandings').innerHTML = '';
+}
+
+async function saveTournament() {
+  const t = tSel();
+  const d = t.definition;
+  d.title = String($('#tTitle').value || d.name);
+  d.description = String($('#tDesc').value || '');
+  try {
+    const res = await api('tournaments', {
+      tournament_id: t.tournament_id || undefined,
+      definition: d,
+      enabled: t.enabled
+    });
+    t.tournament_id = res.tournament.tournament_id;
+    tDirty(false);
+    toast('Tournament saved & live');
+    renderTournaments();
+  } catch(e) { toast(e.message, true); }
+}
+async function toggleTournament() {
+  const t = tSel();
+  if (!t.tournament_id) { t.enabled = !t.enabled; tDirty(true); renderTournaments(); return; }
+  try {
+    const res = await api('tournaments/toggle', {tournament_id: t.tournament_id});
+    t.enabled = res.tournament.enabled;
+    toast(t.enabled ? 'Tournament enabled' : 'Tournament disabled');
+    renderTournaments();
+  } catch(e) { toast(e.message, true); }
+}
+async function deleteTournament() {
+  const t = tSel();
+  if (!t.tournament_id) { TOURS.splice(T_SEL, 1); if (!TOURS.length) TOURS = [defaultTournament(1)]; T_SEL = 0; renderTournaments(); return; }
+  if (!confirm(`Delete tournament "${t.definition.name}" and ALL its entries?`)) return;
+  try {
+    await api('tournaments/delete', {tournament_id: t.tournament_id});
+    toast('Deleted'); T_SEL = 0; loadTournaments();
+  } catch(e) { toast(e.message, true); }
+}
+async function viewStandings() {
+  const t = tSel();
+  if (!t.tournament_id) return toast('Save the tournament first', true);
+  try {
+    const d = await api('tournaments/standings/' + t.tournament_id);
+    $('#tStandings').innerHTML = d.standings.length
+      ? `<table><thead><tr><th>Rank</th><th>Player</th><th>Points</th></tr></thead><tbody>` +
+        d.standings.map(s => `<tr><td>${s.rank}</td><td>${esc(s.displayName)}</td><td>${s.points}</td></tr>`).join('') +
+        `</tbody></table>`
+      : '<div class="muted">No entrants yet.</div>';
+  } catch(e) { toast(e.message, true); }
+}
+
+/* ---------------- Reward picker modal ---------------- */
+let PICKER = {mode: null, tierIndex: null, msIndex: null, type: 'card', sel: null};
+
+function openRewardPicker(mode, tierIndex, msIndex) {
+  const tokensOk = mode === 'versus' || mode === 'trun' || mode === 'tlb';
+  PICKER = {mode, tierIndex, msIndex, type: tokensOk ? 'tokens' : 'card', sel: null};
+  $('#pickerTitle').textContent =
+    mode === 'versus' ? 'Add Milestone Reward' :
+    mode === 'trun' ? 'Add Run Prize' :
+    mode === 'tlb' ? 'Add Leaderboard Prize' : 'Add Code Reward';
+  document.querySelector('[data-ptype="tokens"]').style.display = tokensOk ? '' : 'none';
+  $('#pickerCount').value = 1;
+  $('#pickerOverlay').classList.add('open');
+  pickerSetType(PICKER.type);
+}
+function closePicker() { $('#pickerOverlay').classList.remove('open'); }
+
+function pickerSetType(t) {
+  PICKER.type = t; PICKER.sel = null;
+  document.querySelectorAll('.type-tile').forEach(b => b.classList.toggle('sel', b.dataset.ptype === t));
+  const body = $('#pickerBody');
+  if (t === 'tokens') {
+    body.innerHTML = `
+      <label>Token amount</label>
+      <div class="row" style="margin-top:6px">
+        <input id="tokenAmount" type="number" value="10" min="1" style="width:110px" oninput="pickerTokensChanged()">
+        ${[5, 10, 20, 50, 100].map(n => `<button class="preset" onclick="$('#tokenAmount').value=${n};pickerTokensChanged()">${n}</button>`).join('')}
+      </div>
+      <div class="muted">Granted straight to the player's coin wallet when the milestone is crossed.</div>`;
+    PICKER.sel = {kind: 'tokens'};
+  } else if (t === 'card') {
+    body.innerHTML = `
+      <input id="cardSearch" placeholder="Search cards by name, set or GUID… (e.g. Lugia, SWSH12)" style="width:100%" oninput="cardSearchDebounced()">
+      <div class="thumb-grid" id="cardGrid"></div>
+      <div class="muted" id="cardHint" style="margin-top:8px">Type at least 2 characters to search the loaded card scripts.</div>`;
+    setTimeout(() => $('#cardSearch').focus(), 50);
+  } else {
+    body.innerHTML = `
+      <div id="productFilters">${['All', 'Booster', 'Deck', 'Coin', 'Sleeve', 'Deck Box']
+        .map((n, i) => `<button class="filter-chip ${i === 0 ? 'sel' : ''}" onclick="productFilter(this, '${n}')">${n}</button>`).join('')}</div>
+      <div class="thumb-grid" id="productGrid"></div>`;
+    renderProductGrid('All');
+  }
+  pickerValidate();
+}
+function pickerTokensChanged() { pickerValidate(); }
+
+let _cardSearchTimer;
+function cardSearchDebounced() {
+  clearTimeout(_cardSearchTimer);
+  _cardSearchTimer = setTimeout(runCardSearch, 300);
+}
+async function runCardSearch() {
+  const q = $('#cardSearch').value.trim();
+  if (q.length < 2) { $('#cardGrid').innerHTML = ''; return; }
+  try {
+    const d = await api('cards/search', {query: q});
+    $('#cardHint').textContent = d.cards.length ? '' : 'No matches.';
+    PICKER.items = {};
+    $('#cardGrid').innerHTML = d.cards.map(c => {
+      PICKER.items[c.guid] = {guid: c.guid, name: `${c.name} (${c.set} ${c.number})`, image: c.image};
+      const img = c.image ? `<img src="${esc(c.image)}" loading="lazy" onerror="this.style.visibility='hidden'">`
+                          : `<img style="visibility:hidden">`;
+      return `<div class="thumb" onclick="pickerSelect(this, '${esc(c.guid)}')">
+        ${img}<div class="t-name">${esc(c.name)}</div><div class="t-sub">${esc(c.set)} · #${c.number}</div></div>`;
+    }).join('');
+  } catch(e) { toast(e.message, true); }
+}
+
+function productFilter(btn, name) {
+  document.querySelectorAll('#productFilters .filter-chip').forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+  renderProductGrid(name);
+}
+function renderProductGrid(filter) {
+  const typeByName = {'Booster': 21, 'Deck': 4, 'Coin': 22, 'Sleeve': 24, 'Deck Box': 23};
+  const items = PRODUCTS.filter(p => filter === 'All' || p.product_type === typeByName[filter]);
+  PICKER.items = {};
+  $('#productGrid').innerHTML = items.map(p => {
+    PICKER.items[p.guid] = {guid: p.guid, name: p.name || p.guid, image: p.image ? `/products/${p.image}.png` : null};
+    const img = p.image ? `<img src="/products/${esc(p.image)}.png" loading="lazy" onerror="this.style.visibility='hidden'">`
+                        : `<img style="visibility:hidden">`;
+    return `<div class="thumb product" onclick="pickerSelect(this, '${esc(p.guid)}')">
+      ${img}<div class="t-name">${esc(p.name || p.guid)}</div><div class="t-sub">${esc(p.key)} · ${TYPE_NAMES[p.product_type] || p.product_type}</div></div>`;
+  }).join('') || '<div class="muted">No products of this type.</div>';
+}
+
+function pickerSelect(el, guid) {
+  document.querySelectorAll('.thumb.sel').forEach(t => t.classList.remove('sel'));
+  el.classList.add('sel');
+  PICKER.sel = {kind: 'archetype', ...(PICKER.items[guid] || {guid})};
+  pickerValidate();
+}
+function pickerValidate() {
+  const ok = PICKER.sel && (PICKER.sel.kind !== 'archetype' || PICKER.sel.guid);
+  $('#pickerAddBtn').disabled = !ok;
+  $('#pickerSelInfo').textContent = PICKER.sel && PICKER.sel.kind === 'archetype' ? `Selected: ${PICKER.sel.name}` : '';
+}
+
+function pickerAdd() {
+  const count = Math.max(1, parseInt($('#pickerCount').value) || 1);
+  if (PICKER.sel.kind === 'tokens') {
+    const n = Math.max(1, parseInt($('#tokenAmount').value) || 1);
+    dispatchReward({name: `${n} Tokens`, rewardType: 'Tokens', rewardAmount: n, rewardCurrency: 'prizeTrainerCoin'});
+  } else {
+    const {guid, name, image} = PICKER.sel;
+    CARD_META[guid.toLowerCase()] = CARD_META[guid.toLowerCase()] || {name, image};
+    if (PICKER.mode === 'codes') {
+      REWARD.products[guid] = (REWARD.products[guid] || 0) + count;
+      updateRewardItems();
+    } else {
+      // one entry per copy — the client renders the quantity from array length
+      const base = {name, rewardType: 'Archetype', rewardAmount: 1,
+                    rewardProductID: guid, rewardDescription: {id: name}, flavor: name};
+      dispatchRewards(Array.from({length: count}, () => ({...base})));
+    }
+  }
+  closePicker();
+}
+function dispatchRewards(rewards) {
+  if (PICKER.mode === 'versus') {
+    vsSeason()._tiers[PICKER.tierIndex].ms[PICKER.msIndex].rewards.push(...rewards);
+    vsDirty(true); renderVersus();
+  } else if (PICKER.mode === 'trun' || PICKER.mode === 'tlb') {
+    prizeTableOf(PICKER.mode === 'trun' ? 'run' : 'leaderboard')[PICKER.tierIndex].rewards.push(...rewards);
+    tDirty(true); renderTournaments();
+  }
+}
+function dispatchReward(reward) { dispatchRewards([reward]); }
+
+async function bootData() {
+  await loadProducts();
+  loadOverview(); loadAccounts(); loadCodes(); loadShop(); loadTrades(); loadVersus(); loadTournaments(); loadFormats();
+}
+(async function init() {
+  try {
+    const s = await fetch('/admin/api/session').then(r => r.json());
+    if (!s.authenticated) return showLogin();
+    $('#whoami').textContent = s.username;
+    $('#logoutBtn').style.display = '';
+  } catch(e) { return showLogin(); }
+  bootData();
+})();
+</script>
+</body>
+</html>

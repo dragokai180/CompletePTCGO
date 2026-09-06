@@ -1,0 +1,23 @@
+[Unit]
+Description=SpiritPTCGO game + asset server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/spirit-ptcgo
+Environment=PYTHONPATH=/opt/spirit-ptcgo
+Environment=SPIRIT_HTTP_PORT=8001
+# REQUIRED: public IP or domain players dial (no scheme/port). Wrong value = remote login drops.
+Environment=SPIRIT_PUBLIC_HOST=YOUR_DROPLET_IP
+ExecStart=/opt/spirit-ptcgo/venv/bin/python -m spirit.main
+Restart=on-failure
+RestartSec=5
+# UnityPy bundle rebuilds on first boot can take a long time and a lot of RAM.
+TimeoutStartSec=0
+# Keep logs in journald; increase if you want more retention locally
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

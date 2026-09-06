@@ -1,0 +1,16 @@
+from spirit.game.data_utils import SupporterCardDef
+from spirit.game.attributes import Rarities
+from spirit.game.card_effects.trainers import professors_research
+
+card = SupporterCardDef(
+    guid="86d26aad-0a8b-5aa8-bec2-82c4ec9104a2",
+    key="CEL25",
+    name="com.direwolfdigital.cake.data.archetypes.trainer.ProfessorsResearch.Name",
+    display_name="Professor's Research",
+    searchable_by=["Professor's Research", "Supporter"],
+    subtypes=["Supporter"],
+    collector_number=23,
+    set_code="CEL25",
+    rarity=Rarities.RareHolo,
+    effect=professors_research
+)

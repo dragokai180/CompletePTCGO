@@ -1,0 +1,52 @@
+from spirit.game.data_utils import PokemonCardDef, Attack, Ability
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.trainers import is_energy_card
+
+
+async def star_of_fortune(ctx):
+    if await ctx.ask_yes_no("Draw cards until you have 8 cards in your hand?"):
+        await ctx.draw_until(8)
+
+
+async def somersault_feathers(ctx):
+    discarded = await ctx.discard_from_hand(
+        3, minimum=0, predicate=is_energy_card,
+        prompt="Discard up to 3 Energy cards from your hand.",
+    )
+    await ctx.deal_damage(160 + 30 * len(discarded))
+
+
+card = PokemonCardDef(
+    guid="142b3a81-bb2f-590a-88b5-0729c48812a8",
+    key="SWSH10",
+    name="com.direwolfdigital.cake.data.archetypes.pokemon.HisuianDecidueyeVSTAR.Name",
+    display_name="Hisuian Decidueye VSTAR",
+    searchable_by=["Hisuian Decidueye VSTAR", "VSTAR", "HisuianDecidueyeVSTAR"],
+    subtypes=["VSTAR"],
+    collector_number=84,
+    set_code="SWSH10",
+    rarity=Rarities.RareHoloVSTAR,
+    hp=270,
+    elements=[PokemonTypes.FIGHTING],
+    stage=PokemonStage.VSTAR,
+    retreat_cost=2,
+    weakness_type=PokemonTypes.PSYCHIC,
+    evolves_from="com.direwolfdigital.cake.data.archetypes.pokemon.HisuianDecidueyeV.Name",
+    family_id=724,
+    abilities=[
+        Ability(
+            title="Star of Fortune",
+            game_text="During your turn, you may draw cards until you have 8 cards in your hand. (You can't use more than 1 VSTAR Power in a game.)",
+            vstar=True,
+            effect=star_of_fortune,
+        ),
+        Attack(
+            title="Somersault Feathers",
+            game_text="You may discard up to 3 Energy cards from your hand. This attack does 30 more damage for each card you discarded in this way.",
+            cost={PokemonTypes.FIGHTING: 1, PokemonTypes.COLORLESS: 2},
+            damage=160,
+            damage_operator="+",
+            effect=somersault_feathers,
+        ),
+    ],
+)

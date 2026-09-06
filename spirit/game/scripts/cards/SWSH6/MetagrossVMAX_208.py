@@ -1,0 +1,42 @@
+from spirit.game.data_utils import PokemonCardDef, Attack, Ability
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.support_common import search_to_hand
+from spirit.game.card_effects.passives_common import boost_own_next_turn
+
+card = PokemonCardDef(
+    guid="fe27c198-6553-5da7-8beb-7b82d2391035",
+    key="SWSH6",
+    name="com.direwolfdigital.cake.data.archetypes.pokemon.MetagrossVMAX.Name",
+    display_name="Metagross VMAX",
+    searchable_by=["Metagross VMAX", "VMAX", "Rapid Strike", "MetagrossVMAX"],
+    subtypes=["VMAX", "Rapid Strike"],
+    collector_number=208,
+    set_code="SWSH6",
+    rarity=Rarities.RareRainbow,
+    hp=330,
+    elements=[PokemonTypes.METAL],
+    stage=PokemonStage.VMAX,
+    retreat_cost=3,
+    weakness_type=PokemonTypes.FIRE,
+    resistance_type=PokemonTypes.GRASS,
+    evolves_from="com.direwolfdigital.cake.data.archetypes.pokemon.MetagrossV.Name",
+    family_id=376,
+    abilities=[
+        Attack(
+            title="Zap Traction",
+            game_text="Search your deck for up to 2 cards and put them into your hand. Then, shuffle your deck.",
+            cost={PokemonTypes.METAL: 1},
+            effect=search_to_hand(
+                count=2, minimum=0, reveal=False,
+                prompt="Choose up to 2 cards to put into your hand.",
+            ),
+        ),
+        Attack(
+            title="Max Rush",
+            game_text="During your next turn, this Pok\u00e9mon's Max Rush attack does 150 more damage.",
+            cost={PokemonTypes.METAL: 1, PokemonTypes.COLORLESS: 1},
+            damage=100,
+            effect=boost_own_next_turn(150, attack_title="Max Rush"),
+        ),
+    ],
+)
