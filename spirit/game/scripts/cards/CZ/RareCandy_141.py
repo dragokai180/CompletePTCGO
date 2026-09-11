@@ -22,13 +22,24 @@ def _turn_eligible_basics(board, player_id):
     ]
 
 
+def _rare_candy_targets(board, player_id):
+    hand = board.find_player_area(player_id, "hand")
+    hand_cards = hand.children if hand is not None else []
+    targets = []
+    for pokemon in _turn_eligible_basics(board, player_id):
+        logic_name = pokemon.get_attribute(AttrID.EVOLUTION_LOGIC_NAME)
+        if logic_name and _stage2_matches(hand_cards, logic_name):
+            targets.append(pokemon)
+    return targets
+
+
 def _rare_candy_condition(board, player_id):
-    return bool(_turn_eligible_basics(board, player_id))
+    return bool(_rare_candy_targets(board, player_id))
 
 
 async def _rare_candy(ctx):
     """Choose a Basic Pokemon in play; if you have a Stage 2 in hand that evolves from it, put that card onto it, skipping the Stage 1."""
-    candidates = _turn_eligible_basics(ctx.board, ctx.player_id)
+    candidates = _rare_candy_targets(ctx.board, ctx.player_id)
     if not candidates:
         return
     target = await ctx.choose_pokemon(candidates, "Choose a Basic Pokémon in play")

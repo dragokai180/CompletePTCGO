@@ -12,9 +12,9 @@ class TournamentDeckValidationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         card_loader.load_all()
-        cls.swsh_basic = next(
+        cls.standard_basic = next(
             card for card in card_loader.cards
-            if card.key == "SWSH8"
+            if card.key == "SV05"
             and card.get_attribute_value(AttrID.CARD_TYPE) == CardType.POKEMON.value
             and card.get_attribute_value(AttrID.STAGE, 0) == PokemonStage.BASIC.value
         )
@@ -26,7 +26,7 @@ class TournamentDeckValidationTests(unittest.TestCase):
         )
 
     def make_deck(self, pile_name="deck", include_bw=False):
-        cards = [self.swsh_basic.guid] * 4
+        cards = [self.standard_basic.guid] * 4
         if include_bw:
             cards.append(self.bw_card.guid)
         cards.extend([self.water.guid] * (60 - len(cards)))

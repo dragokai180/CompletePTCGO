@@ -126,7 +126,7 @@ class VersusSeason:
             season_id=data.get("seasonID", ""),
             start_time=data.get("startTime", 0),
             end_time=data.get("endTime", 0),
-            description=data.get("description", {"id": "SpiritPTCGO Season"}),
+            description=data.get("description", {"id": "CompletePTCGO Season"}),
             tiers=[VersusTier.from_dict(t) for t in data.get("tiers", [])],
             reset_reward_id=data.get("resetRewardID", "")
         )

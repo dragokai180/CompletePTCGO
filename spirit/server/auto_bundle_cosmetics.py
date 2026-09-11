@@ -111,6 +111,7 @@ def compile_cosmetic_bundle(category, custom_dir, template_file, target_bundle_f
                 replace_obj = existing_textures[custom_name]
                 replace_read = replace_obj.read()
                 with Image.open(png_path) as img:
+                    img = img.convert("RGBA")
                     if img.width != replace_read.m_Width or img.height != replace_read.m_Height:
                         replace_img = img.resize((replace_read.m_Width, replace_read.m_Height), Image.Resampling.LANCZOS)
                     else:
@@ -136,6 +137,7 @@ def compile_cosmetic_bundle(category, custom_dir, template_file, target_bundle_f
             # 2. Update the cloned texture with our custom PNG data
             read_obj = cloned_obj.read()
             with Image.open(png_path) as img:
+                img = img.convert("RGBA")
                 target_width = prototype_read.m_Width
                 target_height = prototype_read.m_Height
                 
@@ -171,6 +173,10 @@ def compile_cosmetic_bundle(category, custom_dir, template_file, target_bundle_f
             logging.info(f"[Cosmetics] Dynamically appended '{custom_name}' at PathID {new_path_id}")
 
         except Exception as e:
+            # The clone is registered before its texture is packed.  Remove
+            # it again on failure so a malformed image cannot leave a second
+            # prototype texture in the generated bundle.
+            asset.objects.pop(new_path_id, None)
             logging.error(f"[Cosmetics] Failed to dynamically append '{png_file}': {e}")
 
     # 4. Save all new mappings into the AssetBundle container (appending without overwriting)
@@ -189,7 +195,7 @@ def compile_cosmetic_bundle(category, custom_dir, template_file, target_bundle_f
     return True
 
 def compile_all_cosmetics():
-    """Compiles cardSleeves, coins, deckBoxes, packs, and pcdBoxes using dynamic appending."""
+    """Compile supplemental product, avatar, marker, and set-icon bundles."""
     # 1. Card Sleeves
     compile_cosmetic_bundle(
         category="Sleeves",
@@ -269,6 +275,15 @@ def compile_all_cosmetics():
         template_file="VSTARToken.template",
         target_bundle_folder="en_US_VSTARToken_CRR86_3",
         prefix="vstartoken"
+    )
+
+    # 10. Expansion symbols added after the archived PTCGO client stopped.
+    compile_cosmetic_bundle(
+        category="Expansion Symbols",
+        custom_dir=os.path.join(ASSETS_DIR, "products", "custom_seticons"),
+        template_file="setIcons.template",
+        target_bundle_folder="en_US_setIcons_Spirit_1",
+        prefix="setIcons"
     )
 
 if __name__ == "__main__":

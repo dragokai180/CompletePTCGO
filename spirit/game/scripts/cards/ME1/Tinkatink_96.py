@@ -1,0 +1,35 @@
+from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.standard_era import (
+    standard_ability, standard_attack, standard_passive,
+)
+
+
+card = PokemonCardDef(
+    guid="3bd7c131-8bde-504f-aa65-124c125ac1cd",
+    key="ME1",
+    name="com.direwolfdigital.cake.data.archetypes.pokemon.Tinkatink.Name",
+    display_name="Tinkatink",
+    searchable_by=["Tinkatink", "Basic", "Tinkatink"],
+    subtypes=["Basic"],
+    collector_number=96,
+    set_code="ME1",
+    regulation_mark="I",
+    rarity=Rarities.Common,
+    hp=70,
+    elements=[PokemonTypes.METAL],
+    stage=PokemonStage.BASIC,
+    retreat_cost=1,
+    weakness_type=PokemonTypes.FIRE,
+    weakness_amount=2,
+    resistance_type=PokemonTypes.GRASS,
+    resistance_amount=30,
+    family_id=957,
+    abilities=[
+        Attack(
+            title="Beat",
+            cost={PokemonTypes.METAL: 1},
+            damage=20,
+        ),
+    ],
+)

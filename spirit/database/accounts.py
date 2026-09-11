@@ -64,7 +64,8 @@ def create_account(username, password):
         logging.error(f"Error creating account: {e}")
         return None
 
-    # Grant starter decks/packs outside the session (grant opens its own sessions)
+    # Grant packs/cosmetics outside the session (grant opens its own sessions).
+    # Saved decks are intentionally not created for new accounts.
     try:
         grant_starter_content(acc_dict["account_id"])
     except Exception as e:

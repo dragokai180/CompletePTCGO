@@ -1,6 +1,7 @@
 from spirit.game.data_utils import ItemCardDef
 from spirit.game.attributes import Rarities
 from spirit.game.card_effects.attacks_common import flip_or_nothing
+from spirit.game.card_effects.trainers import has_discard_card
 
 
 async def _put_discard_card_in_hand(ctx):
@@ -23,5 +24,6 @@ card = ItemCardDef(
     collector_number=164,
     set_code="SWSH3",
     rarity=Rarities.Uncommon,
+    condition=has_discard_card,
     effect=flip_or_nothing(coins=2, then=_put_discard_card_in_hand),
 )

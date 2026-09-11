@@ -1,0 +1,43 @@
+from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.standard_era import (
+    standard_ability, standard_attack, standard_passive,
+)
+
+
+card = PokemonCardDef(
+    guid='fc23178f-2c2e-562f-9418-3af11f68c361',
+    key='XY6',
+    name='com.direwolfdigital.cake.data.archetypes.pokemon.Inkay.Name',
+    display_name='Inkay',
+    searchable_by=['Inkay', 'Basic', 'Inkay'],
+    subtypes=['Basic'],
+    collector_number=41,
+    set_code='XY6',
+    regulation_mark=None,
+    rarity=Rarities.Common,
+    hp=50,
+    elements=[PokemonTypes.DARKNESS],
+    stage=PokemonStage.BASIC,
+    retreat_cost=1,
+    weakness_type=PokemonTypes.FIGHTING,
+    weakness_amount=2,
+    resistance_type=PokemonTypes.PSYCHIC,
+    resistance_amount=20,
+    family_id=686,
+    abilities=[
+        Attack(
+            title='Rip Off',
+            game_text="Choose a random card from your opponent's hand. Your opponent reveals that card and shuffles it into his or her deck.",
+            cost={PokemonTypes.DARKNESS: 1},
+            effect=standard_attack,
+        ),
+        Attack(
+            title='Psybeam',
+            game_text="Flip a coin. If heads, your opponent's Active Pokémon is now Confused.",
+            cost={PokemonTypes.DARKNESS: 1, PokemonTypes.COLORLESS: 1},
+            damage=20,
+            effect=standard_attack,
+        ),
+    ],
+)

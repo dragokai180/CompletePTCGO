@@ -1,0 +1,35 @@
+from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.standard_era import (
+    standard_ability, standard_attack, standard_passive,
+)
+
+
+card = PokemonCardDef(
+    guid='e0edf094-2b2b-5a35-8587-f2c964790a29',
+    key='HF',
+    name='com.direwolfdigital.cake.data.archetypes.pokemon.Voltorb.Name',
+    display_name='Voltorb',
+    searchable_by=['Voltorb', 'Basic', 'Voltorb'],
+    subtypes=['Basic'],
+    collector_number=21,
+    set_code='HF',
+    regulation_mark=None,
+    rarity=Rarities.Common,
+    hp=50,
+    elements=[PokemonTypes.LIGHTNING],
+    stage=PokemonStage.BASIC,
+    retreat_cost=1,
+    weakness_type=PokemonTypes.FIGHTING,
+    weakness_amount=2,
+    resistance_type=PokemonTypes.METAL,
+    resistance_amount=20,
+    family_id=100,
+    abilities=[
+        Attack(
+            title='Lightning Ball',
+            cost={PokemonTypes.LIGHTNING: 1},
+            damage=20,
+        ),
+    ],
+)

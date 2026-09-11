@@ -49,7 +49,7 @@ class ActionTimerTests(unittest.IsolatedAsyncioTestCase):
         session._state_unit_tasks = {}
         session._prompt_checkpoint_tasks = set()
         session.choreography_pauses = False
-        session._client_caught_up_at = 0.0
+        session._client_caught_up_at = {}
         return session
 
     async def wait_for_packets(self, player, count):
@@ -187,14 +187,48 @@ class ActionTimerTests(unittest.IsolatedAsyncioTestCase):
     def test_animation_backlog_accumulates_faster_than_realtime(self):
         session = self.make_session()
         session.choreography_pauses = True
-        session._note_client_animation("Attack")
-        session._note_client_animation("PlayCard")
-        remaining = session._client_catchup_remaining()
+        player = RecordingNetworkPlayer("player-1")
+        session.players = {player.account_id: player}
+        session._note_client_animation("Attack", [player.account_id])
+        session._note_client_animation("PlayCard", [player.account_id])
+        remaining = session._client_catchup_remaining(player)
         self.assertGreater(
             remaining,
             SEQUENCE_DURATION_SECONDS["Attack"]
             + SEQUENCE_DURATION_SECONDS["PlayCard"]
             - 0.05,
+        )
+
+    def test_animation_backlogs_are_isolated_per_player(self):
+        session = self.make_session()
+        session.choreography_pauses = True
+        player_1 = RecordingNetworkPlayer("player-1")
+        player_2 = RecordingNetworkPlayer("player-2")
+        session.players = {
+            player_1.account_id: player_1,
+            player_2.account_id: player_2,
+        }
+
+        session._note_client_animation(
+            "Attack", [player_1.account_id, player_2.account_id]
+        )
+        session._note_client_animation("PlayCard", [player_1.account_id])
+
+        player_1_remaining = session._client_catchup_remaining(player_1)
+        player_2_remaining = session._client_catchup_remaining(player_2)
+        self.assertGreater(
+            player_1_remaining,
+            SEQUENCE_DURATION_SECONDS["Attack"]
+            + SEQUENCE_DURATION_SECONDS["PlayCard"]
+            - 0.05,
+        )
+        self.assertLess(
+            player_2_remaining,
+            SEQUENCE_DURATION_SECONDS["Attack"] + 0.05,
+        )
+        self.assertGreater(
+            player_2_remaining,
+            SEQUENCE_DURATION_SECONDS["Attack"] - 0.05,
         )
 
     async def test_timed_offer_waits_for_client_catchup(self):
@@ -203,7 +237,9 @@ class ActionTimerTests(unittest.IsolatedAsyncioTestCase):
         player = RecordingNetworkPlayer("player-1")
         session.players = {player.account_id: player}
         catchup = 0.25
-        session._client_caught_up_at = time.monotonic() + catchup
+        session._client_caught_up_at = {
+            player.account_id: time.monotonic() + catchup
+        }
         offer = {"counter": 13, "startingTimestamp": 1}
 
         started = time.monotonic()

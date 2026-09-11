@@ -2,12 +2,14 @@
   "name": "spirit-card-builder",
   "private": true,
   "version": "1.0.0",
-  "description": "Local-only UI for scaffolding Spirit PTCGO Python card scripts from existing factories",
+  "description": "Local-only UI for scaffolding CompletePTCGO Python card scripts from existing factories",
   "type": "module",
   "scripts": {
     "sync-data": "node scripts/sync-data.mjs",
     "sync-data:jp": "node scripts/sync-limitless-jp.mjs",
     "generate:implemented-ids": "node scripts/generate-implemented-ids.mjs",
+    "bulk-generate:bw": "vite build --ssr scripts/bulk-generate-bw.ts --outDir dist-bulk --emptyOutDir && node dist-bulk/bulk-generate-bw.js",
+    "bulk-download:bw": "vite build --ssr scripts/bulk-download-bw.ts --outDir dist-bulk --emptyOutDir && node dist-bulk/bulk-download-bw.js",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview"

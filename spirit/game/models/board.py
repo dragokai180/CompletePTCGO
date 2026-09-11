@@ -175,6 +175,9 @@ class CardEntity(BoardEntity):
     def __init__(self, card_obj: Card, owning_player_id: Optional[str] = None, entity_id: Optional[str] = None):
         super().__init__(entity_id=entity_id, owning_player_id=owning_player_id, archetype_id=card_obj.guid)
         self.card_obj = card_obj
+        # Here Comes Team Rocket! permanently turns Prize cards face up.  The
+        # flag follows the physical card while it stays in the Prize pile.
+        self.publicly_revealed: bool = False
         # Carry the full render attribute set so the client's in-match card-face
         # renderer can build its image request (set code + collector number).
         self.attributes.update(_match_render_attributes(card_obj))
@@ -218,6 +221,9 @@ class CardEntity(BoardEntity):
         zone; from its owner only while in a hidden-knowledge zone (deck/prizes)."""
         if viewer_id is None:
             return False
+        if getattr(self, "publicly_revealed", False) \
+                and self._containing_area_name() == "prizePile":
+            return False
         area_name = self._containing_area_name()
         if viewer_id != self.owning_player_id:
             return area_name not in self.PUBLIC_AREAS
@@ -226,6 +232,40 @@ class CardEntity(BoardEntity):
 
 class PokemonEntity(CardEntity):
     """Represents a Pokemon card entity on the board."""
+
+    # A Pokemon BREAK keeps these printed characteristics from the Pokemon it
+    # evolved from.  BREAK cards carry harmless renderer defaults of their own
+    # (no Weakness/Resistance and zero Retreat), so ordinary attribute reads
+    # must look through the live BREAK stack instead of trusting those defaults.
+    _BREAK_INHERITED_ATTRIBUTES = frozenset({
+        AttrID.RETREAT_COST.value,
+        AttrID.WEAKNESS_TYPES.value,
+        AttrID.WEAKNESS_OPERATOR.value,
+        AttrID.WEAKNESS_AMOUNT.value,
+        AttrID.RESISTANCE_TYPES.value,
+        AttrID.RESISTANCE_OPERATOR.value,
+        AttrID.RESISTANCE_AMOUNT.value,
+    })
+
+    def break_previous_stage(self) -> Optional['PokemonEntity']:
+        """Immediate previous Evolution tucked under this Pokemon BREAK."""
+        if super().get_attribute(AttrID.STAGE) != PokemonStage.BREAK.value:
+            return None
+        return next(
+            (child for child in self.children
+             if isinstance(child, PokemonEntity)),
+            None,
+        )
+
+    def get_attribute(self, key: Union[int, AttrID], default: Any = None) -> Any:
+        """Return live printed attributes, including Pokemon BREAK inheritance."""
+        attr_key = key.value if isinstance(key, AttrID) else key
+        if attr_key in self._BREAK_INHERITED_ATTRIBUTES:
+            previous = self.break_previous_stage()
+            if previous is not None:
+                return previous.get_attribute(attr_key, default)
+        return super().get_attribute(attr_key, default)
+
     def _initialize_attributes(self):
         super()._initialize_attributes()
         hp_val = self.card_obj.get_attribute_value(AttrID.HP, 100)
@@ -271,6 +311,10 @@ class BoardState:
         
         # Build Playmat Root Entity
         self.playmat = PlayMat()
+        # Card passives sometimes receive only an entity yet need board-wide
+        # state (Prize counts, effective types/costs).  The entity tree ends at
+        # PlayMat, so keep a non-serialized back-reference at that root.
+        self.playmat._board_state = self
         
         # Internal cache map (entityID -> BoardEntity) for O(1) lookups
         self._entity_cache: Dict[str, BoardEntity] = {self.playmat.entity_id: self.playmat}
@@ -504,6 +548,23 @@ class BoardState:
                 candidates.append(c)
         return candidates
 
+    def setup_bench_candidates(self, player_id: str) -> List['PokemonEntity']:
+        """Basic Pokemon plus cards explicitly legal on the opening Bench.
+
+        Snorlax Doll is still an Item in deck construction and must not make a
+        hand non-mulligan by itself unless it can actually be placed during
+        setup.  Unlike setup-only Active exceptions, its text permits either
+        opening position.
+        """
+        from spirit.game.data_utils import def_for  # circular-import guard
+        candidates = self.basic_pokemon_in_hand(player_id)
+        hand_area = self.find_player_area(player_id, "hand")
+        for card in (hand_area.children if hand_area else []):
+            if isinstance(card, PokemonEntity) and card not in candidates \
+                    and getattr(def_for(card.archetype_id), "setup_as_bench", False):
+                candidates.append(card)
+        return candidates
+
     def player_has_any_basic(self, player_id: str) -> bool:
         """True if the player has a Basic Pokemon anywhere in deck or hand.
 
@@ -570,13 +631,21 @@ class BoardState:
         return 0
 
     @staticmethod
-    def attached_energies(pokemon: 'PokemonEntity') -> List['EnergyEntity']:
-        """Every Energy card attached anywhere under a Pokemon's stack."""
-        energies: List[EnergyEntity] = []
+    def attached_energies(pokemon: 'PokemonEntity') -> List['CardEntity']:
+        """Every card currently functioning as Energy under a Pokemon.
+
+        A few printed Pokemon (Charjabug's Battery and Electrode's Buzzap
+        Thunder) attach themselves as Special Energy.  Their physical entity
+        remains a Pokemon card so the client keeps the correct artwork, but
+        ENERGY_INFO is the authoritative rules marker while attached.
+        """
+        energies: List[CardEntity] = []
         stack: List[BoardEntity] = list(pokemon.children)
         while stack:
             entity = stack.pop()
-            if isinstance(entity, EnergyEntity):
+            if isinstance(entity, CardEntity) and (
+                    isinstance(entity, EnergyEntity)
+                    or bool(entity.get_attribute(AttrID.ENERGY_INFO))):
                 energies.append(entity)
             stack.extend(entity.children)
         return energies

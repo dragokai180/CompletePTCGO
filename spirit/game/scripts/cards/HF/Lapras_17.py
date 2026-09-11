@@ -1,0 +1,33 @@
+from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.standard_era import (
+    standard_ability, standard_attack, standard_passive,
+)
+
+
+card = PokemonCardDef(
+    guid='08ddbe2d-8e08-581e-baf7-9e8d60838748',
+    key='HF',
+    name='com.direwolfdigital.cake.data.archetypes.pokemon.Lapras.Name',
+    display_name='Lapras',
+    searchable_by=['Lapras', 'Basic', 'Lapras'],
+    subtypes=['Basic'],
+    collector_number=17,
+    set_code='HF',
+    regulation_mark=None,
+    rarity=Rarities.Rare,
+    hp=120,
+    elements=[PokemonTypes.WATER],
+    stage=PokemonStage.BASIC,
+    retreat_cost=2,
+    weakness_type=PokemonTypes.GRASS,
+    weakness_amount=2,
+    family_id=131,
+    abilities=[
+        Attack(
+            title='Aqua Wave',
+            cost={PokemonTypes.WATER: 2, PokemonTypes.COLORLESS: 1},
+            damage=80,
+        ),
+    ],
+)

@@ -2,8 +2,9 @@ import importlib.util
 import json
 import os
 import uuid
-from typing import Any, Callable, Optional, List, Dict
+from typing import Any, Callable, Optional, List, Dict, Tuple
 from spirit.game.attributes import AttrID, CardType, TrainerType, PokemonStage, PokemonTypes, ProductType, AbilityTypes, Rarities, CLIENT_POKEMON_TYPE_NAMES, FoilMasks, FoilEffects
+from spirit.game.foil_corrections import apply_foil_corrections
 from spirit.game.text_encoding import fix_mojibake, fix_mojibake_list, with_ascii_aliases
 
 _ABILITY_ID_NAMESPACE = uuid.UUID("a3f2c6e8-9d41-4d7a-8b5f-2e7c90d13a64")
@@ -179,6 +180,15 @@ def reprint(
                 passive=getattr(base, "passive", None),
                 ability=getattr(base, "ability", None),
                 companion=getattr(base, "companion", None),
+                discards_replacement=bool(
+                    getattr(base, "discards_replacement", False)
+                ),
+                orientation_choices=list(
+                    getattr(base, "orientation_choices", None) or []
+                ),
+                allows_same_name_replacement=bool(
+                    getattr(base, "allows_same_name_replacement", False)
+                ),
                 **{k: v for k, v in kwargs.items() if k != "trainer_type"},
             )
         if isinstance(base, PokemonToolCardDef):
@@ -283,6 +293,8 @@ def discard_area_name(archetype_id) -> str:
 # "MEGA" is XY Mega Evolution; "SV_Mega" is Mega Evolution Pokémon ex (3 prizes).
 _MULTI_PRIZE_SUBTYPES = {
     "V": 2, "VSTAR": 2, "V-UNION": 3, "VMAX": 3, "GX": 2, "EX": 2, "ex": 2,
+    "TAG TEAM": 3,
+    "LEGEND": 2,
     "SV_Mega": 3,
 }
 _RULE_BOX_SUBTYPES = set(_MULTI_PRIZE_SUBTYPES) | {"Radiant"}
@@ -365,6 +377,10 @@ class Triggers:
     # This Pokemon moved into the Active spot (Cinderace Libero); fires at
     # most once per entity per turn.
     ON_MOVE_TO_ACTIVE = "on_move_to_active"
+    # This Pokemon moved from the Active spot to the Bench (Palafin's Zero
+    # to Hero and equivalent wording).  This is distinct from ON_PLAY: the
+    # physical card was already in play before the move.
+    ON_MOVE_TO_BENCH = "on_move_to_bench"
     # Another of the owner's Pokemon was Knocked Out (Exp. Share); fires
     # BEFORE the KO'd stack moves (energies still attached); ctx carries
     # ko_pokemon / ko_from_attack / ko_attacker.
@@ -388,6 +404,10 @@ class Triggers:
     # effect (Amoonguss "Surprise Spores"); fires via the acting ctx's
     # deferred_actions, after that effect's choreography flushes.
     ON_DISCARDED_FROM_HAND = "on_discarded_from_hand"
+    # This card was discarded from any zone.  The trigger context carries
+    # discarded_from / discarded_by / discarding_player_id, so cards such as
+    # Ferrothorn's Startling Drop can enforce their exact origin and cause.
+    ON_DISCARDED = "on_discarded"
 
 
 class Activations:
@@ -547,8 +567,22 @@ _FULL_FOIL_RARITIES = {
     Rarities.RareHoloVMAX, Rarities.RareHoloVSTAR, Rarities.ChrRareHolo,
     Rarities.ChrRareHoloV, Rarities.ChrRareSecret, Rarities.ChrRareUltra,
     Rarities.RareUltra, Rarities.RareSecret, Rarities.RareRainbow,
-    Rarities.Legendary, Rarities.ExtraRare,
+    Rarities.RarePrime, Rarities.Legendary, Rarities.Ace,
+    Rarities.ExtraRare, Rarities.VeryRare, Rarities.BreakRare,
+    Rarities.Shining, Rarities.Prism, Rarities.Amazing,
+    Rarities.RareRadiant, Rarities.RareDitto,
 }
+
+_FOIL_METADATA_PATH = os.path.join(os.path.dirname(__file__), "foil_metadata.json")
+try:
+    with open(_FOIL_METADATA_PATH, encoding="utf-8") as _foil_metadata_file:
+        _PRINT_FOIL_METADATA = apply_foil_corrections(
+            json.load(_foil_metadata_file)
+        )
+except (OSError, ValueError):
+    # A source checkout can still run before the optional metadata sync. In
+    # that case cards remain non-foil instead of receiving an inferred effect.
+    _PRINT_FOIL_METADATA = {}
 
 
 class Foil:
@@ -558,14 +592,14 @@ class Foil:
     else wp_std); effects[0] picks the client's Resources foil material, extra
     effects render on the second foil layer (wp_secondary bundle).
 
-    style shapes GENERATED masks only ('auto'/'full'/'window'/'reverse', see
-    foil_mask_gen) -- an extracted/hand-authored _foil PNG always wins.
+    style records the coverage of the original mask for diagnostics and manual
+    tooling. Runtime bundling only accepts extracted/hand-authored mask PNGs.
     """
     def __init__(
         self,
         mask: FoilMasks = FoilMasks.HOLO,
         effects: Optional[List[FoilEffects]] = None,
-        intensity: Optional[int] = None,
+        intensity: Optional[int] = 201,
         style: str = "auto",
     ):
         self.mask = mask
@@ -609,6 +643,93 @@ class Foil:
         return attrs
 
 
+_FOIL_MASK_NAMES = {
+    "Holo": FoilMasks.HOLO,
+    "Etched": FoilMasks.ETCHED,
+    "Thatch": FoilMasks.THATCH,
+    "Reverse": FoilMasks.REVERSE,
+    "None": FoilMasks.NONE,
+}
+
+_FOIL_EFFECT_NAMES = {
+    "Cosmos": FoilEffects.COSMOS,
+    "Galaxy": FoilEffects.GALAXY,
+    "Rainbow": FoilEffects.RAINBOW,
+    "Cracked_Ice": FoilEffects.CRACKED_ICE,
+    "Lithograph": FoilEffects.LITHOGRAPH,
+    "Tinsel": FoilEffects.TINSEL,
+    "FlatSilver": FoilEffects.FLATSILVER,
+    "Etched": FoilEffects.ETCHED,
+    "EtchedSunPillar": FoilEffects.ETCHEDSUNPILLAR,
+    "AngledPillars": FoilEffects.ANGLEDPILLARS,
+    "Squares": FoilEffects.SQUARES,
+    "SunLava": FoilEffects.SUNLAVA,
+    "SunPillar": FoilEffects.SUNPILLAR,
+    "SunBeam": FoilEffects.SUNBEAM,
+    "SolgaleoEtch": FoilEffects.SOLGALEOETCH,
+    "LunalaEtch": FoilEffects.LUNALAETCH,
+    "XYEtch": FoilEffects.XYETCH,
+    "BWEtch": FoilEffects.BWETCH,
+    "TapuFiniEtch": FoilEffects.TAPUFINIETCH,
+    "TapuBuluEtch": FoilEffects.TAPUBULUETCH,
+    "TapuKokoEtch": FoilEffects.TAPUKOKOETCH,
+    "TapuLeleEtch": FoilEffects.TAPULELEETCH,
+    "SolgaleoHFEtch": FoilEffects.SOLGALEOHFETCH,
+    "LunalaHFEtch": FoilEffects.LUNALAHFETCH,
+    "SwHolo": FoilEffects.SWHOLO,
+    "SwSecret": FoilEffects.SWSECRET,
+    "Ann25thConfetti": FoilEffects.ANN25THCONFETTI,
+    "RadiantHolo": FoilEffects.RADIANTHOLO,
+    "SvHolo": FoilEffects.SVHOLO,
+    "None": FoilEffects.NONE,
+}
+
+
+def _print_foil(
+    set_code: str,
+    collector_number: int,
+    rarity: int,
+    subtypes: Optional[List[str]],
+) -> tuple[bool, Optional[Foil]]:
+    """Return the original PTCGO foil for one exact printing.
+
+    The boolean distinguishes a known non-foil printing from a card absent from
+    the imported catalog. Both remain non-foil unless a script explicitly
+    supplies a Foil definition.
+    """
+    cards = _PRINT_FOIL_METADATA.get((set_code or "").upper())
+    if cards is None:
+        return False, None
+    key = str(collector_number)
+    if key not in cards:
+        return False, None
+    record = cards[key]
+    if record is None:
+        return True, None
+
+    mask = _FOIL_MASK_NAMES.get(record.get("mask"))
+    effect_names = [record.get("effect"), *(record.get("effects") or [])]
+    effects = [_FOIL_EFFECT_NAMES.get(name) for name in effect_names]
+    if mask is None or not effects or any(effect is None for effect in effects):
+        return False, None
+
+    # FullArt is the canonical signal.  Etched/Thatch masks and rule-box cards
+    # also cover the complete card face even when older PTCGO records leave the
+    # FullArt bit false (standard VMAX is a notable example).
+    full_face = (
+        bool(record.get("full_art"))
+        or mask in (FoilMasks.ETCHED, FoilMasks.THATCH)
+        or rarity in _FULL_FOIL_RARITIES
+        or any(s in ("V", "VMAX", "VSTAR", "V-UNION", "Radiant") for s in (subtypes or []))
+    )
+    return True, Foil(
+        mask=mask,
+        effects=effects,
+        intensity=int(record.get("intensity", 201)),
+        style="full" if full_face else "window",
+    )
+
+
 class CardDefinition:
     """Base class for all card definitions."""
     def __init__(
@@ -643,9 +764,20 @@ class CardDefinition:
         # Dictionary attribute, and a string like "H" fails EntityIntroduced
         # deserialization (Char -> KeyValuePair), which breaks opening hands.
         self.regulation_mark = regulation_mark
-        self.foil = foil
-        if foil is not None:
-            self.extra_attributes.update(foil.to_attributes())
+        # Foils are exact per-print data. Known non-holo prints and cards absent
+        # from the imported catalog stay non-foil; rarity/era inference caused
+        # ordinary prints to acquire effects they never had.
+        print_known, print_foil = _print_foil(
+            set_code, collector_number, rarity, subtypes
+        )
+        if print_known:
+            self.foil = print_foil
+        elif foil is not None:
+            self.foil = foil
+        else:
+            self.foil = None
+        if self.foil is not None:
+            self.extra_attributes.update(self.foil.to_attributes())
         # Continuous effect while in play/attached (tools, special energies).
         self.passive: Optional[Any] = None
         CARD_DEFS_BY_GUID[guid.lower()] = self
@@ -826,7 +958,14 @@ class TrainerCardDef(CardDefinition):
             foil=foil,
         )
         self.effect = effect
-        self.condition = condition
+        # Effect factories may carry their own public-information playability
+        # gate.  This keeps every printing that reuses the same effect from
+        # accidentally becoming selectable when the effect has no legal
+        # target (discard recovery, healing, deck access, and so on).
+        self.condition = (
+            condition if condition is not None
+            else getattr(effect, "play_condition", None)
+        )
         # Exempt from the "no Supporters on turn 1" rule (Team Rocket's Proton).
         self.usable_first_turn = usable_first_turn
         # Trainers have no PIE_ABILITIES slot; declared abilities register for
@@ -858,9 +997,15 @@ class FossilItemCardDef(ItemCardDef):
     """
     plays_as_pokemon = True
 
-    def __init__(self, hp: int, passive: Optional[Any] = None, **kwargs):
+    def __init__(self, hp: int, passive: Optional[Any] = None,
+                 setup_as_active: bool = False,
+                 setup_as_bench: bool = False,
+                 unplayable_from_hand: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.passive = passive
+        self.setup_as_active = setup_as_active
+        self.setup_as_bench = setup_as_bench
+        self.unplayable_from_hand = unplayable_from_hand
         self.extra_attributes.update({
             str(AttrID.HP.value): {"type": "int", "value": hp},
             str(AttrID.STAGE.value): {"type": "int", "value": PokemonStage.BASIC.value},
@@ -887,17 +1032,25 @@ class StadiumCardDef(TrainerCardDef):
     `companion(board, player_id, card)` returns a second hand card that
     must be played into the stadium slot together (Legendary Ocean Trench).
     `discards_replacement` is Chaotic Swell: the Stadium played over this one
-    is discarded straight after it and never gets its effect."""
+    is discarded straight after it and never gets its effect.
+    `orientation_choices` enables the native pre-play card-rotation picker;
+    each entry is (title, description), normal orientation first. Directional
+    Stadiums may opt into replacing another copy with the same name via
+    `allows_same_name_replacement`."""
     def __init__(self, passive: Optional[Any] = None,
                  ability: Optional["Ability"] = None,
                  companion: Optional[Callable] = None,
-                 discards_replacement: bool = False, **kwargs):
+                 discards_replacement: bool = False,
+                 orientation_choices: Optional[List[Tuple[str, str]]] = None,
+                 allows_same_name_replacement: bool = False, **kwargs):
         kwargs['trainer_type'] = TrainerType.STADIUM
         super().__init__(**kwargs)
         self.passive = passive
         self.ability = ability
         self.companion = companion
         self.discards_replacement = discards_replacement
+        self.orientation_choices = list(orientation_choices or [])
+        self.allows_same_name_replacement = allows_same_name_replacement
         if ability is not None:
             if not ability.ability_id:
                 ability.ability_id = ability_id_for(self.guid, 0)

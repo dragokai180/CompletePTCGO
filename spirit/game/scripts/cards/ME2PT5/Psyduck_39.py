@@ -1,5 +1,6 @@
-from spirit.game.data_utils import PokemonCardDef, Attack, Ability, unimplemented
+from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
+from spirit.game.card_effects.standard_era import standard_passive
 
 card = PokemonCardDef(
     guid="0a7e2e02-8747-5255-bbe7-d3ae0e27379f",
@@ -22,7 +23,10 @@ card = PokemonCardDef(
         Ability(
             title="Damp",
             game_text="Pokémon in play (both yours and your opponent's) lose any Ability that requires the Pokémon using it to Knock Out itself.",
-            effect=unimplemented,
+            passive=standard_passive(
+                "Pokémon in play (both yours and your opponent's) lose any "
+                "Ability that requires the Pokémon using it to Knock Out itself."
+            ),
         ),
         Attack(
             title="Ram",

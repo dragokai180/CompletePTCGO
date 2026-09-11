@@ -1,0 +1,38 @@
+from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.standard_era import (
+    standard_ability, standard_attack, standard_passive,
+)
+
+
+card = PokemonCardDef(
+    guid='20ca5d78-c3b1-570c-966f-39f90e3eac1a',
+    key='SM12',
+    name='com.direwolfdigital.cake.data.archetypes.pokemon.Litleo.Name',
+    display_name='Litleo',
+    searchable_by=['Litleo', 'Basic', 'Litleo'],
+    subtypes=['Basic'],
+    collector_number=36,
+    set_code='SM12',
+    regulation_mark=None,
+    rarity=Rarities.Common,
+    hp=70,
+    elements=[PokemonTypes.FIRE],
+    stage=PokemonStage.BASIC,
+    retreat_cost=2,
+    weakness_type=PokemonTypes.WATER,
+    weakness_amount=2,
+    family_id=667,
+    abilities=[
+        Attack(
+            title='Tackle',
+            cost={PokemonTypes.FIRE: 1},
+            damage=10,
+        ),
+        Attack(
+            title='Flame Tail',
+            cost={PokemonTypes.FIRE: 1, PokemonTypes.COLORLESS: 1},
+            damage=20,
+        ),
+    ],
+)

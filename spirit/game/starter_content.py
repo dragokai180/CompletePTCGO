@@ -9,7 +9,7 @@ from spirit.game.set_utils import eligible_booster_sets
 from spirit.game.scripts.cards import loader as card_loader
 from spirit.game.scripts.products import loader as product_loader
 from spirit.database.player_data import (
-    save_deck, add_many_to_collection, update_wallet,
+    add_many_to_collection, update_wallet,
     STARTING_COINS, STARTING_GEMS, STARTING_TICKETS,
 )
 
@@ -192,9 +192,16 @@ ALAKAZAM_DECKLIST = """
 # * 1 Capture Energy RCL 171
 # """
 
-STARTER_DECKS = [
+# The server-controlled opponent still needs a legal internal deck, but it is
+# never saved into a player's profile.
+BOT_DECKS = [
     ("Alakazam", ALAKAZAM_DECKLIST)
 ]
+
+# New accounts start without a saved deck. They still receive the default
+# cosmetics, wallet balance, booster packs, and card collection below, then
+# build their own deck in the deck editor.
+STARTER_DECKS = []
 
 _CARD_INDEX = None
 
@@ -268,23 +275,14 @@ def starter_booster_packs() -> list:
 
 
 def grant_starter_content(account_id: str) -> bool:
-    """Grants the starter decks and booster packs to a freshly created account."""
+    """Grants non-deck starter content to a freshly created account."""
 
     try:
         update_wallet(account_id, STARTING_COINS, STARTING_GEMS, STARTING_TICKETS)
 
-        # Aggregate every non-tradable grant (deck cards + packs + cosmetics) and
+        # Aggregate every non-tradable grant (packs + cosmetics) and
         # write them in ONE transaction instead of ~140 per-row round trips.
         grants: dict[str, int] = {}
-        for deck_name, decklist in STARTER_DECKS:
-            deck_data = build_deck_data(deck_name, decklist)
-            deck_guids = deck_data["piles"]["deck"]
-            if len(deck_guids) != 60:
-                logging.warning(f"[Starter] Deck '{deck_name}' resolved {len(deck_guids)}/60 cards.")
-            save_deck(account_id, deck_data["deckID"], deck_name, deck_data, is_avatar=False)
-            for guid in deck_guids:
-                grants[guid] = grants.get(guid, 0) + 1
-
         for pack in starter_booster_packs():
             grants[pack.guid] = grants.get(pack.guid, 0) + STARTER_BOOSTER_PACK_COUNT
 
@@ -293,7 +291,7 @@ def grant_starter_content(account_id: str) -> bool:
 
         add_many_to_collection(account_id, grants, is_tradable=False)
 
-        logging.info(f"[Starter] Granted starter decks, booster packs, and cosmetics to account {account_id}.")
+        logging.info(f"[Starter] Granted booster packs and cosmetics to account {account_id} (no default decks).")
         return True
     except Exception as e:
         logging.error(f"[Starter] Failed to grant starter content to {account_id}: {e}")

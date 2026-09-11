@@ -1,4 +1,4 @@
-# Spirit-PTCGO asset edge — Caddy alternative to nginx-spirit.conf.
+# CompletePTCGO asset edge — Caddy alternative to nginx-spirit.conf.
 #
 # Caddy's reverse_proxy streams the upstream body with proper flushing and
 # handles slow/interrupted clients far more robustly than Python's single

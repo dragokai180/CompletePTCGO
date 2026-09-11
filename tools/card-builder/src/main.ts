@@ -676,8 +676,8 @@ function render(scrollMode: RenderScrollMode = 'preserve') {
   app.innerHTML = `
     <header class="hero">
       <div>
-        <p class="eyebrow">Local only · Spirit PTCGO · ${browseRegion === 'jp' ? 'Limitless JP' : 'pokemon-tcg-data'}</p>
-        <h1>${view === 'browse' ? 'Browse cards' : 'Spirit Card Builder'}</h1>
+        <p class="eyebrow">Local only · CompletePTCGO · ${browseRegion === 'jp' ? 'Limitless JP' : 'pokemon-tcg-data'}</p>
+        <h1>${view === 'browse' ? 'Browse cards' : 'CompletePTCGO Card Builder'}</h1>
         <p class="lede">${
           view === 'browse'
             ? browseRegion === 'jp'

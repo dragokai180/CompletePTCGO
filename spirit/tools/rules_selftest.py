@@ -45,12 +45,15 @@ def main():
     card_loader.load_all()
     manager = FormatManager()
 
-    swsh_basic = find_card(lambda c: c.key == "SWSH8" and is_basic_pokemon(c))
+    std_guid = DeckFormat.STANDARD.value
+    standard_basic = find_card(
+        lambda c: is_basic_pokemon(c) and manager.is_card_legal(std_guid, c)
+    )
     bw_card = find_card(lambda c: c.key == "BW1"
                         and c.get_attribute_value(AttrID.CARD_TYPE) == CardType.POKEMON.value)
     water = find_card(lambda c: c.key == "Free_Energy"
                       and rules.card_display_name(c) == "Water Energy")
-    assert swsh_basic and bw_card and water, "fixture cards missing from loaded scripts"
+    assert standard_basic and bw_card and water, "fixture cards missing from loaded scripts"
 
     # Two printings sharing a display name (the 4-copy rule counts names, not GUIDs)
     by_name = {}
@@ -66,42 +69,42 @@ def main():
     std, exp, unl = DeckFormat.STANDARD.value, DeckFormat.EXPANDED.value, DeckFormat.UNLIMITED.value
 
     print("[1] legal 60-card deck")
-    legal = deck([swsh_basic.guid] * 4 + [water.guid] * 56)
+    legal = deck([standard_basic.guid] * 4 + [water.guid] * 56)
     rows = {r["format"]: r for r in rules.validate_deck(legal, [std, exp, unl])}
     check(all(r["valid"] for r in rows.values()), "valid in Standard/Expanded/Unlimited")
     check(rows[std]["formatName"] == "Modified", "Standard wire name is 'Modified'")
     check(all(r["results"] == [] for r in rows.values()), "no failure details on a valid deck")
-    check(set(rules.valid_format_names(legal)) == {"Modified", "Expanded", "Legacy", "Unlimited"}
-          or set(rules.valid_format_names(legal)) == {"Modified", "Expanded", "Unlimited"},
+    valid_names = set(rules.valid_format_names(legal))
+    check({"Modified", "Expanded", "Unlimited"} <= valid_names,
           f"attr-10860 names sane: {rules.valid_format_names(legal)}")
-    client_legal = deck([swsh_basic.guid] * 4 + [water.guid] * 56, pile_name="CakePile")
+    client_legal = deck([standard_basic.guid] * 4 + [water.guid] * 56, pile_name="CakePile")
     rows = rules.validate_deck(client_legal, [std, exp, unl])
     check(all(r["valid"] for r in rows), "client CakePile accepted as the main deck pile")
 
     print("[2] deck size must be exactly 60")
     for n, label in ((59, "59 cards"), (61, "61 cards")):
-        bad = deck([swsh_basic.guid] * 4 + [water.guid] * (n - 4))
+        bad = deck([standard_basic.guid] * 4 + [water.guid] * (n - 4))
         row = rules.validate_deck(bad, [std])[0]
         check(not row["valid"] and "ExactSize" in failure_types(row), f"{label} -> ExactSize")
 
     print("[3] max 4 copies with the same name")
-    dup = deck([swsh_basic.guid] * 5 + [water.guid] * 55)
+    dup = deck([standard_basic.guid] * 5 + [water.guid] * 55)
     row = rules.validate_deck(dup, [std])[0]
     check(not row["valid"] and "MaxDuplicates" in failure_types(row), "5 copies -> MaxDuplicates")
     detail = next(d for d in row["results"] if d["failureType"] == "MaxDuplicates")
-    check(swsh_basic.guid.lower() in detail["offendingArchetypeIDs"], "offender GUID listed")
+    check(standard_basic.guid.lower() in detail["offendingArchetypeIDs"], "offender GUID listed")
 
     if reprint_pair:
         a, b = reprint_pair
-        mix = deck([a.guid] * 3 + [b.guid] * 2 + [swsh_basic.guid] * 4 + [water.guid] * 51)
+        mix = deck([a.guid] * 3 + [b.guid] * 2 + [standard_basic.guid] * 4 + [water.guid] * 51)
         row = rules.validate_deck(mix, [unl])[0]
         check("MaxDuplicates" in failure_types(row),
               f"3+2 reprints of '{a.display_name}' ({a.key}/{b.key}) -> MaxDuplicates")
-        if a.display_name == swsh_basic.display_name:
+        if a.display_name == standard_basic.display_name:
             check(False, "reprint fixture collides with filler basic")
 
     print("[4] basic energy is exempt from the 4-copy rule")
-    energy_heavy = deck([swsh_basic.guid] * 4 + [water.guid] * 56)
+    energy_heavy = deck([standard_basic.guid] * 4 + [water.guid] * 56)
     row = rules.validate_deck(energy_heavy, [std])[0]
     check("MaxDuplicates" not in failure_types(row), "56 Water Energy allowed")
 
@@ -118,19 +121,19 @@ def main():
             continue
         (n_a, guids_a), (n_b, guids_b) = sorted(by_name.items())
         for name, guids in ((n_a, guids_a), (n_b, guids_b)):
-            solo = deck(guids[:1] * 4 + [swsh_basic.guid] * 4 + [water.guid] * 52)
+            solo = deck(guids[:1] * 4 + [standard_basic.guid] * 4 + [water.guid] * 52)
             row = rules.validate_deck(solo, [unl])[0]
             check("MustNotContain" not in failure_types(row),
                   f"{label}: 4 {name} alone is legal")
         for n_a_count, n_b_count in ((1, 1), (2, 2), (4, 4)):
             mixed = guids_a[:1] * n_a_count + guids_b[:1] * n_b_count
-            mix = deck(mixed + [swsh_basic.guid] * 4
+            mix = deck(mixed + [standard_basic.guid] * 4
                        + [water.guid] * (56 - len(mixed)))
             row = rules.validate_deck(mix, [unl])[0]
             check(not row["valid"] and "MustNotContain" in failure_types(row),
                   f"{label}: {n_a_count} + {n_b_count} is illegal")
         mixed = guids_a[:1] * 2 + guids_b[:1] * 2
-        mix = deck(mixed + [swsh_basic.guid] * 4 + [water.guid] * 52)
+        mix = deck(mixed + [standard_basic.guid] * 4 + [water.guid] * 52)
         row = rules.validate_deck(mix, [unl])[0]
         detail = next(d for d in row["results"] if d["failureType"] == "MustNotContain")
         check(all(g.lower() in detail["offendingArchetypeIDs"]
@@ -143,7 +146,7 @@ def main():
     check(not row["valid"] and "MustContain" in failure_types(row), "all-energy deck -> MustContain")
 
     print("[6] format set legality (BW1 defaults: Expanded yes, Standard no)")
-    bw_deck = deck([swsh_basic.guid] * 4 + [bw_card.guid] + [water.guid] * 55)
+    bw_deck = deck([standard_basic.guid] * 4 + [bw_card.guid] + [water.guid] * 55)
     rows = {r["format"]: r for r in rules.validate_deck(bw_deck, [std, exp, unl])}
     check(not rows[std]["valid"] and "DeckContainsBannedCards" in failure_types(rows[std]),
           "BW1 card illegal in Standard")
@@ -152,7 +155,7 @@ def main():
 
     print("[7] banned-card override")
     std_fmt = manager.by_guid(std)
-    std_fmt.banned_cards.append(swsh_basic.guid)
+    std_fmt.banned_cards.append(standard_basic.guid)
     manager._ref_cache.clear()
     try:
         row = rules.validate_deck(legal, [std])[0]
@@ -161,22 +164,22 @@ def main():
         row_unl = rules.validate_deck(legal, [unl])[0]
         check(row_unl["valid"], "ban is per-format (Unlimited unaffected)")
     finally:
-        std_fmt.banned_cards.remove(swsh_basic.guid)
+        std_fmt.banned_cards.remove(standard_basic.guid)
         manager._ref_cache.clear()
 
     print("[8] SET/number card refs resolve")
-    num = swsh_basic.get_attribute_value(AttrID.COLLECTOR_NUMBER)
-    std_fmt.banned_cards.append(f"{swsh_basic.key}/{num}")
+    num = standard_basic.get_attribute_value(AttrID.COLLECTOR_NUMBER)
+    std_fmt.banned_cards.append(f"{standard_basic.key}/{num}")
     manager._ref_cache.clear()
     try:
         row = rules.validate_deck(legal, [std])[0]
-        check(not row["valid"], f"banned ref '{swsh_basic.key}/{num}' fails Standard")
+        check(not row["valid"], f"banned ref '{standard_basic.key}/{num}' fails Standard")
     finally:
         std_fmt.banned_cards.pop()
         manager._ref_cache.clear()
 
     print("[9] unknown GUIDs invalidate the deck")
-    ghost = deck([swsh_basic.guid] * 4 + [water.guid] * 55 + [str(uuid.uuid4())])
+    ghost = deck([standard_basic.guid] * 4 + [water.guid] * 55 + [str(uuid.uuid4())])
     row = rules.validate_deck(ghost, [std])[0]
     check(not row["valid"] and "MustNotContain" in failure_types(row), "ghost GUID -> MustNotContain")
 
@@ -185,7 +188,7 @@ def main():
     check(not row["valid"] and "UnownedCards" in failure_types(row), "unowned Pokemon flagged")
     detail = next(d for d in row["results"] if d["failureType"] == "UnownedCards")
     check(water.guid.lower() not in detail["offendingArchetypeIDs"], "basic energy never unowned")
-    row = rules.validate_deck(legal, [std], owned_counts={swsh_basic.guid.lower(): 4})[0]
+    row = rules.validate_deck(legal, [std], owned_counts={standard_basic.guid.lower(): 4})[0]
     check(row["valid"], "owning exactly 4 satisfies the check")
 
     print("[11] unsupported format rows")
@@ -194,7 +197,8 @@ def main():
 
     print("[12] manager set queries")
     swsh8_formats = set(manager.legal_format_guids_for_set("SWSH8"))
-    check({std, exp, unl} <= swsh8_formats, "SWSH8 legal in Standard/Expanded/Unlimited")
+    check({exp, unl} <= swsh8_formats and std not in swsh8_formats,
+          "SWSH8 rotated from Standard but remains Expanded/Unlimited")
     check(std not in manager.legal_format_guids_for_set("BW1"), "BW1 not Standard")
 
     print()

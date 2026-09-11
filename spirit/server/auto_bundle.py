@@ -5,13 +5,14 @@ import subprocess
 import json
 import importlib.util
 import math
+import re
+import shutil
 from PIL import Image, ImageFilter
 
 from spirit.game.attributes import AttrID, TrainerType
 from spirit.game.scripts.cards import loader
 from spirit.server.auto_bundle_cosmetics import compile_all_cosmetics
 from spirit.server import dynamic_pages
-from spirit.server import foil_mask_gen
 
 ASSETS_DIR = "spirit/assets"
 BUNDLE_CACHE_DIR = os.path.join(ASSETS_DIR, "bundleCache")
@@ -33,10 +34,15 @@ def _generate_bundle(bundle_name, mapping, keep_size=False) -> int:
             with open(map_path, "r") as f:
                 amap = json.load(f)
             existing_assets = amap.get(bundle_name, [])
-            for asset in mapping.keys():
-                if asset not in existing_assets:
-                    rebuild_needed = True
-                    break
+            if "_wp_" in bundle_name:
+                # Foil bundles must rebuild on removals too. After procedural
+                # fallbacks were disabled, a stale mask must not remain
+                # addressable merely because no new key was added.
+                rebuild_needed = set(existing_assets) != set(mapping)
+            else:
+                rebuild_needed = any(
+                    asset not in existing_assets for asset in mapping
+                )
         except Exception:
             rebuild_needed = True
 
@@ -70,8 +76,13 @@ def _generate_bundle(bundle_name, mapping, keep_size=False) -> int:
                 logging.error(f"[AutoBundle] Bundle build failed for {bundle_name}: {result.stderr[-500:]}")
             return 1
         finally:
-            if os.path.exists(temp_mapping_path):
+            try:
                 os.remove(temp_mapping_path)
+            except FileNotFoundError:
+                # Two startup attempts can overlap while a large set is being
+                # compiled.  Both use the same deterministic mapping file;
+                # whichever process finishes first removes it.
+                pass
     return 0
 
 
@@ -89,21 +100,57 @@ FOIL_KIND_SUFFIXES = {
     "_foil_secondary": "secondary",
 }
 FOIL_SUFFIX_BY_KIND = {v: k for k, v in FOIL_KIND_SUFFIXES.items()}
-FOIL_GEN_DIR = os.path.join(BUNDLE_CACHE_DIR, "foil_masks")
 
 
-def ensure_generated_mask(art_png, set_code, asset_name, kind, style):
-    """Path to a generated mask PNG, regenerating when the art or the
-    generator changed; None on failure."""
-    out_path = os.path.join(FOIL_GEN_DIR, set_code,
-                            f"{asset_name}{FOIL_SUFFIX_BY_KIND[kind]}.png")
-    if os.path.exists(out_path):
-        m = os.path.getmtime(out_path)
-        if (m >= os.path.getmtime(art_png)
-                and m >= os.path.getmtime(foil_mask_gen.__file__)):
-            return out_path
-    logging.info(f"[AutoBundle] Generating foil mask {set_code}/{asset_name} ({kind}, {style})")
-    return out_path if foil_mask_gen.generate_mask_png(art_png, out_path, style) else None
+_FOIL_BUNDLE_RE = re.compile(
+    r"^en_US_(?P<set>.+)_wp_(?P<kind>std|ph|pcd|secondary)_Foil2$"
+)
+
+
+def prune_obsolete_foil_bundles(foil_sets) -> int:
+    """Remove compiled foil bundles with no extracted source masks.
+
+    Older server versions generated masks from card art. Those compiled
+    bundles otherwise survive after generation is disabled and continue to be
+    served by the manifest. Only auto-compiled foil bundle directories tracked
+    in asset_map.json are eligible for removal.
+    """
+    map_path = os.path.join("spirit", "server", "asset_map.json")
+    try:
+        with open(map_path, encoding="utf-8") as asset_map_file:
+            asset_map = json.load(asset_map_file)
+    except (OSError, ValueError):
+        return 0
+
+    expected_bundles = {
+        f"en_US_{set_code}_wp_{kind}_Foil2"
+        for set_code, kinds in foil_sets.items()
+        for kind, mapping in kinds.items()
+        if mapping
+    }
+    removed = 0
+    for bundle_name in list(asset_map):
+        if not _FOIL_BUNDLE_RE.match(bundle_name):
+            continue
+        if bundle_name in expected_bundles:
+            continue
+        bundle_dir = os.path.abspath(os.path.join(BUNDLE_CACHE_DIR, bundle_name))
+        cache_root = os.path.abspath(BUNDLE_CACHE_DIR) + os.sep
+        if not bundle_dir.startswith(cache_root):
+            continue
+        if os.path.isdir(bundle_dir):
+            shutil.rmtree(bundle_dir)
+        del asset_map[bundle_name]
+        removed += 1
+
+    if removed:
+        with open(map_path, "w", encoding="utf-8") as asset_map_file:
+            json.dump(asset_map, asset_map_file)
+        logging.info(
+            "[AutoBundle] Removed %d obsolete procedural foil bundles.",
+            removed,
+        )
+    return removed
 
 
 def generate_foil_bundles(foil_sets) -> int:
@@ -257,8 +304,10 @@ def _generate_pip_png(png_path, set_code, asset_name, suffix, detect,
                       art_window=(0.12, 0.68), out_dir=None, units=1):
     out_dir = out_dir or PIP_CACHE_DIR
     out_path = os.path.join(out_dir, f"{set_code}_{asset_name}_{suffix}.png")
-    # Regenerate when the source art OR this module (the crop logic) changes.
-    stale_after = max(os.path.getmtime(png_path), os.path.getmtime(__file__))
+    # Regenerate when source art changes. Tying every cached pip to this large
+    # module's mtime needlessly rebuilt every card bundle after unrelated
+    # bundler edits (such as foil-cache maintenance).
+    stale_after = os.path.getmtime(png_path)
     if os.path.exists(out_path) and os.path.getmtime(out_path) >= stale_after:
         return out_path
     os.makedirs(out_dir, exist_ok=True)
@@ -403,24 +452,6 @@ def check_and_generate_bundles() -> int:
                         if os.path.exists(foil_png_path):
                             foil_sets.setdefault(set_code, {}).setdefault(kind, {})[asset_name] = foil_png_path
 
-                    # foil-flagged cards with no extracted/hand-authored mask
-                    # get a generated one (explicit _foil PNGs above win)
-                    foil_def = getattr(card_def, "foil", None)
-                    if foil_def is not None and os.path.exists(png_path):
-                        style = foil_def.resolve_style(
-                            getattr(card_def, "rarity", None),
-                            getattr(card_def, "subtypes", None))
-                        kinds = [foil_def.mask_kind()]
-                        if len(foil_def.effects) > 1:
-                            kinds.append("secondary")
-                        for kind in kinds:
-                            kind_map = foil_sets.setdefault(set_code, {}).setdefault(kind, {})
-                            if asset_name in kind_map:
-                                continue
-                            gen_path = ensure_generated_mask(png_path, set_code, asset_name, kind, style)
-                            if gen_path:
-                                kind_map[asset_name] = gen_path
-
                     if _is_special_energy(card_def) and os.path.exists(png_path):
                         pip_path = generate_energy_pip_png(
                             png_path, set_code, asset_name,
@@ -447,6 +478,7 @@ def check_and_generate_bundles() -> int:
 
         generated_count += self_generate_set_bundle(set_code, set_mapping)
 
+    prune_obsolete_foil_bundles(foil_sets)
     generated_count += generate_foil_bundles(foil_sets)
 
     logging.info(f"[AutoBundle] Scan complete. Generated/Updated: {generated_count} set bundles.")

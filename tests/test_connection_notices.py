@@ -71,7 +71,7 @@ class ConnectionNoticeTests(unittest.IsolatedAsyncioTestCase):
         session.ready_players = set()
         session._state_dispatched = True
         session.choreography_pauses = False
-        session._client_caught_up_at = 0.0
+        session._client_caught_up_at = {}
         session._build_match_found_payload = lambda reconnecting=False: {
             "gameID": session.game_id,
             "players": list(session.players),

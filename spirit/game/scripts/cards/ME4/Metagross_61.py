@@ -11,16 +11,17 @@ def _is_metal_energy(card):
 async def metallic_hammer(ctx):
     """150, +150 more if you discard 3 Metal Energy from this Pokemon."""
     bonus = 0
-    metal = [e for e in ctx.attached_energies(ctx.attacker) if _is_metal_energy(e)]
-    if len(metal) >= 3 and await ctx.ask_yes_no(
+    if await ctx.ask_yes_no(
         "Discard 3 Metal Energy from this Pokémon and have this attack do 150 more damage?"
     ):
-        discarded = await ctx.discard_energy_from(
+        # The printed wording is not an "if you do" payment.  Resolve the
+        # chosen rider even when a copying Pokemon has fewer (or no) Metal
+        # Energy attached, discarding every available matching card.
+        await ctx.discard_energy_from(
             ctx.attacker, 3, predicate=_is_metal_energy,
             prompt="Choose 3 Metal Energy to discard from this Pokémon",
         )
-        if len(discarded) >= 3:
-            bonus = 150
+        bonus = 150
     await ctx.deal_damage(150 + bonus)
 
 

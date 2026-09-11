@@ -1,0 +1,42 @@
+from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.standard_era import (
+    standard_ability, standard_attack, standard_passive,
+)
+
+
+card = PokemonCardDef(
+    guid='e96a8426-90fc-52d5-b51c-b5316834af13',
+    key='SM11',
+    name='com.direwolfdigital.cake.data.archetypes.pokemon.Whimsicott.Name',
+    display_name='Whimsicott',
+    searchable_by=['Whimsicott', 'Stage 1', 'Whimsicott'],
+    subtypes=['Stage 1'],
+    collector_number=144,
+    set_code='SM11',
+    regulation_mark=None,
+    rarity=Rarities.Rare,
+    hp=80,
+    elements=[PokemonTypes.FAIRY],
+    stage=PokemonStage.STAGE1,
+    retreat_cost=0,
+    weakness_type=PokemonTypes.METAL,
+    weakness_amount=2,
+    resistance_type=PokemonTypes.DARKNESS,
+    resistance_amount=20,
+    evolves_from='com.direwolfdigital.cake.data.archetypes.pokemon.Cottonee.Name',
+    family_id=546,
+    abilities=[
+        Ability(
+            title='Prowl',
+            game_text='When you play this Pokémon from your hand to evolve 1 of your Pokémon during your turn, you may search your deck for a card and put it into your hand. Then, shuffle your deck.',
+            effect=standard_ability,
+            trigger=Triggers.ON_EVOLVE,
+        ),
+        Attack(
+            title='Gust',
+            cost={PokemonTypes.COLORLESS: 1},
+            damage=40,
+        ),
+    ],
+)

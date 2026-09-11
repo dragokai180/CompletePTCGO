@@ -4,6 +4,16 @@ from spirit.game.card_effects.trainers import is_basic_energy_card
 from spirit.game.session.effects import is_pokemon_card
 
 
+def lanas_aid_playable(board, player_id, card=None) -> bool:
+    """The discard pile is public, so Lana's Aid needs a legal target."""
+    discard = board.find_player_area(player_id, "discard")
+    return bool(discard and any(
+        (is_pokemon_card(candidate) and not has_rule_box(candidate.archetype_id))
+        or is_basic_energy_card(candidate)
+        for candidate in discard.children
+    ))
+
+
 async def lanas_aid(ctx):
     pokemon_candidates = [
         c for c in ctx.discard_pile()
@@ -40,5 +50,6 @@ card = SupporterCardDef(
     regulation_mark="H",
     rarity=Rarities.Uncommon,
     effect=lanas_aid,
+    condition=lanas_aid_playable,
 )
 

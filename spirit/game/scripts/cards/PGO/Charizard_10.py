@@ -6,7 +6,7 @@ from spirit.game.session.passives import Passive, active_passives
 
 
 class BurnBrightlyPassive(Passive):
-    def modify_energy_provided(self, options, energy, holder, board):
+    def modify_energy_provided(self, options, energy, holder, board, carrier=None):
         if holder is None or energy.get_attribute(AttrID.IS_SPECIAL_ENERGY):
             return options
         if not energy_provides_type(energy, PokemonTypes.FIRE.value):

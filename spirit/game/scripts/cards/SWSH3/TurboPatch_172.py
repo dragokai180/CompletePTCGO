@@ -5,6 +5,18 @@ from spirit.game.card_effects.pokemon import is_pokemon_gx
 from spirit.game.session.effects import is_basic_pokemon
 
 
+def turbo_patch_playable(board, player_id):
+    discard = board.find_player_area(player_id, "discard")
+    return (
+        any(is_basic_energy_card(card) for card in (discard.children if discard else []))
+        and any(
+            is_basic_pokemon(pokemon)
+            and not is_pokemon_gx(pokemon.archetype_id)
+            for pokemon in board.pokemon_in_play(player_id)
+        )
+    )
+
+
 async def turbo_patch(ctx):
     """Flip a coin. If heads, attach a basic Energy card from your discard
     pile to 1 of your Basic Pokemon that isn't a Pokemon-GX."""
@@ -44,5 +56,6 @@ card = ItemCardDef(
     collector_number=172,
     set_code="SWSH3",
     rarity=Rarities.Uncommon,
+    condition=turbo_patch_playable,
     effect=turbo_patch
 )

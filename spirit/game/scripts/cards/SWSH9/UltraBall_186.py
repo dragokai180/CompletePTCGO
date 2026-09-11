@@ -1,4 +1,4 @@
-from spirit.game.card_effects.trainers import hand_size_at_least, ultra_ball
+from spirit.game.card_effects.trainers import has_discard_cost, ultra_ball
 from spirit.game.data_utils import ItemCardDef
 from spirit.game.attributes import Rarities
 
@@ -13,5 +13,5 @@ card = ItemCardDef(
     set_code="SWSH9",
     rarity=Rarities.RareSecret,
     effect=ultra_ball,
-    condition=hand_size_at_least(3)
+    condition=has_discard_cost(2)
 )

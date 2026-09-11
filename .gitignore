@@ -217,39 +217,58 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-binaries/
-client_source/
-re_tools/dnSpyEx/
-original_game_cache/
-.vscode/
+# ---------------------------------------------------------------------------
+# CompletePTCGO local-only files
+# ---------------------------------------------------------------------------
+
+# Reverse-engineering workspaces and proprietary source material.
+/binaries/
+/client_source/
+/original_game_cache/
+/re_tools/dnSpyEx/
+/unity_ptcgo_recon/
+
+# Editor and local agent configuration.
+/.vscode/
+/CLAUDE.md
+/GEMINI.md
+/AGENTS.md
+
+# Runtime credentials, account state, and logs.
 *.crt
 *.key
 *.db
 *.db-shm
 *.db-wal
+*.log
 
-# Spirit Assets
-# The whole cache is generated, foil masks (upstream's foil_mask_gen.py)
-# included; upstream narrowed this to en_US_*/ plus foil_masks/, we keep the
-# broader rule.
-spirit/assets/bundleCache/
-# The Logos bundle (top-nav Home button logo) is tiny + essential UI; ship it so a
-# fresh clone has a working Home button without needing a local game install.
-!spirit/assets/cards/
-# Static localization reference data must ship with the repo (server loads it at
-# startup; a git-clone deploy has no other source). Runtime account/user DBs stay ignored.
+# These two databases contain static client localization reference data and
+# are required by a fresh source checkout. They are not account databases.
 !spirit/database/game_data/LocalizationDB-UTF8.db
-spirit/assets/externalCache/
+!spirit/database/game_data/LocalizationDB-UTF16.db
 
-# AI Files :)
-CLAUDE.md
-GEMINI.md
-AGENTS.md
+# Card artwork and proprietary/generated AssetBundles are supplied locally
+# from the cbrew bundles. Keep the source catalog and foil metadata in Git,
+# but never publish the extracted images or generated cache.
+/spirit/assets/cards/*
+!/spirit/assets/cards/README.md
+/spirit/assets/bundleCache/
+/spirit/assets/externalCache/
+/spirit/assets/products/**/*.png
+/spirit/server/asset_map.json
 
-unity_ptcgo_recon/
-docs/
-spirit/server/asset_map.json 
-venv/ 
-spirit/assets/bundleCache/ 
-*.db 
-__pycache__/ 
+# The Pokemon TCG Live cache importer is intentionally local-only and is not
+# part of the CompletePTCGO source distribution.
+/spirit/tools/import_live_foil_masks.py
+/tests/test_import_live_foil_masks.py
+
+# Generated audits and one-off investigation output. Keep the audit tools and
+# regression tests; regenerate reports locally when needed.
+/*.json
+!/package-lock.json
+/passive-*.txt
+/unmapped-*.txt
+/client_errors.log
+/backups/
+/tools/card-builder/dist-bulk/
+/spirit/tools/_debug_condition.py

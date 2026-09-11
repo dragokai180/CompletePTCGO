@@ -239,7 +239,7 @@ class AuthHandler(BaseHandler):
             "seasonID": "Season1",
             "startTime": 0,
             "endTime": 4102444800000, # Year 2100
-            "description": {"id": "SpiritPTCGO Season"},
+            "description": {"id": "CompletePTCGO Season"},
             "tiers": [],
             "resetRewardID": ""
         }

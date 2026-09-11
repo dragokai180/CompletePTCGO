@@ -80,7 +80,7 @@ def setup_database():
         try:
             from spirit.game.starter_content import grant_starter_content
             grant_starter_content(new_account_id)
-            print(" - Granted starter decks and booster packs to seeded account.")
+            print(" - Granted starter packs and cosmetics to seeded account (no decks).")
         except Exception as e:
             print(f" - Warning: Failed to grant starter content: {e}")
 

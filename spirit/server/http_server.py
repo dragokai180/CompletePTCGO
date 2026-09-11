@@ -483,8 +483,13 @@ class MockHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'application/vnd.unity')
             self.send_header('Content-Length', str(len(file_bytes)))
-            # Enable client-side caching of static Unity asset bundles to prevent redownload cache write collisions
-            self.send_header('Cache-Control', 'public, max-age=31536000')
+            # Unity maintains its own versioned AssetBundle cache.  A one-year
+            # HTTP freshness lifetime here can serve old bytes after the
+            # manifest version changes, making regenerated card/foil textures
+            # appear unchanged.  Revalidate the URL and let Unity retain the
+            # bundle under the content-derived manifest version.
+            self.send_header('Cache-Control', 'no-cache, must-revalidate')
+            self.send_header('Pragma', 'no-cache')
             self.end_headers()
             self.wfile.write(file_bytes)
             logging.debug(f"[HTTP] Asset Sent Successfully: {filename} from {asset_full_path}")
@@ -563,7 +568,12 @@ class MockHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             "helpButtonDestination": f"http://{host}/help/",
             "localizedSignup": f"http://{host}/signup/",
             "serviceID": "pokemon_tcgo",
-            "bacgroundRelease": "lobby" # Points to the broad lobby alias in our manifest
+            # ``BackgroundImageBehaviour`` builds the asset key as
+            # ``Background{resolution}/Background{release}``.  The spelling
+            # of this JSON field is intentionally kept as the archived client
+            # expects it.  ``_cr112`` therefore resolves to the original
+            # ``Background/background_cr112`` asset in the cache manifest.
+            "bacgroundRelease": "_cr112",
         })
 
     def handle_motd(self):
@@ -571,9 +581,9 @@ class MockHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         current_time_ms = int(time.time() * 1000)
         response = {
             "message": {
-                "en": "Welcome to Brandon's PTCGO Private Server!",
-                "en_US": "Welcome to Brandon's PTCGO Private Server!",
-                "en_UK": "Welcome to Brandon's PTCGO Private Server!"
+                "en": "Welcome to CompletePTCGO!",
+                "en_US": "Welcome to CompletePTCGO!",
+                "en_UK": "Welcome to CompletePTCGO!"
             },
             "urgency": "High",
             "date": current_time_ms

@@ -1,5 +1,5 @@
-from spirit.game.data_utils import PokemonCardDef, Attack, Foil
-from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, FoilMasks, FoilEffects
+from spirit.game.data_utils import PokemonCardDef, Attack
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.attacks_common import damage_per, count_prizes_taken
 
 card = PokemonCardDef(
@@ -20,7 +20,6 @@ card = PokemonCardDef(
     resistance_type=PokemonTypes.GRASS,
     evolves_from="com.direwolfdigital.cake.data.archetypes.pokemon.AegislashV.Name",
     family_id=681,
-    foil=Foil(mask=FoilMasks.HOLO, effects=[FoilEffects.SWHOLO]),
     abilities=[
         Attack(
             title="Max Hack",

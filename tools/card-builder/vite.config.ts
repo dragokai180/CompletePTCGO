@@ -392,7 +392,8 @@ function extractImports(source: string): string[] {
   return source
     .split('\n')
     .map(l => l.trim())
-    .filter(l => /^from\s+\S+\s+import\s+/.test(l) || /^import\s+/.test(l));
+    .filter(l => (/^from\s+\S+\s+import\s+/.test(l) || /^import\s+/.test(l))
+      && !l.endsWith('('));
 }
 
 function extractHelpersBeforeCard(source: string): string[] {

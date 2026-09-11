@@ -1,0 +1,22 @@
+from spirit.game.data_utils import SupporterCardDef
+from spirit.game.attributes import PokemonTypes, Rarities
+from spirit.game.card_effects.standard_era import (
+    standard_attack, standard_passive, standard_stadium_ability,
+    standard_trainer_condition, standard_trainer_effect,
+)
+
+
+card = SupporterCardDef(
+    guid='58d94043-fe88-5f04-afdf-a43dad5de773',
+    key='HGSS2',
+    name='com.direwolfdigital.cake.data.archetypes.trainer.CheerleadersCheer.Name',
+    display_name="Cheerleader's Cheer",
+    searchable_by=["Cheerleader's Cheer", 'Supporter', 'CheerleadersCheer'],
+    subtypes=['Supporter'],
+    collector_number=71,
+    set_code='HGSS2',
+    regulation_mark=None,
+    rarity=Rarities.Uncommon,
+    effect=standard_trainer_effect('You can play only one Supporter card each turn. When you play this card, put it next to your Active Pokémon. When your turn ends, discard this card. Draw 3 cards. Your opponent may draw a card.'),
+    condition=standard_trainer_condition('You can play only one Supporter card each turn. When you play this card, put it next to your Active Pokémon. When your turn ends, discard this card. Draw 3 cards. Your opponent may draw a card.'),
+)

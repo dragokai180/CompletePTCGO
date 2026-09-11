@@ -1,0 +1,43 @@
+from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.standard_era import (
+    standard_ability, standard_attack, standard_passive,
+)
+
+
+card = PokemonCardDef(
+    guid='43f6013a-4084-5522-8d9c-2d523664a78b',
+    key='XY4',
+    name='com.direwolfdigital.cake.data.archetypes.pokemon.AegislashEX.Name',
+    display_name='Aegislash-EX',
+    searchable_by=['Aegislash-EX', 'Basic', 'EX', 'AegislashEX'],
+    subtypes=['Basic', 'EX'],
+    collector_number=126,
+    set_code='XY4',
+    regulation_mark=None,
+    rarity=Rarities.RareUltra,
+    hp=170,
+    elements=[PokemonTypes.METAL],
+    stage=PokemonStage.BASIC,
+    retreat_cost=3,
+    weakness_type=PokemonTypes.FIRE,
+    weakness_amount=2,
+    resistance_type=PokemonTypes.PSYCHIC,
+    resistance_amount=20,
+    family_id=681,
+    abilities=[
+        Ability(
+            title='Mighty Shield',
+            game_text="Prevent all damage done to this Pokémon by attacks from each of your opponent's Pokémon that has Special Energy attached to it.",
+            passive=standard_passive("Prevent all damage done to this Pokémon by attacks from each of your opponent's Pokémon that has Special Energy attached to it."),
+        ),
+        Attack(
+            title='Slash Blast',
+            game_text='This attack does 20 more damage for each Metal Energy attached to this Pokémon.',
+            cost={PokemonTypes.COLORLESS: 3},
+            damage=40,
+            damage_operator='+',
+            effect=standard_attack,
+        ),
+    ],
+)

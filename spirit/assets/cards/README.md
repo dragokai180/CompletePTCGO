@@ -1,22 +1,17 @@
-# spirit/assets/cards
-THE STRUCTURE OF THIS FOLDER MUST MATCH THAT OF game/scripts
+# Local card artwork
 
-The cards texture rely on these png files being in the same order and name as the scripts!
+Card and product images are intentionally excluded from the CompletePTCGO
+source repository. They are copyrighted assets and add several gigabytes of
+generated binary data to Git history.
 
-## Reprints (same card, different art / collector number)
+Supply the local asset archive referred to by this project as the **cbrew
+bundles**, then import the artwork before starting the server:
 
-Keep the full mechanics in one script (e.g. `IronLeavesex_25.py`). For alternate
-printings, add matching PNGs plus a thin stub that calls `reprint(...)`:
-
-```python
-from spirit.game.attributes import Rarities
-from spirit.game.data_utils import reprint, sibling_card
-
-card = reprint(
-    sibling_card(__file__, "IronLeavesex_25.py"),
-    collector_number=186,
-    rarity=Rarities.RareUltra,
-)
+```powershell
+$env:PTCGO_ART_SOURCE_DIR = "C:\path\to\cbrew bundles"
+python -m spirit.tools.ptcgo_local_assets --source $env:PTCGO_ART_SOURCE_DIR
 ```
 
-Stub basename must match the PNG (`IronLeavesex_186.py` ↔ `IronLeavesex_186.png`).
+The importer writes card textures below this directory and the server compiles
+the required AssetBundles into `spirit/assets/bundleCache/`. Both outputs stay
+local and must not be committed.

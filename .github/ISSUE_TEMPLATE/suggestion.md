@@ -1,6 +1,6 @@
 ---
-name: Suggestion
-about: Suggest an idea for this project
+name: Feature request
+about: Suggest an improvement to CompletePTCGO
 title: "[SUGGESTION] "
 labels: enhancement
 assignees: ''

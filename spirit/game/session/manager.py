@@ -206,8 +206,8 @@ class GameSessionManager:
 
     def _bot_deck(self) -> dict:
         """A full 60-card starter list so the AI has a legal pile to play."""
-        from spirit.game.starter_content import STARTER_DECKS, build_deck_data
-        name, decklist = random.choice(STARTER_DECKS)
+        from spirit.game.starter_content import BOT_DECKS, build_deck_data
+        name, decklist = random.choice(BOT_DECKS)
         return build_deck_data(name, decklist)
 
     def _cancel_fill_task(self, entry: dict):

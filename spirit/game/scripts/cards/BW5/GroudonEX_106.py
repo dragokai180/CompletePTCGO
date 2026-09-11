@@ -1,0 +1,39 @@
+from spirit.game.data_utils import PokemonCardDef, Attack, Ability
+from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
+from spirit.game.card_effects.bw10 import CursedGlarePassive, blizzard
+from spirit.game.card_effects.bw_era import bw_legacy_attack, bw_legacy_ability, bw_legacy_passive, bw_trainer_effect, bw_trainer_passive, bw_tool_abilities, bw_stadium_ability, bw_stadium_triggers
+
+card = PokemonCardDef(
+    guid="7585f67e-d036-540c-b262-f870bec67ff3",
+    key="BW5",
+    name="com.direwolfdigital.cake.data.archetypes.pokemon.GroudonEX.Name",
+    display_name="Groudon-EX",
+    searchable_by=["Groudon-EX","Basic","EX","GroudonEX"],
+    subtypes=["Basic","EX"],
+    collector_number=106,
+    set_code="BW5",
+    rarity=Rarities.RareUltra,
+    hp=180,
+    elements=[PokemonTypes.FIGHTING],
+    stage=PokemonStage.BASIC,
+    retreat_cost=4,
+    weakness_type=PokemonTypes.WATER,
+    resistance_type=PokemonTypes.LIGHTNING,
+    abilities=[
+        Attack(
+            title="Tromp",
+            game_text="Does 10 damage to each of your opponent's Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)",
+            cost={PokemonTypes.FIGHTING: 1, PokemonTypes.COLORLESS: 1},
+            damage=20,
+            effect=blizzard,
+        ),
+        Attack(
+            title="Giant Claw",
+            game_text="If the Defending Pokémon already has 2 or more damage counters on it, this attack does 40 more damage.",
+            cost={PokemonTypes.FIGHTING: 2, PokemonTypes.COLORLESS: 1},
+            damage=80,
+            damage_operator="+",
+            effect=bw_legacy_attack,
+        ),
+    ],
+)

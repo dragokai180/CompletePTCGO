@@ -1,9 +1,7 @@
-"""Generate (or preview) procedural foil masks for cards.
+"""Manually generate (or preview) procedural foil masks for diagnostics.
 
-The auto_bundle startup scan already generates masks for every foil-flagged
-card lacking an extracted/hand-authored _foil PNG; this tool exists to force
-regeneration after tuning foil_mask_gen.py and to preview a mask composited
-on white without launching the client.
+Runtime bundling never consumes these generated masks automatically. The game
+only serves masks imported beside card artwork from an original cache.
 
 Usage:
     python -m spirit.tools.generate_foil_masks --set SWSH2 --card 135 --preview out.png
@@ -18,10 +16,11 @@ from PIL import Image
 
 from spirit.server import foil_mask_gen
 from spirit.server.auto_bundle import (
-    CARDS_IMG_DIR, FOIL_GEN_DIR, FOIL_SUFFIX_BY_KIND,
+    BUNDLE_CACHE_DIR, CARDS_IMG_DIR, FOIL_SUFFIX_BY_KIND,
 )
 
 SCRIPTS_DIR = os.path.join("spirit", "game", "scripts", "cards")
+FOIL_GEN_DIR = os.path.join(BUNDLE_CACHE_DIR, "foil_masks")
 
 
 def _load_defs(set_code, only_cards=None):

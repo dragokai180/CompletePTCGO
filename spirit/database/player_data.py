@@ -2,6 +2,7 @@ import json
 import os
 import logging
 from spirit.database import db_session, Account, Wallet, Deck, Collection, ArchetypeFlag
+from spirit.game.format_manager import is_basic_energy_card
 from spirit.game.scripts.cards import loader as card_loader
 from spirit.game.scripts.products import loader as product_loader
 
@@ -225,6 +226,16 @@ def get_collection_by_account_id(account_id):
 
 _FREE_ENERGY_GUIDS = None
 
+# Cards deliberately retired from the server catalog. Existing accounts may
+# still own their GUIDs in SQLite, so suppress those orphaned stacks instead of
+# sending references for archetypes the client can no longer resolve.
+_RETIRED_CARD_GUIDS = {
+    "51f085aa-d4f0-5f9e-9300-fef9284fed99",  # Electabuzz (BASE1 20)
+    "85fdd137-f5d8-5ea2-8b0a-e3655b04f2d3",  # Hitmonchan (BASE1 7)
+    "3f1b7976-fea8-502d-9423-b00d63a1bed0",  # Scyther (BASE2 10)
+    "ee872288-f81c-4444-465a-42bc8ca232af",  # Custom Card (CUSTOM 1)
+}
+
 def _free_energy_guids():
     """GUIDs of the basic-energy 'Free_Energy' cards, which every player owns unlimited copies of."""
     global _FREE_ENERGY_GUIDS
@@ -247,6 +258,8 @@ def get_merged_collection_payload(account_id):
     # 1. Items the account actually owns in the database
     for item in get_collection_by_account_id(account_id):
         guid = item["archetype_id"].lower()
+        if guid in _RETIRED_CARD_GUIDS:
+            continue
         if guid in seen_guids:
             continue
         seen_guids.add(guid)
@@ -275,11 +288,29 @@ def get_owned_counts(account_id):
     return {
         item["archetype_id"].lower(): int(item["tradable_count"]) + int(item["nontradable_count"])
         for item in get_collection_by_account_id(account_id)
+        if item["archetype_id"].lower() not in _RETIRED_CARD_GUIDS
     }
 
 
+_ONE_COPY_SUBTYPES = frozenset({"ACE SPEC", "Prism Star", "Radiant", "V-UNION"})
+BASIC_ENERGY_GRANT_COUNT = 59
+
+
+def _all_cards_grant_count(card, regular_count=4):
+    """Return the useful collection size for one card in the debug grant."""
+    if is_basic_energy_card(card):
+        return BASIC_ENERGY_GRANT_COUNT
+    if _ONE_COPY_SUBTYPES.intersection(card.subtypes or []):
+        return 1
+    return regular_count
+
+
 def grant_all_cards(account_id, count=4, is_tradable=True):
-    """Debug: ensure the account owns `count` copies of every non-basic card in one transaction."""
+    """Ensure useful deck-building quantities of every card in one transaction.
+
+    Regular cards use ``count`` (normally four), every Basic Energy printing
+    gets 59 copies, and cards whose deck rule permits only one get one copy.
+    """
     try:
         cards = card_loader.load_all()
     except Exception as e:
@@ -291,8 +322,7 @@ def grant_all_cards(account_id, count=4, is_tradable=True):
             existing = {c.archetype_id: c for c in
                         session.query(Collection).filter_by(account_id=account_id).all()}
             for card in cards:
-                if card.key == "Free_Energy":  # basic energy is already unlimited/free
-                    continue
+                target_count = _all_cards_grant_count(card, count)
                 row = existing.get(card.guid)
                 if row is None:
                     row = Collection(account_id=account_id, archetype_id=card.guid,
@@ -300,14 +330,18 @@ def grant_all_cards(account_id, count=4, is_tradable=True):
                     session.add(row)
                     existing[card.guid] = row
                 if is_tradable:
-                    row.tradable_count = max(row.tradable_count, count)
+                    row.tradable_count = max(row.tradable_count, target_count)
                 else:
-                    row.nontradable_count = max(row.nontradable_count, count)
+                    row.nontradable_count = max(row.nontradable_count, target_count)
                 granted += 1
     except Exception as e:
         logging.error(f"[DB] grant_all_cards failed for {account_id}: {e}")
         return 0
-    logging.info(f"[DB] grant_all_cards: gave {count}x of {granted} cards to {account_id}")
+    logging.info(
+        "[DB] grant_all_cards: granted %sx regular, 1x limited, and %sx basic "
+        "energy across %s cards to %s",
+        count, BASIC_ENERGY_GRANT_COUNT, granted, account_id,
+    )
     return granted
 
 def grant_all_products(account_id, count=1, is_tradable=True):

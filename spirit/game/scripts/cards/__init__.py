@@ -15,6 +15,8 @@ class ScriptLoader:
         self.cards_by_key: Dict[str, Card] = {}
         # script filename stem (e.g. "Watchog_79") -> archetype GUID
         self.cards_by_stem: Dict[str, str] = {}
+        self.script_by_guid: Dict[str, str] = {}
+        self.duplicate_guids: List[str] = []
 
     def load_all(self, force=False):
         """Loads all card scripts once; cached thereafter unless force=True.
@@ -28,6 +30,8 @@ class ScriptLoader:
         self.cards_by_guid = {}
         self.cards_by_key = {}
         self.cards_by_stem = {}
+        self.script_by_guid = {}
+        self.duplicate_guids = []
         
         logging.info(f"[Scripts] Loading card scripts from {self.scripts_dir}...")
         
@@ -37,6 +41,24 @@ class ScriptLoader:
                     file_path = os.path.join(root, file)
                     self._load_script(file_path)
         
+        if self.duplicate_guids:
+            details = "; ".join(self.duplicate_guids)
+            raise RuntimeError(
+                "Duplicate card GUIDs would crash the client while loading "
+                f"archetypes: {details}"
+            )
+
+        # A few modules can be imported indirectly while the loader itself is
+        # still resolving dependencies.  Run the normalization once more over
+        # the authoritative registry after the full catalog is present; this
+        # makes the result independent of filesystem/import order.
+        from spirit.game.data_utils import CARD_DEFS_BY_GUID
+        from spirit.game.card_effects.standard_era import (
+            normalize_standard_card_definition,
+        )
+        for definition in CARD_DEFS_BY_GUID.values():
+            normalize_standard_card_definition(definition)
+
         logging.info(f"[Scripts] Successfully loaded {len(self.cards)} card scripts.")
         return self.cards
 
@@ -57,12 +79,35 @@ class ScriptLoader:
 
             if hasattr(module, 'card'):
                 card_def = module.card
+                # Bulk-imported catalogs use a shared text interpreter.  Fix
+                # Ability/trigger/passive classification before attributes and
+                # legal actions are registered.  Hand-written effects are not
+                # touched by this normalization.
+                try:
+                    from spirit.game.card_effects.standard_era import (
+                        normalize_standard_card_definition,
+                    )
+                    normalize_standard_card_definition(card_def)
+                except Exception as normalize_error:
+                    logging.error(
+                        f"[Scripts] Failed to normalize {file_path}: "
+                        f"{normalize_error}"
+                    )
                 # Convert the Definition object into a Server Card model
                 # This ensures compatibility with existing packet handlers
                 archetype = card_def.to_archetype_dict()
                 guid = archetype["guid"]
                 key = archetype["key"]
                 attrs = archetype["attributes"]
+
+                if guid in self.cards_by_guid:
+                    first = self.script_by_guid.get(guid, "<unknown>")
+                    duplicate = (
+                        f"{guid}: {first} and {file_path}"
+                    )
+                    logging.error(f"[Scripts] Duplicate card GUID: {duplicate}")
+                    self.duplicate_guids.append(duplicate)
+                    return
                 
                 c_type = attrs.get(str(AttrID.CARD_TYPE.value), {}).get("value", CardType.UNSET)
                 
@@ -77,6 +122,7 @@ class ScriptLoader:
                 
                 self.cards.append(card_obj)
                 self.cards_by_guid[guid] = card_obj
+                self.script_by_guid[guid] = file_path
                 self.cards_by_key[key] = card_obj
                 self.cards_by_stem[os.path.splitext(os.path.basename(file_path))[0]] = guid
             else:

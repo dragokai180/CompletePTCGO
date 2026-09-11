@@ -431,7 +431,7 @@ export const PREFAB_CATALOG: PrefabDefinition[] = [
     importNames: ['flip_damage'],
     params: [{ key: 'per', label: 'Per heads', type: 'number', defaultValue: 30 }],
     patterns: [
-      /^flip a coin until you get tails\.?\s*this attack does (\d+) damage for each heads\.?$/i,
+      /^flip a coin until you get tails\.?\s*this attack does (\d+) damage (?:for each heads|times the number(?: of)? heads?)\.?$/i,
     ],
     paramCaptures: { 1: 'per' },
     generateCall: (params) =>
@@ -452,7 +452,7 @@ export const PREFAB_CATALOG: PrefabDefinition[] = [
     importNames: ['flip_damage'],
     params: [{ key: 'per', label: 'Per heads', type: 'number', defaultValue: 30 }],
     patterns: [
-      /^flip a coin until you get tails\.?\s*this attack does (\d+) more damage for each heads\.?$/i,
+      /^flip a coin until you get tails\.?\s*this attack does (\d+) more damage (?:for each heads|times the number(?: of)? heads?)\.?$/i,
     ],
     paramCaptures: { 1: 'per' },
     generateCall: (params) =>
@@ -474,7 +474,7 @@ export const PREFAB_CATALOG: PrefabDefinition[] = [
       { key: 'per', label: 'Per heads', type: 'number', defaultValue: 40 },
     ],
     patterns: [
-      /^flip (\d+) coins?\.?\s*this attack does (\d+) damage for each heads\.?$/i,
+      /^flip (\d+) coins?\.?\s*this attack does (\d+) damage (?:for each heads|times the number(?: of)? heads?)\.?$/i,
     ],
     paramCaptures: { 1: 'coins', 2: 'per' },
     generateCall: (params) =>

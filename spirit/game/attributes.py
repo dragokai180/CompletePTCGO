@@ -29,6 +29,7 @@ class AttrID(IntEnum):
     CARD_TYPE = 200300
     COLLECTION_ID = 200000
     COLLECTOR_NUMBER = 200780
+    CARD_NUMBER_TEXT = 200790
     SET_CACHE_KEY = 200580
 
     # Pokemon Specific
@@ -47,6 +48,10 @@ class AttrID(IntEnum):
     # Playmat attr: EntityID[] of the acting attack/ability source; the client's
     # Attack executor reads element [0] and the orb FX shoots from it.
     ATTACK_SOURCES = 201870
+    # CardOrientations? used by the native Stadium renderer.  Directional
+    # Stadiums store 0 (normal) or 1 (inverted) so both viewers, including a
+    # reconnecting client, render the side chosen before the card was played.
+    CARD_ORIENTATION = 201910
 
     # Trainer Specific
     TRAINER_TYPE = 200270

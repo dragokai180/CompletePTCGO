@@ -28,6 +28,7 @@ class GameFormat:
         banned_cards: Optional[List[str]] = None,
         extra_legal_cards: Optional[List[str]] = None,
         legal_from: Optional[Dict[str, int]] = None,
+        regulation_marks: Optional[List[str]] = None,
     ):
         self.key = key
         self.guid = str(guid).lower()
@@ -39,6 +40,12 @@ class GameFormat:
         self.extra_legal_cards = [str(c) for c in (extra_legal_cards or [])]
         # set_code -> epoch ms when the set becomes legal (0/absent = always).
         self.legal_from = {str(k): int(v) for k, v in (legal_from or {}).items()}
+        # Optional per-print rotation gate.  Older formats remain set-based;
+        # Standard can additionally require the current regulation letters.
+        self.regulation_marks = {
+            str(mark).strip().upper() for mark in (regulation_marks or [])
+            if str(mark).strip()
+        }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "GameFormat":
@@ -59,6 +66,10 @@ class GameFormat:
         legal_from = data.get("legalFrom", {})
         if not isinstance(legal_from, dict):
             raise ValueError(f"format '{key}': 'legalFrom' must be an object")
+        regulation_marks = data.get("regulationMarks", [])
+        if not isinstance(regulation_marks, list) or not all(
+                isinstance(mark, str) for mark in regulation_marks):
+            raise ValueError(f"format '{key}': 'regulationMarks' must be a list")
         return cls(
             key=key,
             guid=str(guid),
@@ -68,6 +79,7 @@ class GameFormat:
             banned_cards=data.get("bannedCards", []),
             extra_legal_cards=data.get("extraLegalCards", []),
             legal_from=legal_from,
+            regulation_marks=regulation_marks,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -80,6 +92,7 @@ class GameFormat:
             "bannedCards": list(self.banned_cards),
             "extraLegalCards": list(self.extra_legal_cards),
             "legalFrom": dict(self.legal_from),
+            "regulationMarks": sorted(self.regulation_marks),
         }
 
     def allows_set(self, set_code: Optional[str]) -> bool:

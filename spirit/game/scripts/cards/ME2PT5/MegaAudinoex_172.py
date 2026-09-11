@@ -1,5 +1,6 @@
-from spirit.game.data_utils import PokemonCardDef, Attack, unimplemented
+from spirit.game.data_utils import PokemonCardDef, Attack
 from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
+from spirit.game.card_effects.standard_era import standard_attack
 
 card = PokemonCardDef(
     guid="d274bba8-a07a-5325-a481-15c939461cd7",
@@ -23,7 +24,7 @@ card = PokemonCardDef(
             title="Kaleidowaltz",
             game_text="Flip 3 coins. For each heads, search your deck for up to 2 Basic Energy cards and attach them to your Pokémon in any way you like. Then, shuffle your deck.",
             cost={PokemonTypes.COLORLESS: 1},
-            effect=unimplemented,
+            effect=standard_attack,
         ),
         Attack(
             title="Ear Force",
@@ -31,7 +32,7 @@ card = PokemonCardDef(
             cost={PokemonTypes.COLORLESS: 3},
             damage=20,
             damage_operator="+",
-            effect=unimplemented,
+            effect=standard_attack,
         ),
     ],
 )

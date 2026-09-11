@@ -2,6 +2,7 @@ from spirit.game.data_utils import ItemCardDef
 from spirit.game.attributes import Rarities
 from spirit.game.card_effects.trainers import is_basic_energy_card, is_water_energy_card
 from spirit.game.session.effects import is_water_pokemon
+from spirit.game.card_effects.support_common import requires_discard
 
 
 def _is_basic_water_energy(card):
@@ -37,5 +38,8 @@ card = ItemCardDef(
     set_code="ME4",
     regulation_mark="J",
     rarity=Rarities.Uncommon,
+    condition=requires_discard(
+        lambda card: is_water_pokemon(card) or _is_basic_water_energy(card)
+    ),
     effect=great_haul_net,
 )

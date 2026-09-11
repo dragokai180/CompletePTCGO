@@ -1,0 +1,38 @@
+from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.standard_era import (
+    standard_ability, standard_attack, standard_passive,
+)
+
+
+card = PokemonCardDef(
+    guid='055029d6-187f-5b4c-83fa-4162e4ad2d35',
+    key='SM10',
+    name='com.direwolfdigital.cake.data.archetypes.pokemon.Growlithe.Name',
+    display_name='Growlithe',
+    searchable_by=['Growlithe', 'Basic', 'Growlithe'],
+    subtypes=['Basic'],
+    collector_number=21,
+    set_code='SM10',
+    regulation_mark=None,
+    rarity=Rarities.Common,
+    hp=80,
+    elements=[PokemonTypes.FIRE],
+    stage=PokemonStage.BASIC,
+    retreat_cost=2,
+    weakness_type=PokemonTypes.WATER,
+    weakness_amount=2,
+    family_id=58,
+    abilities=[
+        Attack(
+            title='Live Coal',
+            cost={PokemonTypes.FIRE: 1},
+            damage=10,
+        ),
+        Attack(
+            title='Combustion',
+            cost={PokemonTypes.FIRE: 2},
+            damage=30,
+        ),
+    ],
+)

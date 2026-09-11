@@ -14,9 +14,10 @@ FORMATS_PATH = os.path.abspath(os.path.join(
 ))
 
 LEGACY_SETS = {"BW1"}
-STANDARD_NON_SWSH_SETS = {
-    "CEL25", "PGO", "CZ", "CUSTOM", "Free_Energy", "SV05", "SV06", "SV065", "SV07", "SV08",
-    "SV085", "SV10",
+CURRENT_STANDARD_SETS = {
+    "Free_Energy", "SV05", "SV06", "SV065", "SV07", "SV08", "SV085",
+    "SV09", "SV10", "RSV10PT5", "ZSV10PT5", "SVP", "ME1", "ME2",
+    "ME2PT5", "ME3", "ME4", "ME5", "MEP",
 }
 
 
@@ -28,12 +29,15 @@ def is_basic_energy_card(card) -> bool:
 
 
 def _default_formats() -> List[GameFormat]:
-    """All loaded sets -> Expanded/Unlimited, SWSH block -> Standard, BW -> Legacy."""
+    """Build safe defaults when the editable format configuration is absent."""
     loaded = sorted(card_script_counts().keys())
-    standard = [s for s in loaded if s.startswith("SWSH") or s in STANDARD_NON_SWSH_SETS]
-    legacy = [s for s in loaded if s in LEGACY_SETS or s in ("Free_Energy", "CUSTOM")]
+    standard = [s for s in loaded if s in CURRENT_STANDARD_SETS]
+    legacy = [s for s in loaded if s in LEGACY_SETS or s == "Free_Energy"]
     return [
-        GameFormat("Standard", DeckFormat.STANDARD.value, "Modified", sets=standard),
+        GameFormat(
+            "Standard", DeckFormat.STANDARD.value, "Modified",
+            sets=standard, regulation_marks=["H", "I", "J"],
+        ),
         GameFormat("Expanded", DeckFormat.EXPANDED.value, "Expanded", sets=loaded),
         GameFormat("Legacy", DeckFormat.LEGACY.value, "Legacy", sets=legacy),
         GameFormat("Unlimited", DeckFormat.UNLIMITED.value, "Unlimited", all_sets=True),
@@ -173,7 +177,34 @@ class FormatManager:
         if guid in extra:
             return True
         set_code = card.get_attribute_value(AttrID.SET_KEY) or card.key
-        return fmt.allows_set(set_code)
+        if not fmt.regulation_marks:
+            return fmt.allows_set(set_code)
+
+        # The loader's wire Card does not carry server-only regulation data;
+        # definitions are registered globally by data_utils.
+        from spirit.game.data_utils import CARD_DEFS_BY_GUID, def_for
+        definition = def_for(guid)
+        mark = str(getattr(definition, "regulation_mark", "") or "").upper()
+        if fmt.allows_set(set_code) and mark in fmt.regulation_marks:
+            return True
+
+        # Older printings of Trainer/Special Energy cards remain legal when a
+        # current printing with the same name is legal.  Basic Energy returned
+        # above, while Pokémon always require their own regulation mark.
+        card_type = card.get_attribute_value(AttrID.CARD_TYPE)
+        if card_type not in (CardType.TRAINER.value, CardType.ENERGY.value):
+            return False
+        display_name = getattr(definition, "display_name", None)
+        if not display_name:
+            return False
+        return any(
+            other is not definition
+            and getattr(other, "display_name", None) == display_name
+            and str(getattr(other, "regulation_mark", "") or "").upper()
+                in fmt.regulation_marks
+            and fmt.allows_set(getattr(other, "set_code", None))
+            for other in CARD_DEFS_BY_GUID.values()
+        )
 
     def is_card_legal(self, format_guid: str, card, now_ms: Optional[int] = None) -> bool:
         if not self.is_card_eventually_legal(format_guid, card):

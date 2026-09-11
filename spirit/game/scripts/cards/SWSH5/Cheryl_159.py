@@ -1,6 +1,15 @@
 from spirit.game.data_utils import SupporterCardDef
 from spirit.game.attributes import AttrID, Rarities
 from spirit.game.session.effects import is_evolution_pokemon
+from spirit.game.session.passives import effective_max_hp
+
+
+def cheryl_playable(board, player_id):
+    return any(
+        is_evolution_pokemon(pokemon)
+        and pokemon.get_attribute(AttrID.HP, 0) < effective_max_hp(board, pokemon)
+        for pokemon in board.pokemon_in_play(player_id)
+    )
 
 
 async def cheryl(ctx):
@@ -28,5 +37,6 @@ card = SupporterCardDef(
     collector_number=159,
     set_code="SWSH5",
     rarity=Rarities.RareUltra,
+    condition=cheryl_playable,
     effect=cheryl,
 )

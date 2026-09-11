@@ -1,4 +1,4 @@
-# SpiritPTCGO server runtime dependencies.
+# CompletePTCGO server runtime dependencies.
 # Quick start:  python -m venv venv  &&  <activate venv>  &&  pip install -r requirements.txt
 # (the run.bat / run.sh launchers do all of this for you automatically)
 

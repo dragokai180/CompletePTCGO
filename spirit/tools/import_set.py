@@ -9,6 +9,7 @@ from typing import Dict, Any, List, Optional
 from concurrent.futures import ThreadPoolExecutor
 
 from spirit.game.text_encoding import fix_mojibake as fix_text
+from spirit.tools.ptcgo_local_assets import install_card_art, source_directory
 
 # Configuration (defaults, will be dynamically overridden in main)
 SET_CODE = "SWSH12"
@@ -294,7 +295,7 @@ card = EnergyCardDef(
 
     return content or None
 
-def process_card(card: Dict[str, Any]):
+def process_card(card: Dict[str, Any], local_art_source=None):
     filename = f"{clean_name(card.get('name', 'Unknown'))}_{card.get('number', '0')}"
     script_path = os.path.join(SCRIPT_OUTPUT_DIR, f"{filename}.py")
     asset_path = os.path.join(ASSET_OUTPUT_DIR, f"{filename}.png")
@@ -303,6 +304,18 @@ def process_card(card: Dict[str, Any]):
     if content:
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(content)
+
+    # Prefer the native square PTCGO texture when the user's local archive has
+    # this set/card.  The web API remains a fallback for newer sets or missing
+    # collector numbers only.
+    if install_card_art(
+        SET_CODE,
+        card.get("number"),
+        asset_path,
+        local_art_source,
+        overwrite=True,
+    ):
+        return None
 
     image_url = card.get("images", {}).get("large")
     if image_url:
@@ -315,6 +328,11 @@ def main():
     parser = argparse.ArgumentParser(description="Import a Pokemon TCG set from a JSON file.")
     parser.add_argument("json_path", nargs="?", default="spirit/game/scripts/cards/SWSH12/swsh12.json", help="Path to the TCG JSON file to import.")
     parser.add_argument("--set-code", help="The set code to use (defaults to upper case of JSON filename).")
+    parser.add_argument(
+        "--ptcgo-assets",
+        default=os.environ.get("PTCGO_ART_SOURCE_DIR", str(source_directory())),
+        help="Folder containing original local PTCGO artwork archives.",
+    )
     args = parser.parse_args()
 
     JSON_PATH = args.json_path
@@ -349,7 +367,7 @@ def main():
     print(f"Processing {len(cards)} cards...")
     download_tasks = []
     for card in cards:
-        task = process_card(card)
+        task = process_card(card, args.ptcgo_assets)
         if task:
             download_tasks.append(task)
             

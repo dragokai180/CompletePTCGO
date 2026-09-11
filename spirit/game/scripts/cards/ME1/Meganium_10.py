@@ -8,7 +8,7 @@ class WildGrowthPassive(Passive):
     """Each Basic Grass Energy attached to all of your Pokémon provides
     GrassGrass Energy. Does not stack."""
 
-    def modify_energy_provided(self, options, energy, holder, board):
+    def modify_energy_provided(self, options, energy, holder, board, carrier=None):
         if holder is None or energy.get_attribute(AttrID.IS_SPECIAL_ENERGY):
             return options
         if not energy_provides_type(energy, PokemonTypes.GRASS.value):

@@ -1,0 +1,33 @@
+from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.standard_era import (
+    standard_ability, standard_attack, standard_passive,
+)
+
+
+card = PokemonCardDef(
+    guid='cede3c33-d9de-55b3-aadb-d9da4c678b67',
+    key='XY3',
+    name='com.direwolfdigital.cake.data.archetypes.pokemon.Machop.Name',
+    display_name='Machop',
+    searchable_by=['Machop', 'Basic', 'Machop'],
+    subtypes=['Basic'],
+    collector_number=44,
+    set_code='XY3',
+    regulation_mark=None,
+    rarity=Rarities.Common,
+    hp=70,
+    elements=[PokemonTypes.FIGHTING],
+    stage=PokemonStage.BASIC,
+    retreat_cost=2,
+    weakness_type=PokemonTypes.PSYCHIC,
+    weakness_amount=2,
+    family_id=66,
+    abilities=[
+        Attack(
+            title='Knuckle Punch',
+            cost={PokemonTypes.FIGHTING: 1},
+            damage=10,
+        ),
+    ],
+)

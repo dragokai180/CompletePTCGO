@@ -1,0 +1,45 @@
+from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.standard_era import (
+    standard_ability, standard_attack, standard_passive,
+)
+
+
+card = PokemonCardDef(
+    guid='f0cf1d7a-3447-5f4e-a03f-5b16a51f091b',
+    key='Promo_SM',
+    name='com.direwolfdigital.cake.data.archetypes.pokemon.UmbreonDarkraiGX.Name',
+    display_name='Umbreon & Darkrai-GX',
+    searchable_by=['Umbreon & Darkrai-GX', 'Basic', 'TAG TEAM', 'GX', 'UmbreonDarkraiGX'],
+    subtypes=['Basic', 'TAG TEAM', 'GX'],
+    collector_number=241,
+    set_code='Promo_SM',
+    regulation_mark=None,
+    rarity=Rarities.RarePromo,
+    hp=270,
+    elements=[PokemonTypes.DARKNESS],
+    stage=PokemonStage.BASIC,
+    retreat_cost=2,
+    weakness_type=PokemonTypes.FIGHTING,
+    weakness_amount=2,
+    resistance_type=PokemonTypes.PSYCHIC,
+    resistance_amount=20,
+    family_id=197,
+    abilities=[
+        Attack(
+            title='Black Lance',
+            game_text="This attack does 60 damage to 1 of your opponent's Benched Pokémon-GX or Benched Pokémon-EX. (Don't apply Weakness and Resistance for Benched Pokémon.)",
+            cost={PokemonTypes.DARKNESS: 2, PokemonTypes.COLORLESS: 1},
+            damage=150,
+            effect=standard_attack,
+        ),
+        Attack(
+            title='Dark Moon-GX',
+            game_text="Your opponent can't play any Trainer cards from their hand during their next turn. If this Pokémon has at least 5 extra Darkness Energy attached to it (in addition to this attack's cost), your opponent's Active Pokémon is Knocked Out. (You can't use more than 1 GX attack in a game.)",
+            cost={PokemonTypes.COLORLESS: 1},
+            effect=standard_attack,
+            locks_next_turn=True,
+            gx=True,
+        ),
+    ],
+)

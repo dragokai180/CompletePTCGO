@@ -19,7 +19,7 @@ from spirit.game.session.effects import (
     is_trainer_card,
 )
 from spirit.game.session.passives import effective_max_hp
-from spirit.game.card_effects.trainers import is_energy_card
+from spirit.game.card_effects.trainers import deck_nonempty, is_energy_card
 
 # Spec-friendly aliases used as factory defaults.
 is_basic = is_basic_pokemon
@@ -73,6 +73,7 @@ def search_to_hand(predicate=None, count=1, minimum=0, reveal=True, prompt=""):
         )
         await ctx.put_in_hand(picks, reveal=reveal)
         await ctx.shuffle_deck()
+    effect.play_condition = deck_nonempty
     return effect
 
 
@@ -95,6 +96,14 @@ def search_to_bench(predicate=is_basic, count=1, then=None, prompt=""):
         await ctx.shuffle_deck()
         if then is not None and benched:
             await then(ctx, benched)
+    def playable(board, player_id, card=None):
+        bench = board.find_player_area(player_id, "bench")
+        return (
+            deck_nonempty(board, player_id)
+            and bench is not None
+            and len(bench.children) < BENCH_CAPACITY
+        )
+    effect.play_condition = playable
     return effect
 
 
@@ -142,6 +151,12 @@ def search_attach_energy(predicate=is_energy, count=1, to_self=False,
                         await _attach_all(ctx, picks, target)
         if shuffle:
             await ctx.shuffle_deck()
+    def playable(board, player_id, card=None):
+        return deck_nonempty(board, player_id) and any(
+            target_pred is None or target_pred(pokemon)
+            for pokemon in board.pokemon_in_play(player_id)
+        )
+    effect.play_condition = playable
     return effect
 
 
@@ -173,6 +188,7 @@ def look_top_attach_energy(n, predicate=is_energy, rest="shuffle",
                         await _attach_all(ctx, picks, target)
         if rest == "shuffle":
             await ctx.shuffle_deck()
+    effect.play_condition = deck_nonempty
     return effect
 
 
@@ -209,6 +225,7 @@ def attach_from_discard(predicate=is_energy, count=1, target="self",
         await _attach_all(ctx, picks, holder)
         if then is not None:
             await then(ctx, picks)
+    effect.play_condition = requires_discard(predicate, 1)
     return effect
 
 
@@ -261,6 +278,8 @@ def recover_from_discard(predicate=None, count=1, minimum=1, reveal=False,
         elif to == "deck_top":
             for card in picks:
                 await ctx.put_on_top_of_deck(card)
+    if minimum > 0:
+        effect.play_condition = requires_discard(predicate, 1)
     return effect
 
 
@@ -271,6 +290,7 @@ def draw_attack(n):
     async def effect(ctx):
         await _deal_printed(ctx)
         await ctx.draw_cards(n)
+    effect.play_condition = deck_nonempty
     return effect
 
 
@@ -281,6 +301,7 @@ def conditional_draw(base, bonus, predicate):
         count = base + (bonus if predicate(ctx) else 0)
         if count > 0:
             await ctx.draw_cards(count)
+    effect.play_condition = deck_nonempty
     return effect
 
 
@@ -316,6 +337,16 @@ def draw_until_effect(n):
     async def effect(ctx):
         await _deal_printed(ctx)
         await ctx.draw_until(n)
+    def playable(board, player_id, card=None):
+        hand = board.find_player_area(player_id, "hand")
+        # The Trainer itself still sits in hand during legality calculation;
+        # resolving it removes one card before draw-until is evaluated.
+        return (
+            deck_nonempty(board, player_id)
+            and hand is not None
+            and len(hand.children) <= n
+        )
+    effect.play_condition = playable
     return effect
 
 
@@ -329,6 +360,17 @@ def shuffle_hand_into_deck_draw(n, opponent_n=None):
         if opponent_n is not None:
             await ctx.shuffle_into_deck(ctx.hand(ctx.opponent_id), ctx.opponent_id)
             await ctx.draw_cards(opponent_n, ctx.opponent_id)
+    def playable(board, player_id, card=None):
+        deck = board.find_player_area(player_id, "deck")
+        hand = board.find_player_area(player_id, "hand")
+        # Other hand cards become a drawable deck during resolution.
+        source_id = getattr(card, "entity_id", None)
+        other_hand = any(
+            getattr(candidate, "entity_id", None) != source_id
+            for candidate in (hand.children if hand else [])
+        )
+        return bool(deck and deck.children) or other_hand
+    effect.play_condition = playable
     return effect
 
 
@@ -362,6 +404,7 @@ def look_at_top(n, take=1, predicate=None, rest="shuffle", minimum=None,
                 await ctx.put_on_bottom_of_deck(card)
         elif rest == "discard" and others:
             await ctx.discard_cards(others)
+    effect.play_condition = deck_nonempty
     return effect
 
 
@@ -424,6 +467,22 @@ def heal_item(amount, scope="choice", condition_cure=False):
                 await ctx.heal(amount, pokemon)
             if condition_cure:
                 await ctx.cure_all_conditions(pokemon)
+    def playable(board, player_id, card=None):
+        if scope == "active":
+            candidates = [board.active_pokemon(player_id)]
+        elif scope == "bench_choice":
+            bench = board.find_player_area(player_id, "bench")
+            candidates = list(bench.children) if bench else []
+        else:
+            candidates = board.pokemon_in_play(player_id)
+        return any(
+            pokemon is not None and (
+                _is_damaged(board, pokemon)
+                or (condition_cure and _has_conditions(pokemon))
+            )
+            for pokemon in candidates
+        )
+    effect.play_condition = playable
     return effect
 
 
@@ -445,6 +504,14 @@ def cure_conditions_effect(scope="active"):
             targets = [active] if active is not None else []
         for pokemon in targets:
             await ctx.cure_all_conditions(pokemon)
+    def playable(board, player_id, card=None):
+        if scope == "active":
+            candidates = [board.active_pokemon(player_id)]
+        else:
+            candidates = board.pokemon_in_play(player_id)
+        return any(pokemon is not None and _has_conditions(pokemon)
+                   for pokemon in candidates)
+    effect.play_condition = playable
     return effect
 
 

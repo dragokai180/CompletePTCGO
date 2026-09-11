@@ -1,6 +1,6 @@
-# Spirit Card Builder (local)
+# CompletePTCGO Card Builder (local)
 
-Local-only UI for scaffolding Spirit PTCGO Python card scripts using existing factories and similar card scripts from the codebase.
+Local-only UI for scaffolding CompletePTCGO Python card scripts using existing factories and similar card scripts from the codebase.
 
 ## Run
 

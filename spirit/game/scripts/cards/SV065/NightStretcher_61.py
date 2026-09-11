@@ -1,7 +1,10 @@
 from spirit.game.data_utils import ItemCardDef
 from spirit.game.attributes import Rarities
 from spirit.game.session.effects import is_pokemon_card
-from spirit.game.card_effects.trainers import is_basic_energy_card
+from spirit.game.card_effects.trainers import (
+    has_pokemon_or_basic_energy_in_discard,
+    is_basic_energy_card,
+)
 
 
 NIGHT_STRETCHER_GUID = "5373ca9e-2b8b-49d2-9758-ed83cfe47924"
@@ -35,6 +38,7 @@ card = ItemCardDef(
     set_code="SV065",
     regulation_mark="H",
     rarity=Rarities.Uncommon,
+    condition=has_pokemon_or_basic_energy_in_discard,
     effect=night_stretcher,
 )
 

@@ -34,7 +34,9 @@ from spirit.game.data_utils import (
     has_rule_box,
     unimplemented,
 )
-from spirit.game.models.board import CardEntity, EnergyEntity, PokemonEntity
+from spirit.game.models.board import (
+    CardEntity, EnergyEntity, PokemonEntity, create_card_entity,
+)
 from spirit.game.scripts.cards import loader as card_loader
 from spirit.game.session import passives
 from spirit.game.session.ai_player import AIPlayer
@@ -221,11 +223,15 @@ class Rig:
         filler_guid = self.filler_def.guid
         water = self.energy_guids[PokemonTypes.WATER.value]
         psychic = self.energy_guids.get(PokemonTypes.PSYCHIC.value, water)
-        p1_pile = [target_guid] * 4 + [filler_guid] * 12 + self._cost_energy_guids() \
-            + [water] * 4 + [psychic] * 2
+        # Keep every Basic Energy type available in every public/private zone.
+        # A narrow Water/Psychic-only rig let valid typed effects return early
+        # and made the semantic audit confuse an unmet scenario with a no-op.
+        all_basic = [guid for _, guid in sorted(self.energy_guids.items())]
+        p1_pile = [target_guid] * 4 + [filler_guid] * 18 + self._cost_energy_guids() \
+            + all_basic * 4 + [water] * 4 + [psychic] * 2
         if self.item_def is not None:
             p1_pile += [self.item_def.guid] * 2
-        p2_pile = [filler_guid] * 12 + [water] * 8 + [psychic] * 4
+        p2_pile = [filler_guid] * 18 + all_basic * 3 + [water] * 8 + [psychic] * 4
         pairing = {
             "is_solo": True,
             "players": {
@@ -290,10 +296,9 @@ class Rig:
             self.attach_energy_type(P2, p2_active, PokemonTypes.PSYCHIC.value)
         if p2_bench[0] is not None:
             self.attach_energy_type(P2, p2_bench[0], PokemonTypes.WATER.value)
-        for _ in range(4):
-            self.to_area(self.pull(P2, lambda c: True), P2, "hand")
-        for _ in range(3):
-            self.to_area(self.pull(P2, lambda c: True), P2, "discard")
+        for guid in self.energy_guids.values():
+            self.to_area(self.pull_guid(P2, guid), P2, "hand")
+            self.to_area(self.pull_guid(P2, guid), P2, "discard")
 
         # Own side.
         target_entity: Optional[CardEntity] = None
@@ -318,14 +323,29 @@ class Rig:
         not_target = lambda c: (c.archetype_id or "").lower() != target_guid.lower()
         for _ in range(3):
             self.to_area(self.pull_guid(P1, filler_guid), P1, "hand")
-        for _ in range(2):
-            self.to_area(self.pull(
-                P1, lambda c: isinstance(c, EnergyEntity) and not_target(c)),
-                P1, "hand")
+        for guid in self.energy_guids.values():
+            self.to_area(self.pull_guid(P1, guid), P1, "hand")
         if self.item_def is not None and self.item_def.guid.lower() != target_guid.lower():
             self.to_area(self.pull_guid(P1, self.item_def.guid), P1, "hand")
-        for _ in range(2):
-            self.to_area(self.pull(P1, not_target), P1, "discard")
+        for guid in self.energy_guids.values():
+            self.to_area(self.pull_guid(P1, guid), P1, "discard")
+
+        # Healing and damage-movement families need damaged Pokemon before
+        # they are offered.  Thirty damage leaves even the smallest filler in
+        # play while exercising those paths.
+        for pid in (P1, P2):
+            for pokemon in board.pokemon_in_play(pid):
+                pokemon.set_attribute(
+                    AttrID.HP,
+                    max(10, passives.effective_max_hp(board, pokemon) - 30),
+                )
+
+        # Prize-count effects are common enough to be part of the baseline
+        # board rather than a condition-only retry.
+        for pid in (P1, P2):
+            pile = board.find_player_area(pid, "prizePile")
+            if pile is not None and not pile.children:
+                board.deal_from_deck(pid, "prizePile", 6)
 
         if target_kind == "trainer":
             target_entity = self.to_area(self.pull_guid(P1, target_guid), P1, "hand")
@@ -431,12 +451,104 @@ async def run_pokemon_ability(rig: Rig, ability: Ability, entities) -> None:
         action_id = ability.ability_id or str(uuid.uuid4())
         await resolve_attack(session, P1, pokemon, ability, action_id)
     elif ability.trigger is not None:
+        text = (getattr(ability, "game_text", "") or "").casefold()
+
+        def ensure_active():
+            if rig.board.active_pokemon(P1) is not None:
+                return
+            bench = rig.board.find_player_area(P1, "bench")
+            replacement = next((card for card in bench.children
+                                if isinstance(card, PokemonEntity)), None)
+            if replacement is not None:
+                active = rig.board.find_player_area(P1, "activePokemonArea")
+                rig.board.move_card(replacement.entity_id, active.entity_id)
+        # Put the source in the zone in which the event really fires.  Bulk
+        # imports can infer these triggers only after loading; exercising all
+        # of them as if the card were still Active hides working effects (and
+        # makes genuinely missing effects indistinguishable from bad setup).
+        if ability.has_trigger(Triggers.ON_TAKEN_AS_PRIZE) \
+                or ability.has_trigger(Triggers.ON_TURN_DRAWN):
+            destination = rig.board.find_player_area(P1, "hand")
+            rig.board.move_card(pokemon.entity_id, destination.entity_id)
+            ensure_active()
+        elif ability.has_trigger(Triggers.ON_DISCARDED_FROM_HAND) \
+                or ability.has_trigger(Triggers.ON_DISCARDED):
+            destination = rig.board.find_player_area(P1, "discard")
+            rig.board.move_card(pokemon.entity_id, destination.entity_id)
+            ensure_active()
+        elif ability.has_trigger(Triggers.ON_MOVE_TO_BENCH):
+            destination = rig.board.find_player_area(P1, "bench")
+            rig.board.move_card(pokemon.entity_id, destination.entity_id)
+
+        named_discard = next((name for name in (
+            "Roxie", "Giovanni's Exile", "Jessie & James",
+        ) if name.casefold() in text), None)
+        if named_discard is not None:
+            definition = next((
+                candidate for candidate in CARD_DEFS_BY_GUID.values()
+                if (getattr(candidate, "display_name", "") or "").casefold()
+                    == named_discard.casefold()
+            ), None)
+            if definition is not None:
+                cause = rig.pull_guid(P1, definition.guid)
+                if cause is None:
+                    card = card_loader.cards_by_guid.get(definition.guid.lower())
+                    cause = create_card_entity(card, owning_player_id=P1)
+                    rig.board.add_card_to_area(
+                        cause, rig.board.find_player_area(P1, "hand"))
+                else:
+                    cause = rig.to_area(cause, P1, "hand")
+                pokemon._smoke_discarded_by = cause
+        if ability.has_trigger(Triggers.ON_DISCARDED) \
+                and "during your opponent's turn" in text:
+            session.turn_state.active_player_id = P2
+
         def _setup(ctx):
+            # Populate every event payload with a coherent entity.  Individual
+            # effects still verify their actual trigger and owner/area rules.
+            ctx.damaged_by = entities["p2_active"]
+            ctx.damage_amount = 30
+            ctx.pre_hit_hp = 60
+            ctx.attaching_player_id = P2
+            ctx.energy_receiver = entities["p2_active"]
+            ctx.attached_energy = next(
+                iter(ctx.attached_energies(entities["p2_active"])), None
+            )
+            text = (getattr(ability, "game_text", "") or "").casefold()
+            if "when you attach" in text and (
+                    "to it" in text or "to this pokémon" in text):
+                ctx.attaching_player_id = P1
+                ctx.energy_receiver = pokemon
+                ctx.attached_energy = next(
+                    iter(ctx.attached_energies(pokemon)), None
+                )
+            ctx.benching_player_id = P1
+            ctx.benched_pokemon = pokemon
+            ctx.evolved_pokemon = pokemon
+            ctx.evolved_from = pokemon
+            ctx.ko_pokemon = pokemon if ability.has_trigger(
+                Triggers.ON_KNOCKED_OUT) else entities["p2_active"]
+            ctx.discarded_from = "hand" if ability.has_trigger(
+                Triggers.ON_DISCARDED_FROM_HAND) else "deck"
+            ctx.discarding_player_id = P1 if named_discard else P2
+            ctx.discarded_by = getattr(pokemon, "_smoke_discarded_by", None)
             if ability.has_trigger(Triggers.ON_KNOCKED_OUT):
                 ctx.ko_from_attack = True
                 ctx.ko_attacker = entities["p2_active"]
+                ctx.was_active_at_ko = True
         await resolve_triggered_ability(session, P1, pokemon, ability, ctx_setup=_setup)
     else:
+        usable_from = getattr(ability, "usable_from", None)
+        if usable_from in {"hand", "discard"}:
+            destination = rig.board.find_player_area(P1, usable_from)
+            rig.board.move_card(pokemon.entity_id, destination.entity_id)
+            if rig.board.active_pokemon(P1) is None:
+                bench = rig.board.find_player_area(P1, "bench")
+                replacement = next((card for card in bench.children
+                                    if isinstance(card, PokemonEntity)), None)
+                if replacement is not None:
+                    active = rig.board.find_player_area(P1, "activePokemonArea")
+                    rig.board.move_card(replacement.entity_id, active.entity_id)
         await resolve_activated_ability(session, P1, pokemon, ability)
 
 
@@ -614,7 +726,7 @@ def _plan_tests(definition) -> List[Tuple[str, str, Any, bool]]:
 
 async def run_one(stem: str, definition, kind: str, label: str, runner_key,
                   filler_def, energy_guids, scripted: bool,
-                  timeout: float, item_def=None) -> SmokeResult:
+                  timeout: float, item_def=None, scenario_setup=None) -> SmokeResult:
     random.seed(0xC0FFEE)
     rig = Rig(definition, filler_def, energy_guids, item_def)
     target_kind = "pokemon" if isinstance(definition, PokemonCardDef) \
@@ -623,6 +735,8 @@ async def run_one(stem: str, definition, kind: str, label: str, runner_key,
 
     async def _drive():
         entities = rig.setup(target_kind)
+        if scenario_setup is not None:
+            scenario_setup(rig, entities, runner_key)
         needed = "p1_active" if target_kind == "pokemon" else "target"
         if entities.get(needed) is None or entities.get("p1_active") is None:
             raise RuntimeError(

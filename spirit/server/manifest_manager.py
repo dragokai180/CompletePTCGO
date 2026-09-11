@@ -98,12 +98,16 @@ class ManifestManager:
                 if logical_name in unique_descriptors:
                     continue
 
-                # Calculate real CRC and version
+                # Calculate real CRC and version.  Unity keys its persistent
+                # AssetBundle cache by URL + version, so an mtime-based version
+                # can leave a rebuilt bundle stale (notably when foil masks are
+                # regenerated more than once in the same filesystem timestamp
+                # tick).  Derive the version from the bytes instead: every
+                # visual change then gets a different cache identity.
                 bundle_crc = self._calculate_crc(bundle_file_path)
-                
-                # Version logic: We use the file mtime as a simple versioning proxy
-                # PTCGO client compares Version and CRC. If either changes, it redownloads.
-                bundle_version = int(os.path.getmtime(bundle_file_path))
+                bundle_version = bundle_crc & 0x7FFFFFFF
+                if bundle_version == 0:
+                    bundle_version = 1
 
                 asset_names = []
                 aliases = {bundle_name_raw, logical_name}
@@ -134,8 +138,12 @@ class ManifestManager:
                 # manifest key the client rejects the request before opening
                 # the selected Unity bundle.
                 dynamic_texture_patterns = [
-                    "cardsleeves", "coins", "deckboxes", "packs", "pcdboxes",
-                    "avatar", "gxtoken", "vstartoken", "landingpage", "logos"
+                    "cardsleeves", "coins", "deckboxes", "deckboxflats", "packs", "pcdboxes",
+                    "avatar", "gxtoken", "vstartoken", "landingpage", "logos",
+                    "background", "registrationimages", "seticons", "shopbanners",
+                    "newitemstar", "traineropponentdeck", "trainerplayerdeck",
+                    "newalideck", "newcalvindeck", "newelladeck", "newotisdeck",
+                    "newplayerdeck", "newzachdeck",
                 ]
                 if not exact_assets and any(pat in lower_entry for pat in dynamic_texture_patterns):
                     try:
@@ -148,6 +156,8 @@ class ManifestManager:
                             prefix = "coins"
                         elif "deckBoxes" in bundle_name_raw:
                             prefix = "deckBoxes"
+                        elif "deckboxFlats" in bundle_name_raw:
+                            prefix = "deckboxFlats"
                         elif "packs" in bundle_name_raw:
                             prefix = "packs"
                         elif "pcdBoxes" in bundle_name_raw:
@@ -164,6 +174,32 @@ class ManifestManager:
                             prefix = "LandingPage"
                         elif "logos" in lower_entry:
                             prefix = "Logos"
+                        elif "background" in lower_entry:
+                            prefix = "Background"
+                        elif "registrationimages" in lower_entry:
+                            prefix = "registrationimages"
+                        elif "seticons" in lower_entry:
+                            prefix = "setIcons"
+                        elif "shopbanners" in lower_entry:
+                            prefix = "shopBanners"
+                        elif "newitemstar" in lower_entry:
+                            prefix = "NewItemStar"
+                        elif "traineropponentdeck" in lower_entry:
+                            prefix = "trainerOpponentDeck"
+                        elif "trainerplayerdeck" in lower_entry:
+                            prefix = "trainerPlayerDeck"
+                        elif "newalideck" in lower_entry:
+                            prefix = "newAliDeck"
+                        elif "newcalvindeck" in lower_entry:
+                            prefix = "newCalvinDeck"
+                        elif "newelladeck" in lower_entry:
+                            prefix = "newEllaDeck"
+                        elif "newotisdeck" in lower_entry:
+                            prefix = "newOtisDeck"
+                        elif "newplayerdeck" in lower_entry:
+                            prefix = "newPlayerDeck"
+                        elif "newzachdeck" in lower_entry:
+                            prefix = "newZachDeck"
 
                         exported_texture_ids = None
                         if "landingpage" in lower_entry:
@@ -190,13 +226,28 @@ class ManifestManager:
                                 tex_raw = obj.read().m_Name
                                 tex_name = tex_raw.lower()
                                 exact_assets.append(tex_name)
+                                exact_assets.append(tex_raw)
                                 if prefix:
                                     exact_assets.append(f"{prefix}/{tex_name}")
-                                    if prefix == "Logos":
-                                        # NGUI nav logo loader looks up the EXACT-case key "Logos/globalNavLogo"
-                                        exact_assets.append(tex_raw)
-                                        exact_assets.append(f"{prefix}/{tex_raw}")
-                                    else:
+                                    exact_assets.append(f"{prefix}/{tex_raw}")
+                                    # A few older screens capitalize the visual
+                                    # family even though the bundle uses a
+                                    # lowercase prefix.
+                                    if prefix == "registrationimages":
+                                        exact_assets.append(f"RegistrationImages/{tex_name}")
+                                        exact_assets.append(f"RegistrationImages/{tex_raw}")
+                                    elif prefix == "setIcons":
+                                        exact_assets.append(f"SetIcons/{tex_name}")
+                                        exact_assets.append(f"SetIcons/{tex_raw}")
+                                    elif prefix == "shopBanners":
+                                        exact_assets.append(f"ShopBanners/{tex_name}")
+                                        exact_assets.append(f"ShopBanners/{tex_raw}")
+
+                                    if prefix in {
+                                        "cardSleeves", "coins", "deckBoxes", "deckboxFlats", "packs",
+                                        "pcdBoxes", "avatar", "avatar_thumbs",
+                                        "gxtoken", "vstartoken",
+                                    }:
                                         # Add full URL-mode manifest mapping keys to satisfy client-side LoadTextureFromAssetBundle lookups
                                         url_route = f"{config.HTTP_BASE_URL}/products/{tex_name}.png"
                                         exact_assets.append(url_route)
@@ -276,7 +327,7 @@ class ManifestManager:
                 # so the client can resolve things like "SWSH12_water" to this same physical bundle file.
                 if set_code and exact_assets and not any(
                     pat in lower_entry
-                    for pat in ["cardsleeves", "coins", "deckboxes", "packs", "pcdboxes", "avatar", "landingpage", "_wp_"]
+                    for pat in ["cardsleeves", "coins", "deckboxes", "deckboxflats", "packs", "pcdboxes", "avatar", "landingpage", "_wp_"]
                 ):
                     card_types = [
                         "grass", "fire", "water", "lightning", "psychic", "fighting",

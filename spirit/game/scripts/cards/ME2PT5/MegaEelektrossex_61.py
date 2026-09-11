@@ -1,5 +1,6 @@
-from spirit.game.data_utils import PokemonCardDef, Attack, unimplemented
+from spirit.game.data_utils import PokemonCardDef, Attack
 from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
+from spirit.game.card_effects.standard_era import standard_attack
 
 card = PokemonCardDef(
     guid="70ddf21e-0504-59e6-b683-06b5db02f673",
@@ -24,14 +25,14 @@ card = PokemonCardDef(
             title="Split Bomb",
             game_text="This attack does 60 damage to each of 2 of your opponent's Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)",
             cost={PokemonTypes.LIGHTNING: 2},
-            effect=unimplemented,
+            effect=standard_attack,
         ),
         Attack(
             title="Disaster Shock",
             game_text="You may discard 2 Lightning Energy from this Pokémon and make your opponent's Active Pokémon Paralyzed.",
             cost={PokemonTypes.LIGHTNING: 3},
             damage=190,
-            effect=unimplemented,
+            effect=standard_attack,
         ),
     ],
 )

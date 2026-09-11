@@ -46,6 +46,27 @@ def hand_size_at_least(count: int):
     return check
 
 
+def has_discard_cost(count: int):
+    """Condition: ``count`` *other* hand cards can pay a Trainer's cost.
+
+    The specific Trainer copy is supplied by ``trainer_condition_met``.  Using
+    it explicitly avoids treating the card being played as discard fodder and
+    keeps the legality check identical to the hand seen by the effect after
+    that Trainer has moved onto the table.
+    """
+    def check(board, player_id, source=None):
+        hand = board.find_player_area(player_id, "hand")
+        if hand is None:
+            return False
+        source_id = getattr(source, "entity_id", None)
+        available = sum(
+            1 for card in hand.children
+            if source_id is None or card.entity_id != source_id
+        )
+        return available >= count
+    return check
+
+
 def _bench_pokemon(board, player_id):
     bench = board.find_player_area(player_id, "bench")
     return [c for c in (bench.children if bench else [])
@@ -955,6 +976,9 @@ async def klara(ctx):
     await ctx.put_in_hand(picks_p + picks_e, reveal=False)
 
 
+klara.play_condition = has_pokemon_or_basic_energy_in_discard
+
+
 # --- Mirage Gate (LOR, Item) ---------------------------------------------
 
 def mirage_gate_condition(board, player_id):
@@ -1028,6 +1052,16 @@ async def scoop_up_net(ctx):
         ctx.deferred_actions.append(_promote)
 
 
+def scoop_up_net_playable(board, player_id):
+    return any(
+        not is_v_or_gx(pokemon.archetype_id)
+        for pokemon in board.pokemon_in_play(player_id)
+    )
+
+
+scoop_up_net.play_condition = scoop_up_net_playable
+
+
 # --- Switch Cart (ASR, Item) ---------------------------------------------
 
 def switch_cart_condition(board, player_id):
@@ -1071,6 +1105,9 @@ async def ordinary_rod(ctx):
     picks = picks_p + picks_e
     if picks:
         await ctx.shuffle_into_deck(picks)
+
+
+ordinary_rod.play_condition = has_pokemon_or_basic_energy_in_discard
 
 
 # --- Energy Recycler (BST, Item) -----------------------------------------

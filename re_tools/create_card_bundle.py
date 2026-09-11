@@ -154,10 +154,14 @@ def create_card_set_bundle(png_mapping, template_path, target_bundle_name, keep_
             if "icc_profile" in img.info:
                 img.info.pop("icc_profile")
             img_square = pad_to_square(img)
+            resample_filter = getattr(
+                Image, 'Resampling', Image
+            ).LANCZOS if hasattr(Image, 'Resampling') else getattr(
+                Image, 'LANCZOS', getattr(Image, 'ANTIALIAS', 1)
+            )
             if keep_size:
                 resized_img = img_square
             else:
-                resample_filter = getattr(Image, 'LANCZOS', getattr(Image, 'ANTIALIAS', 1))
                 resized_img = img_square.resize(target_size, resample_filter)
 
             new_path_id = next_path_id
@@ -169,28 +173,34 @@ def create_card_set_bundle(png_mapping, template_path, target_bundle_name, keep_
             cloned_obj.path_id = new_path_id
             asset.objects[new_path_id] = cloned_obj
 
-            # 2. Build the full mip chain (matching the prototype's mip
-            #    count) and write it directly, instead of `read_obj.image =
-            #    resized_img`, which only ever wrote mip level 0 and left
-            #    m_MipCount at 1 -- the client then read past the end of
-            #    the actual data for any smaller mip level it sampled
-            #    (thumbnails), which is what caused the brightness bug.
+            # 2. Card art uses the template's full mip chain. Foil masks are
+            #    different assets: the original PTCGO bundles store them as a
+            #    single 512x512 level with Clamp wrapping. Repeating the mask
+            #    (inherited from the card-art template) tiles the illustration
+            #    window over the complete card face, which makes ordinary holo
+            #    rares look like full arts.
             read_obj = cloned_obj.read()
             read_obj.m_Name = asset_name
-            try:
-                mip_bytes, actual_mip_count = build_full_mip_chain_bytes(
-                    resized_img, proto_texture_format, proto_mip_count,
-                    resample_filter,
-                )
-                read_obj.image_data = mip_bytes
-                read_obj.m_MipCount = actual_mip_count
-                read_obj.m_CompleteImageSize = len(mip_bytes)
-                read_obj.m_Width, read_obj.m_Height = resized_img.size
-            except Exception as mip_err:
-                print(f"Warning: full mip-chain build failed for "
-                      f"'{asset_name}' ({mip_err}); falling back to "
-                      f"single-level image (thumbnail may look wrong).")
+            if keep_size:
                 read_obj.image = resized_img
+                read_obj.m_MipCount = 1
+                read_obj.m_TextureSettings.m_FilterMode = 1
+                read_obj.m_TextureSettings.m_WrapMode = 1
+            else:
+                try:
+                    mip_bytes, actual_mip_count = build_full_mip_chain_bytes(
+                        resized_img, proto_texture_format, proto_mip_count,
+                        resample_filter,
+                    )
+                    read_obj.image_data = mip_bytes
+                    read_obj.m_MipCount = actual_mip_count
+                    read_obj.m_CompleteImageSize = len(mip_bytes)
+                    read_obj.m_Width, read_obj.m_Height = resized_img.size
+                except Exception as mip_err:
+                    print(f"Warning: full mip-chain build failed for "
+                          f"'{asset_name}' ({mip_err}); falling back to "
+                          f"single-level image (thumbnail may look wrong).")
+                    read_obj.image = resized_img
             cloned_obj.save_typetree(read_obj)
 
             # 3. Create a cloned AssetInfo pointing to the new PathID

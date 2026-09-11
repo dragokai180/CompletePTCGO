@@ -24,11 +24,9 @@ happens on its own.
                    No is_opposing filter: the card says "any damage done by
                    attacks", not "damage to the Defending Pokemon".
 
-The chosen side lives on the Stadium entity as a plain Python attribute --
-session-scoped, never serialised, and gone when the card leaves play. If it
-is somehow unset (an effect-less path, or an AI that never answered) the
-Bench half points at the opponent, which is the orientation a player picks
-most of the time.
+The chosen side lives in the card-orientation attribute sent to the native
+client renderer. Normal orientation points the damage-reduction half at the
+owner and the Bench-limit half at the opponent; inverted swaps them.
 
 Nothing on the playmat says which half landed on whom (see the note on the
 status rows below), but the printed card carries both texts -- one of them
@@ -58,9 +56,6 @@ _REDUCED_TYPES = (
     PokemonTypes.GRASS.value, PokemonTypes.FIRE.value, PokemonTypes.WATER.value,
 )
 
-_BENCH_SIDE_ATTR = "_parallel_city_bench_side"
-
-
 def _player_ids(carrier):
     """Both players, read off the playmat the Stadium sits on (Stadium ->
     activeStadium -> playmat), the same walk Area Zero Underdepths uses."""
@@ -75,14 +70,12 @@ def _player_ids(carrier):
 
 def bench_side(carrier) -> Optional[str]:
     """The player whose Bench is capped; the other player takes the -20."""
-    side = getattr(carrier, _BENCH_SIDE_ATTR, None)
-    if side is not None:
-        return side
-    # Never answered: point the Bench half at the opponent of whoever played it.
     owner = getattr(carrier, "owning_player_id", None)
     if owner is None:
         return None
-    return next((p for p in _player_ids(carrier) if p != owner), None)
+    opponent = next((p for p in _player_ids(carrier) if p != owner), None)
+    inverted = carrier.get_attribute(AttrID.CARD_ORIENTATION, 0) == 1
+    return owner if inverted else opponent
 
 
 def _damage_side(carrier) -> Optional[str]:
@@ -107,20 +100,6 @@ class ParallelCityPassive(Passive):
         if any(t in _REDUCED_TYPES for t in types):
             calc.amount = max(0, calc.amount - 20)
 
-
-
-async def parallel_city(ctx):
-    """Ask which way the card faces, and remember it on the Stadium."""
-    opponent = ctx.opponent_id
-    picked = await ctx.choose(
-        "Which way does Parallel City face?",
-        ["Bench limit on your opponent", "Bench limit on you"],
-        use_panel=False,
-    )
-    setattr(ctx.source, _BENCH_SIDE_ATTR,
-            opponent if picked == 0 else ctx.player_id)
-
-
 card = StadiumCardDef(
     guid="77d73cc0-02bd-5f76-af1c-a81dfe223324",
     key="XY8",
@@ -131,6 +110,16 @@ card = StadiumCardDef(
     collector_number=145,
     set_code="XY8",
     rarity=Rarities.Uncommon,
-    effect=parallel_city,
     passive=ParallelCityPassive(),
+    orientation_choices=[
+        (
+            "Orientação normal",
+            "Seu dano de Grama, Fogo e Água é reduzido; o Banco adversário fica limitado a 3.",
+        ),
+        (
+            "Orientação invertida",
+            "Seu Banco fica limitado a 3; o dano de Grama, Fogo e Água adversário é reduzido.",
+        ),
+    ],
+    allows_same_name_replacement=True,
 )

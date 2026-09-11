@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build (venv + deps + cert + DB) and start the SpiritPTCGO server.
+# Build (venv + deps + cert + DB) and start the CompletePTCGO server.
 # Drag this file into Terminal and press Return, or double-click it in Finder.
 set -euo pipefail
 

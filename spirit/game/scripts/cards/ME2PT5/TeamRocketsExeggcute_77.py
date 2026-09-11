@@ -1,0 +1,38 @@
+from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.standard_era import (
+    standard_ability, standard_attack, standard_passive,
+)
+
+
+card = PokemonCardDef(
+    guid="65f8a018-f730-5866-a85e-f91fe412bd15",
+    key="ME2PT5",
+    name="com.direwolfdigital.cake.data.archetypes.pokemon.TeamRocketsExeggcute.Name",
+    display_name="Team Rocket's Exeggcute",
+    searchable_by=["Team Rocket's Exeggcute", "Basic", "TeamRocketsExeggcute"],
+    subtypes=["Basic"],
+    collector_number=77,
+    set_code="ME2PT5",
+    regulation_mark="I",
+    rarity=Rarities.Common,
+    hp=60,
+    elements=[PokemonTypes.PSYCHIC],
+    stage=PokemonStage.BASIC,
+    retreat_cost=1,
+    weakness_type=PokemonTypes.DARKNESS,
+    weakness_amount=2,
+    resistance_type=PokemonTypes.FIGHTING,
+    resistance_amount=30,
+    family_id=102,
+    abilities=[
+        Attack(
+            title="Focused Wish",
+            game_text="Flip a coin. If heads, this attack does 20 more damage.",
+            cost={PokemonTypes.PSYCHIC: 1},
+            damage=10,
+            damage_operator="+",
+            effect=standard_attack,
+        ),
+    ],
+)

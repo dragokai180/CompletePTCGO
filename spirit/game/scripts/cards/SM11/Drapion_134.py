@@ -1,0 +1,44 @@
+from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.standard_era import (
+    standard_ability, standard_attack, standard_passive,
+)
+
+
+card = PokemonCardDef(
+    guid='07a751dc-2e57-5e35-8c53-37189d439436',
+    key='SM11',
+    name='com.direwolfdigital.cake.data.archetypes.pokemon.Drapion.Name',
+    display_name='Drapion',
+    searchable_by=['Drapion', 'Stage 1', 'Drapion'],
+    subtypes=['Stage 1'],
+    collector_number=134,
+    set_code='SM11',
+    regulation_mark=None,
+    rarity=Rarities.Rare,
+    hp=140,
+    elements=[PokemonTypes.DARKNESS],
+    stage=PokemonStage.STAGE1,
+    retreat_cost=4,
+    weakness_type=PokemonTypes.FIGHTING,
+    weakness_amount=2,
+    resistance_type=PokemonTypes.PSYCHIC,
+    resistance_amount=20,
+    evolves_from='com.direwolfdigital.cake.data.archetypes.pokemon.Skorupi.Name',
+    family_id=451,
+    abilities=[
+        Attack(
+            title='Cross Poison',
+            game_text="Flip 4 coins. This attack does 50 damage for each heads. If at least 2 of them are heads, your opponent's Active Pokémon is now Poisoned.",
+            cost={PokemonTypes.COLORLESS: 3},
+            damage=50,
+            damage_operator='x',
+            effect=standard_attack,
+        ),
+        Attack(
+            title='Slicing Blade',
+            cost={PokemonTypes.DARKNESS: 2, PokemonTypes.COLORLESS: 2},
+            damage=120,
+        ),
+    ],
+)

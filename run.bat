@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================================
-REM  SpiritPTCGO one-shot launcher (Windows)
+REM  CompletePTCGO one-shot launcher (Windows)
 REM  Creates the venv, installs deps, generates the TLS cert, seeds the DB,
 REM  then starts the server. Safe to re-run - every step is skipped if done.
 REM ============================================================================
@@ -33,5 +33,5 @@ if not exist "ptcgo_server.db" (
 )
 
 set "PYTHONPATH=%CD%"
-echo [run] Starting SpiritPTCGO...
+echo [run] Starting CompletePTCGO...
 python -m spirit.main

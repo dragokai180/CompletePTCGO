@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  SpiritPTCGO one-shot launcher (Linux / macOS / Git-Bash on Windows)
+#  CompletePTCGO one-shot launcher (Linux / macOS / Git-Bash on Windows)
 #  Creates the venv, installs deps, generates the TLS cert, seeds the DB,
 #  then starts the server. Safe to re-run - every step is skipped if done.
 # ============================================================================
@@ -37,5 +37,5 @@ if [ ! -f ptcgo_server.db ]; then
 fi
 
 export PYTHONPATH="$PWD"
-echo "[run] Starting SpiritPTCGO..."
+echo "[run] Starting CompletePTCGO..."
 python -m spirit.main

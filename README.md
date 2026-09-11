@@ -1,11 +1,23 @@
-# SpiritPTCGO
-SpiritPTCGO is a Python server emulator for the **NOW** sunseted [Pokemon Trading Card Game Online (PTCGO)](https://en.wikipedia.org/wiki/Pok%C3%A9mon_TCG_Online) client.
+# CompletePTCGO
 
-## Prequisites & Warning
-- This server was developed using the 2023 client (**2.95.0.5815**)
-  - Do note that if your copy of the client is not that version, there MAY be in incompatibility issues.
+CompletePTCGO is a community-maintained Python server emulator for the
+discontinued [Pokemon Trading Card Game Online (PTCGO)](https://en.wikipedia.org/wiki/Pok%C3%A9mon_TCG_Online)
+client.
 
-- Make sure you own a copy of the PTCGO client beforehand for this server to run with!
+CompletePTCGO continues the SpiritPTCGO project originally authored by Brandon
+and published through
+[RebirthExpanded](https://github.com/RebirthExpanded/rebirthExpanded). See
+[NOTICE.md](NOTICE.md) for attribution and asset-distribution details.
+
+## Requirements and warning
+
+- The server targets the 2023 PTCGO client, version **2.95.0.5815**. Other
+  client versions may be incompatible.
+- You must own a compatible copy of the PTCGO client.
+- Card artwork, proprietary game AssetBundles, generated caches, and account
+  databases are intentionally excluded from this source repository.
+- This is preservation software under active development. Run it only on a
+  network you trust unless you have reviewed and hardened the deployment.
 
 ## Gallery
 ### In Game
@@ -20,13 +32,16 @@ SpiritPTCGO is a Python server emulator for the **NOW** sunseted [Pokemon Tradin
 
 ## Environment Setup
 
-**WARNING**: These instructions are meant for a Windows 11 Machine and have only been tested on Windows.
-1. Clone the repository
-2. Install [Python 3.10+](https://www.python.org/downloads/)
-   - It is important to ``Add to PATH`` when you are installing Python. (You can check by running this command in your terminal ``python --v``)
-3. Navigate to the project in a terminal and generate a python venv via: ``python -m venv venv``
-4. Activate your venv by running this command in the same terminal: ``./venv/Scripts/activate``
-5. Now run the command: ``pip install -r requirements.txt``
+The local workflow is tested primarily on Windows 11.
+
+1. Clone the repository.
+2. Install [Python 3.10+](https://www.python.org/downloads/) and add it to
+   `PATH`. Verify the installation with `python --version`.
+3. From the repository root, create a virtual environment with
+   `python -m venv venv`.
+4. Activate it with `venv\Scripts\activate` in Command Prompt or
+   `./venv/Scripts/Activate.ps1` in PowerShell.
+5. Install the runtime dependencies with `pip install -r requirements.txt`.
 
 ## Server Setup
 
@@ -39,28 +54,46 @@ SpiritPTCGO is a Python server emulator for the **NOW** sunseted [Pokemon Tradin
    ```
    *(Leave the AppSecrets and version string at the bottom)*
 
-2. Generate the SSL Certificates
+2. Provide your local **cbrew bundles**. This is the name used throughout this
+   project for the locally supplied original card-art and game-bundle archive.
+   The cbrew bundles are not included in Git.
+
+   ```powershell
+   $env:PTCGO_ART_SOURCE_DIR = "C:\path\to\cbrew bundles"
+   $env:PTCGO_CACHE_DIR = $env:PTCGO_ART_SOURCE_DIR
+   python -m spirit.tools.ptcgo_local_assets --source $env:PTCGO_ART_SOURCE_DIR
+   ```
+
+   The import step populates the ignored `spirit/assets/cards/` and
+   `spirit/assets/externalCache/` directories. Generated bundles are written
+   to the ignored `spirit/assets/bundleCache/` directory.
+
+3. Generate the SSL certificates.
    ```powershell
    python spirit/network/generate_cert.py
    ```
    **DO NOT** install this certificate into your Windows Trusted Root Store. If the certificate is trusted by Windows, the game's validator will actually reject it due to a Unity hostname parsing bug with IP addresses. As long as the `.crt` and `.key` files are next to the server script, the Python server will use them, and the client will accept them.
 
-3. Run the database initialization script to create the local SQLite database (`ptcgo_server.db`) using SQLAlchemy ORM and seed the default test account (Username: `brandon` / Password: `password`):
+4. Run the database initialization script to create the local SQLite database
+   (`ptcgo_server.db`) and seed Brandon's original administrative test account
+   (username `brandon`, password `password`):
    ```powershell
    python spirit/database/setup_db.py
    ```
 
-4. Run the main Python script from the root directory to start both the TCP (Game) and HTTP (Asset/MOTD) servers:
+   Change the password before exposing the server outside a trusted local
+   network.
+
+5. Run the main Python module from the repository root to start both the TCP
+   game server and the HTTP asset server:
    ```powershell
    $env:PYTHONPATH=(Get-Location).Path; python -m spirit.main
    ```
-   Do note that on the first initial run, the server will download any initial asset bundles it needs determined by the ``game/scripts/`` and ``assets/cards/`` directories (more info on card injections below)
+   On its first run, the server compiles the local card textures and templates
+   into the AssetBundles required by the client.
 
-5. **(Optional)** If you have original game cache files (like UI elements, logos, etc.) that you want the server to serve:
-   - You can copy them into `spirit/assets/externalCache/`.
-   - OR set the `PTCGO_CACHE_DIR` environment variable to point to your original game cache folder before running the server.
-
-6. Run the ``Pokemon Trading Card Game Online.exe`` in your client's installation folder and you should be able to see logs in your servers as you login!
+6. Start `Pokemon Trading Card Game Online.exe` from your client installation
+   and sign in against the local server.
 
 ### Hosting for Others (Remote Play)
 
@@ -84,14 +117,12 @@ The reason is that the login handshake redirects the client to a follow-up addre
    assetURL=http://your.public.ip.or.domain:8000/
    ```
 
-> **Hosting on a VPS?** See [`deploy/`](deploy/README.md). For a full DigitalOcean
-> Droplet walkthrough (Ubuntu, nginx, systemd, firewall), see
-> [`deploy/DIGITALOCEAN.md`](deploy/DIGITALOCEAN.md). Not needed for local
-> development — only for reliable remote hosting.
+> **Hosting on a VPS?** See [`deploy/`](deploy/README.md). It is not required for
+> local development.
 
 ## Custom Card Creation
 
-SpiritPTCGO supports a modular card injection system. You add a custom card by dropping an image and a python script into the designated folders, and the server handles the Unity AssetBundle generation automatically on startup. A card is two things: a **data definition** (its name, HP, cost, weakness, etc.) and, if you want it to actually *do* something in a match, a bit of **scripted behavior**. We'll cover both.
+CompletePTCGO supports a modular card injection system. You add a custom card by dropping an image and a Python script into the designated folders, and the server handles Unity AssetBundle generation automatically on startup. A card is two things: a **data definition** (its name, HP, cost, Weakness, and so on) and, if you want it to actually *do* something in a match, scripted behavior.
 
 ### 1. Place the Card Image
 Save your card art as a **1024x1024 PNG** in the following directory:
@@ -99,7 +130,8 @@ Save your card art as a **1024x1024 PNG** in the following directory:
 
 Example: `spirit/assets/cards/CUSTOM/LugiaV_1.png`
 
-IMPORTANT: It's important to note that my card bundling script will add padding to images to make them 1024x1024, so using card images from say a popular pokemon tcg api would work ;)
+The card bundler pads non-square source artwork to a 1024×1024 texture before
+building the local AssetBundle. Card images remain local and are not committed.
 
 ### 2. Create the Card Script
 Create a Python script to define the card's data and attributes:
@@ -232,7 +264,7 @@ $env:PYTHONPATH=(Get-Location).Path; python -m spirit.main
 
 ## Custom Cosmetic Creation
 
-SpiritPTCGO supports an advanced **Dynamic Cosmetic Asset Injection** system. You can add fully custom card sleeves, gameplay coins, and 3D deck boxes by placing your PNG textures in the designated folders. The server will dynamically expand the master asset templates and generate the client-prefixed AssetBundles automatically on startup.
+CompletePTCGO supports an advanced **Dynamic Cosmetic Asset Injection** system. You can add fully custom card sleeves, gameplay coins, and 3D deck boxes by placing your PNG textures in the designated folders. The server dynamically expands the master asset templates and generates the client-prefixed AssetBundles on startup.
 
 ### 1. Place your Custom Textures
 Save your custom textures as PNGs under the respective subdirectories inside `spirit/assets/products/`:
@@ -276,7 +308,7 @@ Your custom cosmetics are now ready to be equipped and rendered in game!
 
 ## Custom Booster Pack & Theme Deck Creation
 
-SpiritPTCGO supports the exact same advanced dynamic appending system for **Booster Packs** and **PCD/Theme Decks**. You can customize the look of pack foils and deck boxes in the Shop and Opening scenes by placing your PNG textures in the designated folders.
+CompletePTCGO supports the same dynamic appending system for **Booster Packs** and **PCD/Theme Decks**. You can customize the look of pack foils and deck boxes in the Shop and Opening scenes by placing your PNG textures in the designated folders.
 
 ### 1. Place your Custom Textures
 Save your custom textures as PNGs under the respective subdirectories inside `spirit/assets/products/`:
@@ -314,7 +346,7 @@ $env:PYTHONPATH=(Get-Location).Path; python -m spirit.main
 
 ## Custom Versus Season Rewards
 
-SpiritPTCGO features a configuration-driven **Versus Season Reward System** that allows server administrators to easily customize, add, or schedule different seasons and tiers of rewards (Trainer Coins, Booster Packs, Cards, Deck Boxes, Sleeves, etc.) without writing any code.
+CompletePTCGO features a configuration-driven **Versus Season Reward System** that allows server administrators to customize, add, or schedule seasons and reward tiers (Trainer Coins, Booster Packs, cards, deck boxes, sleeves, and more) without writing code.
 
 ### 1. Edit the Seasons Configuration
 All versus seasons are defined inside the following JSON file:
@@ -330,7 +362,7 @@ Example season block:
     "startTime": 0,
     "endTime": 4102444800000,
     "description": {
-      "id": "SpiritPTCGO Season 1"
+      "id": "CompletePTCGO Season 1"
     },
     "tiers": [
       {

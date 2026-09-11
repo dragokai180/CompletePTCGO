@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SpiritPTCGO Admin</title>
+<title>CompletePTCGO Admin</title>
 <style>
   :root {
     --bg: #10141c; --panel: #1a2130; --panel2: #212a3d; --line: #2d3950;
@@ -291,7 +291,7 @@
 
 <section id="tab-accounts">
   <div class="card"><h2>Accounts</h2>
-    <div class="muted">Debug tools. "Give 4× all cards" grants 4 <b>tradable</b> copies of every card (basic energy excluded) for testing the trade system; "Give 1× all products" grants 1 tradable copy of every product (boosters, decks, coins, sleeves, deck boxes). The player sees them on their next collection refresh / login.</div>
+    <div class="muted">Debug tools. "Give 4× all cards" grants <b>tradable</b> copies in deck-building quantities: 4 of regular cards, 1 of cards limited to one per deck, and 59 of every Basic Energy; "Give 1× all products" grants 1 tradable copy of every product (boosters, decks, coins, sleeves, deck boxes). The player sees them on their next collection refresh / login.</div>
     <table id="accountsTable"><thead><tr><th>Username</th><th>Screen Name</th><th>Account ID</th><th>Admin</th><th></th></tr></thead><tbody></tbody></table>
   </div>
 </section>
@@ -815,11 +815,11 @@ async function setAdmin(account_id, is_admin) {
   catch(e) { toast(e.message, true); }
 }
 async function grantAllCards(account_id, btn) {
-  if (!confirm('Give 4 tradable copies of every card to this account?')) return;
+  if (!confirm('Give this account 4 copies of regular cards, 1 copy of cards limited to one per deck, and 59 copies of every Basic Energy?')) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Granting…'; }
   try {
     const d = await api('accounts/grant-all-cards', {account_id, count: 4});
-    toast(`Granted 4× of ${d.granted} cards`);
+    toast(`Granted ${d.granted} cards (4× regular, 1× limited, 59× Basic Energy)`);
   } catch(e) { toast(e.message, true); }
   finally { if (btn) { btn.disabled = false; btn.textContent = 'Give 4× all cards'; } }
 }
@@ -1720,7 +1720,7 @@ function vsDescInput(v) { vsSeason().description = {id: v}; vsDirty(true); }
 
 function defaultSeason(n) {
   return {seasonID: `Season${n}`, startTime: Date.now(), endTime: 4102444800000,
-          description: {id: `SpiritPTCGO Season ${n}`}, resetRewardID: "", _tiers: [{ms: []}]};
+          description: {id: `CompletePTCGO Season ${n}`}, resetRewardID: "", _tiers: [{ms: []}]};
 }
 function parseTiers(season) {
   const tiers = (season.tiers || []).map(t => ({

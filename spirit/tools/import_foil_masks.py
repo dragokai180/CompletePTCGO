@@ -8,12 +8,23 @@ and rebuilds the en_US_{SET}_wp_{kind}_Foil2 bundles the client requests.
 Usage:
     python -m spirit.tools.import_foil_masks --set SWSH4
     python -m spirit.tools.import_foil_masks --all [--force]
+    python -m spirit.tools.import_foil_masks --all \
+        --cache "BW Cache.zip" --cache "SM Cache.zip" --force
+
+Cache sources may be an extracted ``bundleCache`` directory or a complete
+PTCGO cache ZIP.  Sources are applied from left to right; when two archives
+contain the same mask, the source listed last wins.
 """
 import argparse
-import glob
+import json
 import os
 import re
+import shutil
 import sys
+import zipfile
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional, Union
 
 DEFAULT_CACHE_DIR = os.path.join(
     "original_game_cache",
@@ -33,6 +44,56 @@ KIND_SUFFIXES = {
 }
 
 _COLLECTOR_RE = re.compile(r"collector_number\s*=\s*(\d+)")
+
+# Repository set codes which differ from the original PTCGO bundle names.
+# Exact repository codes are checked last so they win if a cache contains both.
+CACHE_SET_ALIASES = {
+    "BWP": ("PROMO_BW",),
+    "CEL25": ("Ann25th",),
+    "CEL25C": ("Ann25thR",),
+    "SMP": ("Promo_SM",),
+    "SM35": ("SL",),
+    "SM75": ("DM",),
+    "DET1": ("GUM",),
+    "SM115": ("HF",),
+    "SWSH35": ("CP",),
+    "SWSH45": ("SF",),
+    "SWSHP": ("Promo_SWSH",),
+    "XYP": ("Promo_XY",),
+}
+
+INTERNAL_FOIL_ALIASES = {
+    "XY2": {"111": "88"},
+    "XY3": {"114": "55"},
+    "XY4": {"125": "24", "126": "65"},
+    "XY6": {"113": "77", "114": "92"},
+    "XY7": {"102": "75"},
+    "XY8": {"166": "146"},
+    "XY9": {"127": "98", "128": "98", "129": "107"},
+    "TWENTIETHANN": {"133": "28", "134": "73"},
+    "XY10": {"130": "43", "131": "54", "132": "105", "133": "111"},
+    "PROMO_XY": {
+        "212": "67", "213": "150", "214": "177",
+        "215": "198", "216": "200",
+    },
+}
+
+
+@dataclass(frozen=True)
+class BundlePayload:
+    """One serialized Unity bundle from either disk or a ZIP archive."""
+
+    label: str
+    modified: tuple
+    path: Optional[str] = None
+    archive: Optional[str] = None
+    member: Optional[str] = None
+
+    def load_arg(self) -> Union[str, bytes]:
+        if self.path is not None:
+            return self.path
+        with zipfile.ZipFile(self.archive) as cache_zip:
+            return cache_zip.read(self.member)
 
 
 def _set_card_stems(set_code: str) -> dict:
@@ -59,21 +120,112 @@ def _set_card_stems(set_code: str) -> dict:
     return stems
 
 
-def _bundle_data_paths(cache_dir: str, set_code: str, kind: str) -> list:
-    """__data paths for every cached version of one foil bundle, oldest first
-    (newer versions carry later promo additions and win on texture collisions)."""
-    pattern = os.path.join(cache_dir, f"en_US_{set_code}_wp_{kind}_Foil2_*")
-    paths = []
-    for d in glob.glob(pattern):
-        for root, _, files in os.walk(d):
-            if "__data" in files:
-                paths.append(os.path.join(root, "__data"))
-                break
-    paths.sort(key=os.path.getmtime)
-    return paths
+def _bundle_name_pattern(set_code: str, kind: str) -> re.Pattern:
+    prefix = re.escape(f"en_US_{set_code}_wp_{kind}_Foil2")
+    return re.compile(
+        rf"(?:^|/){prefix}(?:_[^/]*)?/[0-9a-fA-F]{{32}}/__data$",
+        re.IGNORECASE,
+    )
 
 
-def extract_set(set_code: str, cache_dir: str, force: bool = False, only_cards=None) -> tuple:
+def _bundle_revision(name: str) -> tuple[int, int]:
+    """Return the semantic cache revision encoded in a bundle name.
+
+    ZIP timestamps are not reliable indicators of PTCGO bundle order (some
+    archives contain CR105 entries dated before CR100).  Sorting by those
+    timestamps made an older mask overwrite a corrected newer one.
+    """
+    match = re.search(r"_CRR?(\d+)(?:_(\d+))?(?:/|$)", name, re.IGNORECASE)
+    if not match:
+        return (0, 0)
+    return (int(match.group(1)), int(match.group(2) or 0))
+
+
+def _directory_payloads(cache_dir: str, set_code: str, kind: str) -> list:
+    """Serialized bundle paths from one extracted cache, oldest first."""
+    prefix = f"en_US_{set_code}_wp_{kind}_Foil2"
+    payloads = []
+    if not os.path.isdir(cache_dir):
+        return payloads
+    for name in os.listdir(cache_dir):
+        if not (name == prefix or name.startswith(prefix + "_")):
+            continue
+        bundle_dir = os.path.join(cache_dir, name)
+        for root, _, files in os.walk(bundle_dir):
+            if "__data" not in files:
+                continue
+            path = os.path.join(root, "__data")
+            payloads.append(BundlePayload(
+                label=path,
+                modified=(*_bundle_revision(name), os.path.getmtime(path), path),
+                path=path,
+            ))
+            break
+    return sorted(payloads, key=lambda item: item.modified)
+
+
+def _zip_payloads(cache_zip: str, set_code: str, kind: str) -> list:
+    """Serialized bundle members from one cache ZIP, oldest first."""
+    pattern = _bundle_name_pattern(set_code, kind)
+    payloads = []
+    with zipfile.ZipFile(cache_zip) as archive:
+        for info in archive.infolist():
+            member = info.filename.replace("\\", "/")
+            if not pattern.search(member):
+                continue
+            payloads.append(BundlePayload(
+                label=f"{cache_zip}!{info.filename}",
+                modified=(
+                    *_bundle_revision(member),
+                    datetime(*info.date_time).timestamp(),
+                    info.header_offset,
+                ),
+                archive=cache_zip,
+                member=info.filename,
+            ))
+    return sorted(payloads, key=lambda item: item.modified)
+
+
+def _bundle_payloads(cache_source: str, set_code: str, kind: str) -> list:
+    """Return every cached version of a foil bundle from one source."""
+    if os.path.isfile(cache_source) and zipfile.is_zipfile(cache_source):
+        return _zip_payloads(cache_source, set_code, kind)
+    return _directory_payloads(cache_source, set_code, kind)
+
+
+def _cache_set_codes(set_code: str) -> tuple:
+    return (*CACHE_SET_ALIASES.get(set_code.upper(), ()), set_code)
+
+
+def _collector_texture_number(name: str) -> Optional[str]:
+    """Normalize an ordinary collector-number mask, excluding print variants."""
+    value = str(name).strip()
+    if not value.isdigit():
+        return None
+    return value.zfill(3)
+
+
+def _variant_aliases(set_code: str) -> dict:
+    """Return {native texture name: internal collector slot} for variants.
+
+    PTCGO names alternate Sun & Moon prints ``019xy``, ``130ya``, etc.,
+    while the protocol only accepts numeric collector slots.  The era importer
+    writes the reversible mapping beside the art so the original variant foil
+    mask is selected rather than copying the base print's material.
+    """
+    path = os.path.join(CARDS_IMG_DIR, set_code, "foil_aliases.json")
+    try:
+        with open(path, encoding="utf-8") as source:
+            aliases = json.load(source)
+    except (OSError, ValueError, TypeError):
+        return {}
+    return {
+        str(native).strip().casefold(): str(internal).zfill(3)
+        for internal, native in aliases.items()
+    }
+
+
+def extract_set(set_code: str, cache_sources, force: bool = False, only_cards=None) -> tuple:
     import UnityPy
 
     stems = _set_card_stems(set_code)
@@ -83,55 +235,115 @@ def extract_set(set_code: str, cache_dir: str, force: bool = False, only_cards=N
     if not stems:
         print(f"[{set_code}] no matching card scripts found, skipping")
         return (0, 0)
+    variant_aliases = _variant_aliases(set_code)
 
-    written = skipped = 0
+    written_paths = set()
+    skipped_paths = set()
     for kind, suffix in KIND_SUFFIXES.items():
-        textures = {}
-        for data_path in _bundle_data_paths(cache_dir, set_code, kind):
-            try:
-                env = UnityPy.load(data_path)
-                for obj in env.objects:
-                    if obj.type.name != "Texture2D":
+        found = matched = 0
+        # Each successive bundle revision and cache source may replace an
+        # earlier texture.  Files created during this invocation are therefore
+        # intentionally overwritten; pre-existing files require --force.
+        for cache_source in cache_sources:
+            for cache_set_code in _cache_set_codes(set_code):
+                for payload in _bundle_payloads(cache_source, cache_set_code, kind):
+                    try:
+                        env = UnityPy.load(payload.load_arg())
+                    except Exception as e:
+                        print(f"[{set_code}] failed to load {payload.label}: {e}")
                         continue
-                    data = obj.read()
-                    textures[data.m_Name] = data
-            except Exception as e:
-                print(f"[{set_code}] failed to load {data_path}: {e}")
+                    for obj in env.objects:
+                        if obj.type.name != "Texture2D":
+                            continue
+                        data = obj.read()
+                        found += 1
+                        number = variant_aliases.get(
+                            str(data.m_Name).strip().casefold()
+                        ) or _collector_texture_number(data.m_Name)
+                        stem = stems.get(number) if number else None
+                        if not stem:
+                            continue
+                        matched += 1
+                        out_path = os.path.join(
+                            CARDS_IMG_DIR, set_code, f"{stem}{suffix}.png"
+                        )
+                        if (os.path.exists(out_path)
+                                and out_path not in written_paths
+                                and not force):
+                            skipped_paths.add(out_path)
+                            continue
+                        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                        try:
+                            # Copy detaches the PIL image from UnityPy's serialized
+                            # reader before the next large bundle is loaded.
+                            data.image.copy().save(out_path)
+                            written_paths.add(out_path)
+                            skipped_paths.discard(out_path)
+                        except Exception as e:
+                            print(f"[{set_code}] failed to save {out_path}: {e}")
+                    del env
+        if found:
+            print(
+                f"[{set_code}] wp_{kind}: {found} masks inspected, "
+                f"{matched} matching textures"
+            )
 
-        for tex_name, data in sorted(textures.items()):
-            stem = stems.get(tex_name.zfill(3))
-            if not stem:
+    # Physical promo variants can share the original collector number even
+    # though the server assigns them a unique internal slot.  Reuse the base
+    # cache mask so every imported print receives the original material.
+    for destination_number, source_number in INTERNAL_FOIL_ALIASES.get(
+        set_code.upper(), {}
+    ).items():
+        destination_stem = stems.get(destination_number.zfill(3))
+        source_stem = stems.get(source_number.zfill(3))
+        if not destination_stem or not source_stem:
+            continue
+        for suffix in KIND_SUFFIXES.values():
+            source_path = os.path.join(
+                CARDS_IMG_DIR, set_code, f"{source_stem}{suffix}.png"
+            )
+            destination_path = os.path.join(
+                CARDS_IMG_DIR, set_code, f"{destination_stem}{suffix}.png"
+            )
+            if not os.path.exists(source_path):
                 continue
-            out_path = os.path.join(CARDS_IMG_DIR, set_code, f"{stem}{suffix}.png")
-            if os.path.exists(out_path) and not force:
-                skipped += 1
+            if os.path.exists(destination_path) and not force:
+                skipped_paths.add(destination_path)
                 continue
-            os.makedirs(os.path.dirname(out_path), exist_ok=True)
-            try:
-                data.image.save(out_path)
-                written += 1
-            except Exception as e:
-                print(f"[{set_code}] failed to save {out_path}: {e}")
-        if textures:
-            matched = sum(1 for t in textures if t.zfill(3) in stems)
-            print(f"[{set_code}] wp_{kind}: {len(textures)} masks in cache, {matched} match card scripts")
+            shutil.copyfile(source_path, destination_path)
+            written_paths.add(destination_path)
+            skipped_paths.discard(destination_path)
 
-    print(f"[{set_code}] wrote {written} mask PNGs ({skipped} already present)")
-    return (written, skipped)
+    print(
+        f"[{set_code}] wrote {len(written_paths)} mask PNGs "
+        f"({len(skipped_paths)} already present)"
+    )
+    return (len(written_paths), len(skipped_paths))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--set", dest="set_code", help="Set code, e.g. SWSH4")
     parser.add_argument("--all", action="store_true", help="Extract every set with card scripts")
-    parser.add_argument("--cache-dir", default=DEFAULT_CACHE_DIR)
+    parser.add_argument(
+        "--cache", action="append", dest="cache_sources",
+        help=("Extracted bundleCache directory or complete cache ZIP. Repeat "
+              "to overlay sources; the last source wins."),
+    )
+    parser.add_argument(
+        "--cache-dir", dest="legacy_cache_dir",
+        help="Deprecated alias for one extracted cache directory",
+    )
     parser.add_argument("--force", action="store_true", help="Overwrite existing _foil PNGs")
     parser.add_argument("--card", action="append", dest="cards",
                         help="Only these collector numbers (repeatable)")
     args = parser.parse_args()
 
-    if not os.path.isdir(args.cache_dir):
-        print(f"Cache dir not found: {args.cache_dir}")
+    cache_sources = args.cache_sources or [args.legacy_cache_dir or DEFAULT_CACHE_DIR]
+    missing = [source for source in cache_sources if not os.path.exists(source)]
+    if missing:
+        for source in missing:
+            print(f"Cache source not found: {source}")
         sys.exit(1)
 
     if args.all:
@@ -146,7 +358,9 @@ def main():
 
     total_written = 0
     for set_code in set_codes:
-        w, _ = extract_set(set_code, args.cache_dir, force=args.force, only_cards=args.cards)
+        w, _ = extract_set(
+            set_code, cache_sources, force=args.force, only_cards=args.cards
+        )
         total_written += w
     print(f"Done. {total_written} masks written.")
 

@@ -16,9 +16,11 @@ import uuid
 from typing import Any, Dict
 
 from spirit.game.attributes import (
-    AttrID, PokemonStage, PokemonTypes, SpecialConditions, TrainerType,
+    AttrID, CLIENT_SPECIAL_CONDITION_NAMES, PokemonStage, PokemonTypes,
+    SpecialConditions, TrainerType,
 )
 from spirit.game.card_effects.attacks_common import smokescreen_attack
+from spirit.game.card_effects.bw_era import bw_legacy_attack, bw_legacy_passive
 from spirit.game.card_effects.passives_common import (
     energy_attach_tax_passive,
     flip_prevent_damage_passive,
@@ -28,7 +30,7 @@ from spirit.game.card_effects.passives_common import (
 )
 from spirit.game.data_utils import (
     ABILITIES_BY_ID, Ability, Activations, Attack, CARD_DEFS_BY_GUID,
-    TRAINER_EFFECTS_BY_GUID, Triggers, evolves_from, evolves_from_chain,
+    TRAINER_EFFECTS_BY_GUID, Triggers, def_for, evolves_from, evolves_from_chain,
 )
 from spirit.game.models.board import EnergyEntity, PokemonEntity, create_card_entity
 from spirit.game.scripts.cards import loader as card_loader
@@ -39,6 +41,7 @@ from spirit.game.session.effects import (
     is_item_card,
     resolve_activated_ability,
     resolve_attack,
+    resolve_triggered_ability,
     resolve_trainer_effect,
 )
 from spirit.game.session.game_session import GameOver
@@ -126,6 +129,16 @@ class NoResistance(Passive):
 def new_rig():
     rig = Rig(FILLER, FILLER, ENERGY_GUIDS, ITEM)
     entities = rig.setup("pokemon")
+    # The semantic smoke rig deals Prize cards by default because many card
+    # texts inspect their count.  Engine unit tests build each prize scenario
+    # explicitly, and must start from an empty pile (also returning those
+    # cards prevents the last filler Item from being trapped in prizes).
+    for player_id in (P1, P2):
+        prize_area = rig.board.find_player_area(player_id, "prizePile")
+        deck_area = rig.board.find_player_area(player_id, "deck")
+        for card in list(prize_area.children if prize_area else []):
+            rig.board.move_card(card.entity_id, deck_area.entity_id)
+        rig.board.prizes_dealt[player_id] = 0
     assert entities["p1_active"] is not None and entities["p2_active"] is not None
     return rig, entities
 
@@ -394,6 +407,56 @@ async def test_flip_until_tails():
     tctx = EffectContext(rig.session, P1, e["p1_active"], None)
     heads = await tctx.flip_until_tails("Test Flips")
     assert heads >= 0 and tctx._messages == []
+
+
+async def test_continuous_coin_override():
+    rig, e = new_rig()
+    rig.session.turn_state.active_player_id = P1
+    setup = attack_ctx(rig, e)
+    setup.add_temporary_passive(e["p2_active"], bw_legacy_passive(
+        "If this Pokémon is your Active Pokémon, whenever your opponent "
+        "flips a coin during his or her turn, treat it as tails."
+    ))
+    ctx = EffectContext(rig.session, P1, e["p1_active"], None)
+    # No random values are supplied: consulting random.choice would fail the
+    # test, proving Contrary did not override the whole run.
+    with forced_flips():
+        assert await ctx.flip_coins(3, "Contrary test") == [False] * 3
+        assert await ctx.flip_until_tails("Contrary until tails") == 0
+
+
+async def test_printed_trainer_end_turn_and_extend():
+    definition = next(
+        definition for definition in CARD_DEFS_BY_GUID.values()
+        if getattr(definition, "display_name", None) == "Steven's Resolve"
+    )
+
+    rig, e = new_rig()
+    trainer = create_card_entity(
+        card_loader.cards_by_guid[definition.guid.lower()], owning_player_id=P1
+    )
+    rig.board.add_card_to_area(
+        trainer, rig.board.find_player_area(P1, "hand")
+    )
+    ctx = await resolve_trainer_effect(rig.session, P1, trainer)
+    assert ctx is not None and ctx.ends_turn, \
+        "Steven's Resolve must apply its printed turn-ending clause"
+
+    rig, e = new_rig()
+    trainer = create_card_entity(
+        card_loader.cards_by_guid[definition.guid.lower()], owning_player_id=P1
+    )
+    rig.board.add_card_to_area(
+        trainer, rig.board.find_player_area(P1, "hand")
+    )
+    setup = attack_ctx(rig, e)
+    setup.add_temporary_passive(e["p1_active"], bw_legacy_passive(
+        "As long as this Pokémon is your Active Pokémon, your turn does not "
+        "end when you play Steven's Resolve."
+    ))
+    ctx = await resolve_trainer_effect(rig.session, P1, trainer)
+    assert ctx is not None and not ctx.ends_turn, \
+        "Extend must suppress Steven's Resolve's turn-ending clause"
 
 
 async def test_ignore_resistance():
@@ -666,7 +729,9 @@ async def test_perform_evolution_and_chain():
     session, board = rig.session, rig.board
     ctx = attack_ctx(rig, e)
     target = e["p1_active"]
-    target.set_attribute(AttrID.HP, target.get_attribute(AttrID.HP, 0) - 20)
+    target.set_attribute(
+        AttrID.HP, passives.effective_max_hp(board, target) - 20
+    )
     await ctx.apply_special_condition(target, SpecialConditions.ASLEEP)
     fired = []
 
@@ -708,6 +773,91 @@ async def test_perform_evolution_and_chain():
     chain = evolves_from_chain(sample)
     assert evolves_from(sample, chain[0]) and evolves_from(sample, chain[1])
     assert not evolves_from(sample, "NoSuchPokemonName")
+
+    # The native BREAK renderer requires the previous Pokemon at direct child
+    # index zero.  Its Energy/Tools must remain nested below that Pokemon;
+    # flattening them onto the BREAK card makes the whole BREAK invisible.
+    break_rig, break_entities = new_rig()
+    break_target = break_entities["p1_active"]
+    energies_before = list(break_rig.board.attached_energies(break_target))
+    assert energies_before, "BREAK regression needs an attached Energy"
+    break_target.set_attribute(
+        AttrID.WEAKNESS_TYPES, [PokemonTypes.DARKNESS.value])
+    break_target.set_attribute(AttrID.WEAKNESS_AMOUNT, 2)
+    break_target.set_attribute(
+        AttrID.RESISTANCE_TYPES, PokemonTypes.FIGHTING.value)
+    break_target.set_attribute(AttrID.RESISTANCE_AMOUNT, 20)
+    break_target.set_attribute(AttrID.RETREAT_COST, 3)
+    break_ctx = attack_ctx(break_rig, break_entities)
+    break_card = next(
+        c for c in break_ctx.hand(P1) if isinstance(c, PokemonEntity)
+    )
+    trevenant_def = next(
+        definition for definition in CARD_DEFS_BY_GUID.values()
+        if getattr(definition, "key", None) == "XY9"
+        and getattr(definition, "collector_number", None) == 65
+    )
+    trevenant_break_def = next(
+        definition for definition in CARD_DEFS_BY_GUID.values()
+        if getattr(definition, "key", None) == "XY9"
+        and getattr(definition, "collector_number", None) == 66
+    )
+    break_target.archetype_id = trevenant_def.guid
+    break_card.archetype_id = trevenant_break_def.guid
+    break_card.set_attribute(AttrID.STAGE, PokemonStage.BREAK.value)
+    assert await break_rig.session.perform_evolution(P1, break_card, break_target)
+    assert break_card.children and break_card.children[0] is break_target, \
+        "BREAK child zero must be its previous Pokemon"
+    assert all(energy.parent is break_target for energy in energies_before), \
+        "BREAK must preserve the previous Pokemon's attachment subtree"
+    assert set(break_rig.board.attached_energies(break_card)) == set(energies_before), \
+        "nested BREAK Energy must remain available to the rules engine"
+    break_entities["p2_active"].set_attribute(
+        AttrID.POKEMON_TYPES, [PokemonTypes.DARKNESS.value])
+    calc = compute_damage(
+        break_rig.board, break_entities["p2_active"], break_card, 30)
+    assert calc.weakness_hit and calc.amount == 60, \
+        "BREAK must inherit the previous Evolution's Weakness"
+    break_entities["p2_active"].set_attribute(
+        AttrID.POKEMON_TYPES, [PokemonTypes.FIGHTING.value])
+    calc = compute_damage(
+        break_rig.board, break_entities["p2_active"], break_card, 30)
+    assert calc.resistance_hit and calc.amount == 10, \
+        "BREAK must inherit the previous Evolution's Resistance"
+    assert passives.effective_retreat_cost(break_rig.board, break_card) == 3, \
+        "BREAK must inherit the previous Evolution's Retreat Cost"
+    break_titles = {
+        (entry.get("title") or {}).get("id")
+        for entry in break_card.get_attribute(AttrID.PIE_ABILITIES) or []
+    }
+    assert {"Nervous Seed", "Energy Press", "Silent Fear"} <= break_titles, \
+        "BREAK must keep the previous Evolution's attacks and Abilities"
+
+
+async def test_directional_stadium_replacement_and_orientation():
+    """Parallel City may replace itself and persists the selected rotation."""
+    rig, _ = new_rig()
+    board = rig.board
+    definition = next(
+        d for d in CARD_DEFS_BY_GUID.values()
+        if getattr(d, "key", None) == "XY8"
+        and getattr(d, "collector_number", None) == 145
+    )
+    model = card_loader.cards_by_guid[definition.guid.lower()]
+    current = create_card_entity(model, owning_player_id=P2)
+    incoming = create_card_entity(model, owning_player_id=P1)
+    stadium_area = board.find_global_area("activeStadium")
+    board.add_card_to_area(current, stadium_area)
+    current.owning_player_id = P2
+    board.add_card_to_area(incoming, board.find_player_area(P1, "hand"))
+
+    await rig.session._execute_play_stadium(P1, incoming, orientation_index=1)
+
+    assert incoming.parent is stadium_area
+    assert incoming.get_attribute(AttrID.CARD_ORIENTATION) == 1
+    assert current.parent is board.find_player_area(P2, "discard")
+    assert passives.effective_bench_capacity(board, P1) == 3
+    assert passives.effective_bench_capacity(board, P2) > 3
 
 
 async def test_ability_usable_the_turn_you_evolve():
@@ -1308,6 +1458,19 @@ async def test_tool_capacity_and_attach_to():
             "PokemonToolCardDef.attach_to must filter every target"
     finally:
         del ITEM.attach_to
+    board.attach_card(tool2.entity_id, active.entity_id)
+    assert sum(
+        child.get_attribute(AttrID.TRAINER_TYPE)
+        == TrainerType.POKEMON_TOOL.value
+        for child in active.children
+    ) == 2
+    board.temporary_passives = []
+    await rig.session.enforce_bench_capacity()
+    assert sum(
+        child.get_attribute(AttrID.TRAINER_TYPE)
+        == TrainerType.POKEMON_TOOL.value
+        for child in active.children
+    ) == 1, "losing a Tool-capacity ability must discard excess Tools"
 
 
 async def test_bench_capacity():
@@ -1586,65 +1749,6 @@ async def test_cards_by_stem():
     assert "Potion_100" in card_loader.cards_by_stem
 
 
-async def test_legendary_ocean_trench_dual_stadium():
-    """Two printings must be played together, sit as one Stadium, and double heals."""
-    left_guid = card_loader.cards_by_stem["LegendaryOceanTrench_71"]
-    right_guid = card_loader.cards_by_stem["LegendaryOceanTrench_72"]
-    left_def = CARD_DEFS_BY_GUID[left_guid.lower()]
-    right_def = CARD_DEFS_BY_GUID[right_guid.lower()]
-    assert left_def.companion is not None and right_def.companion is not None
-    assert left_def.passive is not None and right_def.passive is not None
-
-    rig, e = new_rig()
-    session, board, ts = rig.session, rig.board, rig.session.turn_state
-    game_id = session.game_id
-    hand = board.find_player_area(P1, "hand")
-    discard = board.find_player_area(P1, "discard")
-    stadium_area = board.find_global_area("activeStadium")
-    left = create_card_entity(card_loader.cards_by_guid[left_guid], owning_player_id=P1)
-    right = create_card_entity(card_loader.cards_by_guid[right_guid], owning_player_id=P1)
-    prior = create_card_entity(
-        card_loader.cards_by_guid[card_loader.cards_by_stem["LivelyStadium_180"]],
-        owning_player_id=P1,
-    )
-    board.add_card_to_area(left, hand)
-    board.add_card_to_area(prior, stadium_area)
-    prior.owning_player_id = P1
-
-    def stadium_offered(entity):
-        return any(
-            a["entityID"] == entity.entity_id
-            and a["selectableAction"]["description"] == ACTION_PLAY_STADIUM
-            for a in compute_legal_actions(board, ts, P1, game_id)
-        )
-
-    assert not stadium_offered(left), "one printing alone must not be playable"
-    board.add_card_to_area(right, hand)
-    assert stadium_offered(left) and stadium_offered(right), \
-        "both printings in hand must offer either half"
-
-    await session._execute_play_stadium(P1, right)
-    children = list(stadium_area.children)
-    assert [c.archetype_id for c in children] == [left_guid, right_guid], \
-        "halves must land in collector-number order"
-    assert prior.parent is discard, "the prior Stadium must be discarded"
-    assert left.parent is stadium_area and right.parent is stadium_area
-    assert not stadium_offered(left) and not stadium_offered(right)
-
-    active = e["p1_active"]
-    max_hp = passives.effective_max_hp(board, active)
-    active.set_attribute(AttrID.HP, max_hp - 80)
-    ctx = attack_ctx(rig, e)
-    assert await ctx.heal(30, active) == 60, "heal amounts must double while LOT is in play"
-    active.set_attribute(AttrID.HP, max_hp - 40)
-    assert await ctx.heal(30, active) == 40, "doubled heal still caps at missing HP"
-
-    discarded = await ctx.discard_stadium()
-    assert discarded is not None
-    assert stadium_area.children == []
-    assert left.parent is discard and right.parent is discard
-
-
 # ----------------------------------------------------------------------
 # Sprint 4 tests
 # ----------------------------------------------------------------------
@@ -1829,6 +1933,127 @@ async def test_on_taken_as_prize():
         ABILITIES_BY_ID.pop(aid, None)
 
 
+async def test_imported_prize_and_passive_event_families():
+    """Runtime regression for passive families found by the full audit."""
+    prize_defs = {
+        (getattr(definition, "key", None),
+         getattr(definition, "collector_number", None)): definition
+        for definition in CARD_DEFS_BY_GUID.values()
+        if (getattr(definition, "key", None),
+            getattr(definition, "collector_number", None)) in {
+                ("SV035", 113), ("SM7", 97)
+            }
+    }
+    assert set(prize_defs) == {("SV035", 113), ("SM7", 97)}
+    for definition in prize_defs.values():
+        ability = definition.abilities[0]
+        assert ability.trigger == Triggers.ON_TAKEN_AS_PRIZE
+        assert ability.effect is not None and ability.passive is None
+
+    # Observer abilities must remain on the passive event bus.  They are no
+    # longer the top card (Kinesis) or observe an attachment that has already
+    # happened (Energy Signal), so converting them into source callbacks
+    # makes them inert in a real match.
+    for title in ("Kinesis", "Energy Signal"):
+        ability = next(
+            ability
+            for definition in CARD_DEFS_BY_GUID.values()
+            for ability in (getattr(definition, "abilities", ()) or ())
+            if getattr(ability, "title", "") == title
+        )
+        assert ability.effect is None and ability.trigger is None
+        assert ability.passive is not None
+
+    # These families fire only when their Pokémon is discarded from the hand
+    # by the named Supporter.  They used to load as activated abilities because
+    # the trigger inference recognized only one of the printed word orders.
+    for title in ("Blow-Away Bomb", "Surrender Now", "Underground Work"):
+        abilities = [
+            ability
+            for definition in CARD_DEFS_BY_GUID.values()
+            for ability in (getattr(definition, "abilities", ()) or ())
+            if getattr(ability, "title", "") == title
+        ]
+        assert abilities, f"missing imported ability family: {title}"
+        assert all(
+            ability.trigger == Triggers.ON_DISCARDED_FROM_HAND
+            and ability.effect is not None
+            and ability.activation is None
+            for ability in abilities
+        ), f"discard trigger was not normalized: {title}"
+
+    # Lucky Bonus: the taken card goes from hand to the Bench, then heads
+    # awards the extra Prize through the ordinary prize flow.
+    chansey = prize_defs[("SV035", 113)]
+    rig = Rig(chansey, FILLER, ENERGY_GUIDS, ITEM)
+    e = rig.setup("pokemon")
+    source = rig.to_area(rig.pull_guid(P1, chansey.guid), P1, "hand")
+    before = len(rig.board.find_player_area(P1, "prizePile").children)
+    with forced_flips(0):
+        await resolve_triggered_ability(
+            rig.session, P1, source, chansey.abilities[0]
+        )
+    assert source in rig.board.find_player_area(P1, "bench").children
+    assert len(rig.board.find_player_area(P1, "prizePile").children) == before - 1
+
+    # Scatter resolves at the opponent's turn end and promotes after its
+    # complete damaged stack has visibly shuffled into the owner's deck.
+    rig, e = new_rig()
+    holder = e["p1_active"]
+    holder.set_attribute(AttrID.HP, max(10, holder.get_attribute(AttrID.HP) - 10))
+    scatter = bw_legacy_passive(
+        "At the end of your opponent's turn, if this Pokémon has any damage "
+        "counters on it, flip a coin. If tails, shuffle this Pokémon and all "
+        "cards attached to it into your deck."
+    )
+    with forced_flips(1):
+        await scatter.on_end_turn(
+            EffectContext(rig.session, P2, holder, None), holder
+        )
+    assert holder.parent is rig.board.find_player_area(P1, "deck")
+    assert rig.board.active_pokemon(P1) is not None
+
+    # Hypnotic Pendulum chooses the opposing promotion but leaves the actual
+    # promotion in resolve_knockouts, after the Prize window.
+    rig, e = new_rig()
+    expected = next(
+        pokemon for pokemon in rig.board.find_player_area(P2, "bench").children
+        if isinstance(pokemon, PokemonEntity)
+    )
+    setup = attack_ctx(rig, e)
+    setup.add_temporary_passive(e["p1_active"], bw_legacy_passive(
+        "When your opponent's Active Pokémon is Knocked Out, flip a coin. "
+        "If heads, choose which of your opponent's Benched Pokémon becomes "
+        "their new Active Pokémon."
+    ))
+    victim = e["p2_active"]
+    ko_ctx = EffectContext(
+        rig.session, P1, e["p1_active"],
+        Attack("Test Knock Out", cost={}, damage=200),
+    )
+    victim.set_attribute(AttrID.HP, 0)
+    ko_ctx.attack_damage[victim.entity_id] = (200, 200)
+    ko_ctx.knockouts.append(victim)
+    with forced_flips(0):
+        await rig.session.resolve_knockouts(ko_ctx)
+    assert rig.board.active_pokemon(P2) is expected
+
+    # Slimy Sliding is a pre-move window: tails cancels, heads permits.
+    rig, e = new_rig()
+    slimy = bw_legacy_passive(
+        "When your opponent's Active Pokémon retreats, your opponent flips "
+        "a coin. If tails, Energy for its Retreat Cost is not discarded, "
+        "and they don't switch Pokémon. The effect of Slimy Sliding doesn't stack."
+    )
+    retreat_ctx = EffectContext(rig.session, P2, e["p2_active"], None)
+    with forced_flips(1):
+        assert not await slimy.before_retreat(
+            retreat_ctx, e["p2_active"], e["p1_active"])
+    with forced_flips(0):
+        assert await slimy.before_retreat(
+            retreat_ctx, e["p2_active"], e["p1_active"])
+
+
 async def test_trainer_effect_shield():
     rig, e = new_rig()
     board, session = rig.board, rig.session
@@ -1935,6 +2160,42 @@ async def test_energy_attach_tax():
         await session._execute_attach_energy(
             P1, deck_energy, entry, [e["p1_active"].entity_id])
     assert deck_energy.parent is e["p1_active"]
+
+
+async def test_energy_attachment_block():
+    """A hard attachment lock is reflected both in offers and execution."""
+    rig, e = new_rig()
+    board, session = rig.board, rig.session
+
+    class OpponentEnergyLock(Passive):
+        def blocks_energy_attachment(
+            self, attaching_player_id, energy, target, carrier,
+        ):
+            return attaching_player_id != carrier.owning_player_id
+
+    ctx = attack_ctx(rig, e)
+    ctx.add_temporary_passive(e["p2_active"], OpponentEnergyLock())
+    energy = next(c for c in board.find_player_area(P1, "hand").children
+                  if isinstance(c, EnergyEntity))
+    actions = compute_legal_actions(
+        board, session.turn_state, P1, session.game_id)
+    assert not any(
+        a["entityID"] == energy.entity_id
+        and a["selectableAction"]["description"] == ACTION_PLAY_ENERGY
+        for a in actions
+    ), "a blocked manual attachment must not be offered"
+
+    entry = {
+        "entityID": energy.entity_id,
+        "selectableAction": {"actionID": str(uuid.uuid4()),
+                             "description": ACTION_PLAY_ENERGY},
+        "targetInfoLst": [{"validTargets": [e["p1_active"].entity_id]}],
+    }
+    await session._execute_attach_energy(
+        P1, energy, entry, [e["p1_active"].entity_id])
+    assert energy.parent is board.find_player_area(P1, "hand"), \
+        "a stale client action must not bypass the passive"
+    assert session.turn_state.energy_attached is False
 
 
 async def test_scheduled_effects():
@@ -2212,6 +2473,734 @@ async def test_ai_passes_when_no_actions():
     assert choose_action(rig.session, P1, []) is None
 
 
+async def test_shared_text_passive_combat_rules():
+    rig, e = new_rig()
+    neutralize_wr(e)
+    attacker, defender = e["p1_active"], e["p2_active"]
+    attacker.set_attribute(AttrID.POKEMON_TYPES, [PokemonTypes.DARKNESS.value])
+    ctx = attack_ctx(rig, e)
+    ctx.add_temporary_passive(attacker, bw_legacy_passive(
+        "If the Pokémon Darkness Energy is attached to attacks, the attack "
+        "does 10 more damage to the Active Pokémon. Ignore this effect if "
+        "the Pokémon that Darkness Energy is attached to isn't Darkness."
+    ))
+    assert compute_damage(rig.board, attacker, defender, 50).amount == 60
+
+    vest = bw_legacy_passive(
+        "Any damage done to the Pokémon this card is attached to by attacks "
+        "from your opponent's Pokémon that have any Special Energy attached "
+        "to them is reduced by 40."
+    )
+    ctx.add_temporary_passive(defender, vest)
+    assert compute_damage(rig.board, attacker, defender, 50).amount == 60, \
+        "Assault Vest must not reduce without Special Energy"
+    energy = rig.board.attached_energies(attacker)[0]
+    energy.set_attribute(AttrID.IS_SPECIAL_ENERGY, True)
+    assert compute_damage(rig.board, attacker, defender, 50).amount == 20, \
+        "Assault Vest must reduce once the attacker has Special Energy"
+
+
+async def test_shared_text_passive_cost_rules():
+    rig, e = new_rig()
+    active = e["p1_active"]
+    ctx = attack_ctx(rig, e)
+    ctx.add_temporary_passive(active, bw_legacy_passive(
+        "The attacks of the Pokémon this card is attached to cost Colorless more."
+    ))
+    assert passives.effective_attack_cost(
+        rig.board, active, {"Darkness": 1}
+    ) == {"Darkness": 1, "Colorless": 1}
+    ctx.add_temporary_passive(active, bw_legacy_passive(
+        "The Retreat Cost of the Pokémon this card is attached to is Colorless less."
+    ))
+    printed = int(active.get_attribute(AttrID.RETREAT_COST, 0) or 0)
+    assert passives.effective_retreat_cost(rig.board, active) == max(0, printed - 1)
+
+
+async def test_trainer_attack_cost_modifiers_use_client_cost_keys():
+    """Stadiums and Tools must edit the cost shape sent by the client."""
+    rig, e = new_rig()
+    board = rig.board
+
+    def add_printing(set_code, number, player_id, area_name):
+        definition = next(
+            definition for definition in CARD_DEFS_BY_GUID.values()
+            if getattr(definition, "key", None) == set_code
+            and getattr(definition, "collector_number", None) == number
+        )
+        entity = create_card_entity(
+            card_loader.cards_by_guid[definition.guid.lower()],
+            owning_player_id=player_id,
+        )
+        area = (board.find_global_area(area_name)
+                if area_name == "activeStadium"
+                else board.find_player_area(player_id, area_name))
+        board.add_card_to_area(entity, area)
+        return entity
+
+    # Dimension Valley applies to Psychic Pokemon on both sides, but must not
+    # discount another type or invent an uppercase key legal_actions ignores.
+    add_printing("XY4", 93, P1, "activeStadium")
+    for active in (e["p1_active"], e["p2_active"]):
+        active.set_attribute(AttrID.POKEMON_TYPES, [PokemonTypes.PSYCHIC.value])
+        assert passives.effective_attack_cost(
+            board, active, {"Psychic": 1, "Colorless": 2}
+        ) == {"Psychic": 1, "Colorless": 1}
+    e["p2_active"].set_attribute(
+        AttrID.POKEMON_TYPES, [PokemonTypes.GRASS.value])
+    assert passives.effective_attack_cost(
+        board, e["p2_active"], {"Grass": 1, "Colorless": 2}
+    ) == {"Grass": 1, "Colorless": 2}
+
+    # Head Ringer is the holder-scoped counterpart and used the same broken
+    # Colorless-key path.
+    tool = add_printing("XY4", 97, P2, "hand")
+    rig.attach(tool, e["p2_active"])
+    assert passives.effective_attack_cost(
+        board, e["p2_active"], {"Grass": 1, "Colorless": 1}
+    ) == {"Grass": 1, "Colorless": 2}
+
+
+async def test_shared_passive_global_trainer_lock():
+    rig, e = new_rig()
+    item = next(card for card in rig.board.find_player_area(P1, "hand").children
+                if is_item_card(card))
+    ctx = attack_ctx(rig, e)
+    ctx.add_temporary_passive(e["p2_active"], bw_legacy_passive(
+        "Each player can't play any Trainer cards from his or her hand."
+    ))
+    assert passives.trainer_play_blocked(rig.board, P1, item)
+    assert passives.trainer_play_blocked(rig.board, P2, item), \
+        "Allergy Flower must lock its owner's Trainer cards too"
+
+
+async def test_shared_passive_energy_burn():
+    rig, e = new_rig()
+    active = e["p1_active"]
+    energy = rig.board.attached_energies(active)[0]
+    ctx = attack_ctx(rig, e)
+    ctx.add_temporary_passive(active, bw_legacy_passive(
+        "All Energy attached to this Pokémon are Fire Energy instead of "
+        "their usual type."
+    ))
+    options = passives.energy_provided_options(rig.board, energy)
+    assert options and all(
+        unit == PokemonTypes.FIRE.value
+        for option in options for unit in option
+    ), "Energy Burn must rewrite every provided unit to Fire"
+
+
+async def test_shared_passive_attack_gates():
+    rig, e = new_rig()
+    ctx = attack_ctx(rig, e)
+    e["p1_active"].set_attribute(AttrID.STAGE, PokemonStage.BASIC.value)
+    ctx.add_temporary_passive(e["p2_active"], bw_legacy_passive(
+        "As long as this Pokémon is your Active Pokémon, your opponent's "
+        "Basic Pokémon can't attack."
+    ))
+    assert passives.attacks_blocked(rig.board, e["p1_active"])
+    assert not passives.attacks_blocked(rig.board, e["p2_active"]), \
+        "Disgusting Pollen must not block its owner's attacker"
+
+
+async def test_shared_passive_special_energy_lock():
+    rig, e = new_rig()
+    energy = next(card for card in rig.board.find_player_area(P1, "hand").children
+                  if isinstance(card, EnergyEntity))
+    energy.set_attribute(AttrID.IS_SPECIAL_ENERGY, True)
+    ctx = attack_ctx(rig, e)
+    ctx.add_temporary_passive(e["p2_active"], bw_legacy_passive(
+        "As long as this Pokémon is your Active Pokémon, your opponent "
+        "can't play any Pokémon Tool, Special Energy, or Stadium cards from "
+        "their hand."
+    ))
+    assert passives.energy_attachment_blocked(
+        rig.board, P1, energy, e["p1_active"])
+
+
+async def test_shared_passive_pokemon_play_lock():
+    rig, e = new_rig()
+    pokemon = next(
+        card for card in rig.board.find_player_area(P1, "hand").children
+        if isinstance(card, PokemonEntity)
+    )
+    definition = def_for(pokemon.archetype_id)
+    original = list(definition.abilities)
+    definition.abilities = original + [Ability(
+        "Test Ability", passive=bw_legacy_passive("No additional effect."))]
+    try:
+        ctx = attack_ctx(rig, e)
+        ctx.add_temporary_passive(e["p2_active"], bw_legacy_passive(
+            "As long as this Pokémon is in the Active Spot, your opponent "
+            "can't play any Pokémon that has an Ability from their hand, "
+            "except for Team Rocket's Pokémon."
+        ))
+        assert passives.pokemon_play_blocked(rig.board, P1, pokemon)
+    finally:
+        definition.abilities = original
+
+
+async def test_shared_passive_hand_move_locks():
+    rig, e = new_rig()
+    setup = attack_ctx(rig, e)
+    setup.add_temporary_passive(e["p1_active"], bw_legacy_passive(
+        "Your opponent's Pokémon in play and all attached cards can't be "
+        "put into your opponent's hand."
+    ))
+    opponent_ctx = EffectContext(
+        rig.session, P2, e["p2_active"], Ability("Test Recovery")
+    )
+    original_parent = e["p2_active"].parent
+    await opponent_ctx.put_in_hand([e["p2_active"]], reveal=False)
+    assert e["p2_active"].parent is original_parent, \
+        "Mentally Calm must prevent a protected in-play Pokémon returning"
+
+    setup.add_temporary_passive(e["p1_active"], bw_legacy_passive(
+        "Cards in your opponent's discard pile can't be put into their hand "
+        "by an effect of your opponent's Abilities or Trainer cards."
+    ))
+    discard = rig.board.find_player_area(P2, "discard")
+    recovered = next(iter(discard.children))
+    await opponent_ctx.put_in_hand([recovered], reveal=False)
+    assert recovered.parent is discard, \
+        "Slime Mold Colony must block Ability recovery from discard"
+
+
+async def test_shared_passive_energy_event():
+    rig, e = new_rig()
+    receiver = e["p1_active"]
+    receiver.set_attribute(AttrID.POKEMON_TYPES, [PokemonTypes.FIRE.value])
+    hp = receiver.get_attribute(AttrID.HP, 0)
+    ctx = attack_ctx(rig, e)
+    ctx.add_temporary_passive(e["p2_active"], bw_legacy_passive(
+        "Whenever any player attaches an Energy card from their hand to 1 "
+        "of their Basic non-Water Pokémon, put 2 damage counters on that Pokémon."
+    ))
+    energy = rig.board.attached_energies(receiver)[0]
+
+    def setup(event_ctx):
+        event_ctx.attaching_player_id = P1
+        event_ctx.attached_energy = energy
+        event_ctx.energy_receiver = receiver
+
+    await rig.session._fire_passive_event(P1, "on_energy_attached", setup)
+    assert receiver.get_attribute(AttrID.HP, 0) == hp - 20
+
+
+async def test_shared_passive_end_turn_event():
+    rig, e = new_rig()
+    active = e["p1_active"]
+    active.set_attribute(AttrID.HP, active.get_attribute(AttrID.HP, 0) - 40)
+    before = active.get_attribute(AttrID.HP, 0)
+    ctx = attack_ctx(rig, e)
+    ctx.add_temporary_passive(active, bw_legacy_passive(
+        "At the end of your turn, if the Pokémon this card is attached to is "
+        "in the Active Spot, heal 20 damage from it."
+    ))
+    await rig.session._fire_passive_event(P1, "on_end_turn")
+    assert active.get_attribute(AttrID.HP, 0) == before + 20
+
+
+async def test_shared_passive_active_change_events():
+    rig, e = new_rig()
+    observer = e["p1_active"]
+    previous = e["p2_active"]
+    new_active = next(
+        card for card in rig.board.find_player_area(P2, "bench").children
+        if isinstance(card, PokemonEntity)
+    )
+    ctx = attack_ctx(rig, e)
+    ctx.add_temporary_passive(observer, bw_legacy_passive(
+        "As long as this Pokémon is in the Active Spot, whenever your "
+        "opponent's Active Pokémon moves to the Bench during their turn, "
+        "their new Active Pokémon is now Confused."
+    ))
+    rig.session.turn_state.active_player_id = P2
+    await rig.session.fire_move_to_active_triggers(
+        new_active, previous_active=previous, switch_reason="effect")
+    conditions = new_active.get_attribute(AttrID.SPECIAL_CONDITIONS) or []
+    assert "Confused" in conditions, \
+        "Swirling Prose must observe an opponent's Active-spot change"
+
+
+async def test_shared_passive_darkest_impulse_nonstacking():
+    rig, e = new_rig()
+    evolved = e["p2_active"]
+    evolved.set_attribute(AttrID.HP, 100)
+    ctx = attack_ctx(rig, e)
+    text = (
+        "Whenever your opponent plays a Pokémon from their hand to evolve "
+        "1 of their Pokémon, put 4 damage counters on that Pokémon. The "
+        "effect of Darkest Impulse doesn't stack."
+    )
+    ctx.add_temporary_passive(e["p1_active"], bw_legacy_passive(text))
+    other = next(
+        card for card in rig.board.find_player_area(P1, "bench").children
+        if isinstance(card, PokemonEntity)
+    )
+    ctx.add_temporary_passive(other, bw_legacy_passive(text))
+
+    def setup(event_ctx):
+        event_ctx.evolved_pokemon = evolved
+        event_ctx.evolved_from = evolved
+
+    await rig.session._fire_passive_event(P2, "on_pokemon_evolved", setup)
+    assert evolved.get_attribute(AttrID.HP, 0) == 60, \
+        "two Darkest Impulse copies must still place only 4 counters"
+
+
+async def test_special_conditions_persist_through_evolution():
+    rig, e = new_rig()
+    target = e["p1_active"]
+    evo = next(
+        card for card in rig.board.find_player_area(P1, "hand").children
+        if isinstance(card, PokemonEntity)
+    )
+    evo.set_attribute(AttrID.STAGE, PokemonStage.STAGE1.value)
+    evo.set_attribute(
+        AttrID.EVOLUTION_LOGIC_FROM,
+        target.get_attribute(AttrID.EVOLUTION_LOGIC_NAME),
+    )
+    setup = attack_ctx(rig, e)
+    setup.add_temporary_passive(target, bw_legacy_passive(
+        "Special Conditions are not removed when Pokémon (both yours and "
+        "your opponent's) evolve or devolve."
+    ))
+    await setup.apply_special_condition(target, SpecialConditions.POISONED,
+                                        poison_counters=3)
+    await setup.apply_special_condition(target, SpecialConditions.BURNED)
+    assert await rig.session.perform_evolution(P1, evo, target)
+    conditions = evo.get_attribute(AttrID.SPECIAL_CONDITIONS) or []
+    assert "Poisoned" in conditions and "Burned" in conditions
+    assert rig.session.poison_counters.get(evo.entity_id) == 3
+
+
+async def test_passive_knockout_event_snapshot():
+    rig, e = new_rig()
+    victim = e["p1_active"]
+    attachments = list(rig.board.attached_energies(victim))
+    observed = []
+
+    class ObserveKnockout(Passive):
+        async def on_knocked_out(self, ctx, pokemon, carrier):
+            observed.append((
+                pokemon,
+                pokemon._containing_area_name(),
+                list(ctx.knocked_out_attachments),
+                ctx.was_active_at_ko,
+                ctx.ko_from_attack,
+                ctx.ko_attacker,
+            ))
+
+    setup_ctx = attack_ctx(rig, e)
+    setup_ctx.add_temporary_passive(victim, ObserveKnockout())
+    ko_ctx = EffectContext(
+        rig.session, P2, e["p2_active"],
+        Attack("Test Knock Out", cost={}, damage=200),
+    )
+    victim.set_attribute(AttrID.HP, 0)
+    ko_ctx.attack_damage[victim.entity_id] = (200, 200)
+    ko_ctx.knockouts.append(victim)
+    await rig.session.resolve_knockouts(ko_ctx)
+    assert len(observed) == 1
+    pokemon, area, snap, was_active, from_attack, attacker = observed[0]
+    assert pokemon is victim and area == "discard"
+    assert all(card in snap for card in attachments), \
+        "attached Energy must survive in the event snapshot"
+    assert was_active and from_attack and attacker is e["p2_active"]
+
+
+async def test_shared_passive_knockout_replacements():
+    rig, e = new_rig()
+    victim = e["p1_active"]
+    setup_ctx = attack_ctx(rig, e)
+    setup_ctx.add_temporary_passive(victim, bw_legacy_passive(
+        "If this Pokémon is Knocked Out by damage from an opponent's attack, "
+        "put it into your hand instead of the discard pile. "
+        "(Discard all cards attached to it.)"
+    ))
+    before = len(rig.board.find_player_area(P2, "hand").children)
+    setup_ctx.add_temporary_passive(victim, bw_legacy_passive(
+        "If this Pokémon is Knocked Out by damage from an attack from your "
+        "opponent's Pokémon, discard 2 random cards from your opponent's hand."
+    ))
+    ko_ctx = EffectContext(
+        rig.session, P2, e["p2_active"],
+        Attack("Test Knock Out", cost={}, damage=200),
+    )
+    victim.set_attribute(AttrID.HP, 0)
+    ko_ctx.attack_damage[victim.entity_id] = (200, 200)
+    ko_ctx.knockouts.append(victim)
+    await rig.session.resolve_knockouts(ko_ctx)
+    assert victim.parent is rig.board.find_player_area(P1, "hand"), \
+        "Durable Blade/Infinite Shadow return the KO'd Pokémon itself"
+    after = len(rig.board.find_player_area(P2, "hand").children)
+    assert after == max(0, before - 2), \
+        "Last Pattern/Startling Pumpkin discard the printed random count"
+
+
+async def test_imported_first_turn_abilities_are_activated():
+    expected = {
+        "Abnormal Outbreak": ("SM6", 5),
+        "Transformative Start": ("SV035", 132),
+        "Round ‘n' Round": ("SM10", 36),
+    }
+    found = {}
+    for definition in CARD_DEFS_BY_GUID.values():
+        key = (getattr(definition, "key", None),
+               getattr(definition, "collector_number", None))
+        for ability in getattr(definition, "abilities", ()) or ():
+            if ability.title in expected and key == expected[ability.title]:
+                found[ability.title] = ability
+    assert set(found) == set(expected), "first-turn Ability printings must load"
+    for title, ability in found.items():
+        assert ability.activation == Activations.ONCE_PER_TURN, title
+        assert ability.effect is not None and ability.passive is None, title
+        assert ability.condition is not None, title
+
+    rig, e = new_rig()
+    state = rig.session.turn_state
+    state.active_player_id = P1
+    state.turn_number = 1
+    transformative = found["Transformative Start"]
+    assert transformative.condition(rig.board, P1, e["p1_active"])
+    assert not transformative.condition(rig.board, P1, e["p2_active"]), \
+        "Transformative Start is Active-only"
+    state.turn_number = 2
+    assert found["Abnormal Outbreak"].condition(
+        rig.board, P1, e["p1_active"])
+    assert found["Round ‘n' Round"].condition(
+        rig.board, P1, e["p1_active"])
+    state.turn_number = 1
+    assert not found["Abnormal Outbreak"].condition(
+        rig.board, P1, e["p1_active"]), "going-second gate"
+
+
+async def test_shared_passive_conditional_rules():
+    rig, e = new_rig()
+    board = rig.board
+
+    def add_printing(set_code, number, player_id=P1, area_name="bench"):
+        definition = next(
+            definition for definition in CARD_DEFS_BY_GUID.values()
+            if getattr(definition, "key", None) == set_code
+            and getattr(definition, "collector_number", None) == number
+        )
+        entity = create_card_entity(
+            card_loader.cards_by_guid[definition.guid.lower()],
+            owning_player_id=player_id,
+        )
+        board.add_card_to_area(
+            entity, board.find_player_area(player_id, area_name))
+        return entity
+
+    # Solrock enables New Moon, which blocks even the owner's Stadium from
+    # affecting their Pokemon (the text says "any Stadium").
+    add_printing("HGSS4", 9)
+    trainer = next(card for card in board.find_player_area(P1, "hand").children
+                   if is_item_card(card))
+    trainer.set_attribute(AttrID.TRAINER_TYPE, TrainerType.STADIUM.value)
+    ctx = EffectContext(rig.session, P1, trainer, None)
+    ctx.is_trainer_effect = True
+    ctx.add_temporary_passive(e["p1_active"], bw_legacy_passive(
+        "If you have Solrock in play, prevent all effects of any Stadium "
+        "done to your Pokémon in play."
+    ))
+    hp = e["p1_active"].get_attribute(AttrID.HP, 0)
+    assert await ctx.heal(10, e["p1_active"]) == 0
+    assert e["p1_active"].get_attribute(AttrID.HP, 0) == hp
+
+    # The older Heal Block wording says counters cannot be removed and is
+    # conditional on Lunatone rather than Solrock.
+    board.temporary_passives = []
+    add_printing("HGSS4", 25)
+    atk = attack_ctx(rig, e)
+    atk.add_temporary_passive(e["p1_active"], bw_legacy_passive(
+        "If you have Lunatone in play, damage counters can't be removed "
+        "from any Pokémon (both yours and your opponent's). "
+        "(Damage counters can still be moved.)"
+    ))
+    assert await atk.heal(10, e["p1_active"]) == 0
+
+    # All three printed Tool-suppression scopes are distinct.
+    board.temporary_passives = []
+    tool = rig.to_area(
+        rig.pull(P1, lambda card: is_item_card(card)), P1, "hand")
+    assert tool is not None
+    tool.set_attribute(AttrID.TRAINER_TYPE, TrainerType.POKEMON_TOOL.value)
+    rig.attach(tool, e["p2_active"])
+    atk.add_temporary_passive(e["p1_active"], bw_legacy_passive(
+        "Pokémon Tool cards attached to your opponent's Pokémon have no effect."
+    ))
+    assert passives.tool_suppressed(board, tool), "Ancient Custom"
+    board.temporary_passives = []
+    atk.add_temporary_passive(e["p1_active"], bw_legacy_passive(
+        "As long as this Pokémon is your Active Pokémon, each Pokémon Tool "
+        "card in play has no effect."
+    ))
+    assert passives.tool_suppressed(board, tool), "Fright Night"
+    rig.to_area(e["p1_active"], P1, "bench")
+    assert not passives.tool_suppressed(board, tool), \
+        "Fright Night switches off from the Bench"
+
+    # Glistening Bubbles changes Azumarill's printed four-Psychic cost to one
+    # Psychic whenever any Tera Pokemon is on its side.
+    board.temporary_passives = []
+    active = e["p2_active"]
+    add_printing("SV07", 128, player_id=P2)
+    atk.add_temporary_passive(active, bw_legacy_passive(
+        "If you have any Tera Pokémon in play, this Pokémon can use the "
+        "Double-Edge attack for Psychic."
+    ))
+    assert passives.effective_attack_cost(
+        board, active, {"Psychic": 4}) == {"Psychic": 1}
+
+
+async def test_conditional_tool_granted_attacks():
+    rig, e = new_rig()
+    board = rig.board
+    flyinium_def = next(
+        definition for definition in CARD_DEFS_BY_GUID.values()
+        if getattr(definition, "key", None) == "SM11"
+        and getattr(definition, "collector_number", None) == 195
+    )
+    tool = create_card_entity(
+        card_loader.cards_by_guid[flyinium_def.guid.lower()],
+        owning_player_id=P1,
+    )
+    board.add_card_to_area(tool, board.find_player_area(P1, "hand"))
+    rig.attach(tool, e["p1_active"])
+    granted_title = "Speeding Skystrike-GX"
+    titles = {
+        (entry.get("title") or {}).get("id")
+        for entry in rig.session._pie_ability_entries(e["p1_active"])
+    }
+    assert granted_title not in titles, \
+        "Flyinium Z must not grant its GX attack without Air Slash"
+
+    holder_def = def_for(e["p1_active"].archetype_id)
+    original = list(holder_def.abilities)
+    try:
+        holder_def.abilities.append(Attack("Air Slash", cost={}, damage=10))
+        titles = {
+            (entry.get("title") or {}).get("id")
+            for entry in rig.session._pie_ability_entries(e["p1_active"])
+        }
+        assert granted_title in titles
+    finally:
+        holder_def.abilities = original
+
+
+async def test_discard_origin_trigger():
+    rig, e = new_rig()
+    board = rig.board
+    definition = next(
+        definition for definition in CARD_DEFS_BY_GUID.values()
+        if getattr(definition, "key", None) == "ME4"
+        and getattr(definition, "collector_number", None) == 63
+    )
+    ability = next(a for a in definition.abilities
+                   if a.title == "Startling Drop")
+    assert ability.has_trigger(Triggers.ON_DISCARDED)
+    assert ability.effect is not None and ability.passive is None
+    ferrothorn = create_card_entity(
+        card_loader.cards_by_guid[definition.guid.lower()], owning_player_id=P1)
+    board.add_card_to_area(ferrothorn, board.find_player_area(P1, "deck"))
+    rig.session.turn_state.active_player_id = P2
+    before = len(board.find_player_area(P2, "deck").children)
+    ctx = EffectContext(
+        rig.session, P2, e["p2_active"],
+        Attack("Opponent Mill", cost={}, damage=0),
+    )
+    await ctx.discard_cards([ferrothorn])
+    for hook in list(ctx.deferred_actions):
+        await hook()
+    after = len(board.find_player_area(P2, "deck").children)
+    assert before - after == min(8, before), "Startling Drop mills 8"
+
+
+async def test_composite_attack_secondary_effects():
+    def printing(set_code, number):
+        return next(
+            definition for definition in CARD_DEFS_BY_GUID.values()
+            if getattr(definition, "key", None) == set_code
+            and getattr(definition, "collector_number", None) == number
+        )
+
+    def prepared(set_code, number):
+        target = printing(set_code, number)
+        rig = Rig(target, FILLER, ENERGY_GUIDS, ITEM)
+        entities = rig.setup("pokemon")
+        return rig, entities, target
+
+    # Sweet Kiss deals its printed damage and then gives the opponent the
+    # printed card, rather than treating the one-line rider as flavor text.
+    rig, e, definition = prepared("XY6", 43)
+    attack = next(a for a in definition.abilities if a.title == "Sweet Kiss")
+    before_hand = len(rig.board.find_player_area(P2, "hand").children)
+    before_hp = e["p2_active"].get_attribute(AttrID.HP, 0)
+    await bw_legacy_attack(EffectContext(rig.session, P1, e["p1_active"], attack))
+    assert len(rig.board.find_player_area(P2, "hand").children) == before_hand + 1
+    assert e["p2_active"].get_attribute(AttrID.HP, 0) < before_hp
+
+    # Every attach-and-heal family heals the Pokemon that actually received
+    # the Energy (not the attacker and not an arbitrary Bench target).
+    for set_code, number, title, heal_amount in (
+        ("XY7", 8, "Jagged Saber", None),
+        ("SV06", 11, "Leaflet Blessings", None),
+        ("SM12", 38, "Splash Maker", 50),
+    ):
+        rig, e, definition = prepared(set_code, number)
+        attack = next(a for a in definition.abilities if a.title == title)
+        possible_targets = list(rig.board.pokemon_in_play(P1)) \
+            if title == "Splash Maker" else list(rig.board.pokemon_in_play(P1))[1:]
+        before = {
+            pokemon.entity_id: (
+                pokemon,
+                pokemon.get_attribute(AttrID.HP, 0),
+                len(rig.board.attached_energies(pokemon)),
+            )
+            for pokemon in possible_targets
+        }
+        await bw_legacy_attack(
+            EffectContext(rig.session, P1, e["p1_active"], attack)
+        )
+        recipients = [
+            entry for entry in before.values()
+            if len(rig.board.attached_energies(entry[0])) > entry[2]
+        ]
+        assert recipients, title
+        for pokemon, before_hp, before_energy in recipients:
+            attached = len(rig.board.attached_energies(pokemon)) - before_energy
+            max_hp = passives.effective_max_hp(rig.board, pokemon)
+            expected = max_hp if heal_amount is None else min(
+                max_hp, before_hp + heal_amount * attached)
+            assert pokemon.get_attribute(AttrID.HP, 0) == expected, title
+
+    # Precious Ribbon moves the physical Fairy Energy and heals that same
+    # destination by 50.
+    rig, e, definition = prepared("TwentiethAnn", 121)
+    attack = next(a for a in definition.abilities if a.title == "Precious Ribbon")
+    bench = list(rig.board.pokemon_in_play(P1))[1]
+    before_hp = bench.get_attribute(AttrID.HP, 0)
+    before_energy = len(rig.board.attached_energies(bench))
+    await bw_legacy_attack(EffectContext(rig.session, P1, e["p1_active"], attack))
+    assert len(rig.board.attached_energies(bench)) == before_energy + 1
+    assert bench.get_attribute(AttrID.HP, 0) == min(
+        passives.effective_max_hp(rig.board, bench), before_hp + 50)
+
+    # Horror House-GX's extra Psychic payment draws both players to seven.
+    rig, e, definition = prepared("SM9", 53)
+    attack = next(a for a in definition.abilities if a.title == "Horror House-GX")
+    for player_id in (P1, P2):
+        hand = rig.board.find_player_area(player_id, "hand")
+        deck = rig.board.find_player_area(player_id, "deck")
+        for card in list(hand.children)[1:]:
+            rig.board.move_card(card.entity_id, deck.entity_id)
+    await bw_legacy_attack(EffectContext(rig.session, P1, e["p1_active"], attack))
+    assert len(rig.board.find_player_area(P1, "hand").children) == 7
+    assert len(rig.board.find_player_area(P2, "hand").children) == 7
+
+
+async def test_attack_coin_and_switch_text_families():
+    def prepared(set_code, number, title):
+        definition = next(
+            definition for definition in CARD_DEFS_BY_GUID.values()
+            if getattr(definition, "key", None) == set_code
+            and getattr(definition, "collector_number", None) == number
+        )
+        rig = Rig(definition, FILLER, ENERGY_GUIDS, ITEM)
+        entities = rig.setup("pokemon")
+        attack = next(a for a in definition.abilities if a.title == title)
+        return rig, entities, attack
+
+    # Some legacy source rows retain only "If heads".  They still require a
+    # real coin and must apply the conditional Special Condition.
+    rig, e, attack = prepared("COL", 43, "Thundershock")
+    with forced_flips(0):
+        await bw_legacy_attack(
+            EffectContext(rig.session, P1, e["p1_active"], attack)
+        )
+    assert CLIENT_SPECIAL_CONDITION_NAMES[SpecialConditions.PARALYZED] in (
+        e["p2_active"].get_attribute(AttrID.SPECIAL_CONDITIONS) or []
+    )
+
+    # "Have your opponent switch" gives the defending player the choice and
+    # works for all printings using that wording.
+    rig, e, attack = prepared("XY5", 44, "Aqua Swirl")
+    old_active = e["p2_active"]
+    await bw_legacy_attack(EffectContext(rig.session, P1, e["p1_active"], attack))
+    assert rig.board.active_pokemon(P2) is not old_active
+
+    # A paid self-switch rider used to discard the Energy but leave the
+    # attacker Active because "switch it" was not recognized.
+    rig, e, attack = prepared("SV4", 50, "Swing and Skedaddle")
+    old_active = e["p1_active"]
+    before_discard = len(rig.board.find_player_area(P1, "discard").children)
+    await bw_legacy_attack(EffectContext(rig.session, P1, old_active, attack))
+    assert rig.board.active_pokemon(P1) is not old_active
+    assert len(rig.board.find_player_area(P1, "discard").children) > before_discard
+
+    # Suction Shock's "that Pokémon" refers to the newly promoted target.
+    rig, e, attack = prepared("SV3", 69, "Suction Shock")
+    with forced_flips(0):
+        await bw_legacy_attack(
+            EffectContext(rig.session, P1, e["p1_active"], attack)
+        )
+    promoted = rig.board.active_pokemon(P2)
+    assert CLIENT_SPECIAL_CONDITION_NAMES[SpecialConditions.PARALYZED] in (
+        promoted.get_attribute(AttrID.SPECIAL_CONDITIONS) or []
+    )
+
+
+async def test_shared_attack_rule_families():
+    def prepared(set_code, number, title):
+        definition = next(
+            definition for definition in CARD_DEFS_BY_GUID.values()
+            if getattr(definition, "key", None) == set_code
+            and getattr(definition, "collector_number", None) == number
+        )
+        rig = Rig(definition, FILLER, ENERGY_GUIDS, ITEM)
+        entities = rig.setup("pokemon")
+        attack = next(a for a in definition.abilities if a.title == title)
+        return rig, entities, attack
+
+    # The oldest and newest wordings of "move an Energy from this Pokémon"
+    # share one implementation and move the physical card after damage.
+    rig, e, attack = prepared("Promo_SM", 21, "Power Cyclone")
+    source_energy = rig.board.attached_energies(e["p1_active"])[0]
+    bench = rig.board.pokemon_in_play(P1)[1]
+    await bw_legacy_attack(EffectContext(rig.session, P1, e["p1_active"], attack))
+    assert carrier_pokemon(source_energy) is bench
+
+    # Heads shields only the attacker for the opponent's next turn.
+    rig, e, attack = prepared("Promo_SM", 109, "Agility")
+    with forced_flips(0):
+        await bw_legacy_attack(EffectContext(
+            rig.session, P1, e["p1_active"], attack,
+        ))
+    hp = e["p1_active"].get_attribute(AttrID.HP, 0)
+    counter = EffectContext(
+        rig.session, P2, e["p2_active"],
+        Attack("Counter", cost={}, damage=30),
+    )
+    assert await counter.deal_damage(30) == 0
+    assert e["p1_active"].get_attribute(AttrID.HP, 0) == hp
+
+    # Reverse word order ("During ..., the Defending Pokémon can't retreat")
+    # must establish a real legal-actions lock.
+    rig, e, attack = prepared("ME2PT5", 114, "Big Bite")
+    await bw_legacy_attack(EffectContext(rig.session, P1, e["p1_active"], attack))
+    assert rig.session.turn_state.retreat_locked(e["p2_active"].entity_id)
+
+    # Returning attached Energy uses the owner hand and removes it from the
+    # stack, including the optional modern wording used by Moonlight Slash.
+    rig, e, attack = prepared("XY9", 40, "Moonlight Slash")
+    source_energy = rig.board.attached_energies(e["p1_active"])[0]
+    await bw_legacy_attack(EffectContext(rig.session, P1, e["p1_active"], attack))
+    assert source_energy.parent is rig.board.find_player_area(P1, "hand")
+
+
 TESTS = [
     test_temp_passive_prevents_then_expires,
     test_temp_passive_cleared_on_leave,
@@ -2222,6 +3211,8 @@ TESTS = [
     test_damage_taken_recorded,
     test_ends_turn_plumbing,
     test_flip_until_tails,
+    test_continuous_coin_override,
+    test_printed_trainer_end_turn_and_extend,
     test_ignore_resistance,
     test_unlimited_activation,
     test_blocks_special_conditions,
@@ -2234,6 +3225,7 @@ TESTS = [
     test_move_energy,
     test_on_damaged_by_attack,
     test_perform_evolution_and_chain,
+    test_directional_stadium_replacement_and_orientation,
     test_ability_usable_the_turn_you_evolve,
     test_on_energy_attached,
     test_play_locks,
@@ -2261,16 +3253,17 @@ TESTS = [
     test_reorder_deck_top,
     test_unplayable_from_hand,
     test_cards_by_stem,
-    test_legendary_ocean_trench_dual_stadium,
     test_flip_prevent_damage,
     test_guts_survive,
     test_attack_flip_check,
     test_was_active_at_ko,
     test_on_turn_drawn,
     test_on_taken_as_prize,
+    test_imported_prize_and_passive_event_families,
     test_trainer_effect_shield,
     test_replace_supporter_effect,
     test_energy_attach_tax,
+    test_energy_attachment_block,
     test_scheduled_effects,
     test_retreat_cost_board_param,
     test_ignore_target_effects_turn_flag,
@@ -2283,6 +3276,29 @@ TESTS = [
     test_ai_picks_higher_damage_attack,
     test_ai_retreats_immobilized_active,
     test_ai_passes_when_no_actions,
+    test_shared_text_passive_combat_rules,
+    test_shared_text_passive_cost_rules,
+    test_trainer_attack_cost_modifiers_use_client_cost_keys,
+    test_shared_passive_global_trainer_lock,
+    test_shared_passive_energy_burn,
+    test_shared_passive_attack_gates,
+    test_shared_passive_special_energy_lock,
+    test_shared_passive_pokemon_play_lock,
+    test_shared_passive_hand_move_locks,
+    test_shared_passive_energy_event,
+    test_shared_passive_end_turn_event,
+    test_shared_passive_active_change_events,
+    test_shared_passive_darkest_impulse_nonstacking,
+    test_special_conditions_persist_through_evolution,
+    test_passive_knockout_event_snapshot,
+    test_shared_passive_knockout_replacements,
+    test_imported_first_turn_abilities_are_activated,
+    test_shared_passive_conditional_rules,
+    test_conditional_tool_granted_attacks,
+    test_discard_origin_trigger,
+    test_composite_attack_secondary_effects,
+    test_attack_coin_and_switch_text_families,
+    test_shared_attack_rule_families,
 ]
 
 

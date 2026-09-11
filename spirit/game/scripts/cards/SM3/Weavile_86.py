@@ -1,0 +1,42 @@
+from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.standard_era import (
+    standard_ability, standard_attack, standard_passive,
+)
+
+
+card = PokemonCardDef(
+    guid='2d45d205-a8f6-5227-be9b-aa2b360fe157',
+    key='SM3',
+    name='com.direwolfdigital.cake.data.archetypes.pokemon.Weavile.Name',
+    display_name='Weavile',
+    searchable_by=['Weavile', 'Stage 1', 'Weavile'],
+    subtypes=['Stage 1'],
+    collector_number=86,
+    set_code='SM3',
+    regulation_mark=None,
+    rarity=Rarities.Rare,
+    hp=90,
+    elements=[PokemonTypes.DARKNESS],
+    stage=PokemonStage.STAGE1,
+    retreat_cost=0,
+    weakness_type=PokemonTypes.FIGHTING,
+    weakness_amount=2,
+    resistance_type=PokemonTypes.PSYCHIC,
+    resistance_amount=20,
+    evolves_from='com.direwolfdigital.cake.data.archetypes.pokemon.Sneasel.Name',
+    family_id=215,
+    abilities=[
+        Attack(
+            title='Rule of Evil',
+            game_text="This attack does 60 damage to each Pokémon that has an Ability (both yours and your opponent's). (Don't apply Weakness and Resistance for Benched Pokémon.)",
+            cost={PokemonTypes.COLORLESS: 1},
+            effect=standard_attack,
+        ),
+        Attack(
+            title='Slash',
+            cost={PokemonTypes.DARKNESS: 1, PokemonTypes.COLORLESS: 1},
+            damage=70,
+        ),
+    ],
+)

@@ -23,12 +23,18 @@
         "ME4",
         "ME5",
         "SVP",
-        "ME6"
+        "MEP",
+        "SVE"
       ],
       "allSets": false,
       "bannedCards": [],
       "extraLegalCards": [],
-      "legalFrom": {}
+      "legalFrom": {},
+      "regulationMarks": [
+        "H",
+        "I",
+        "J"
+      ]
     },
     {
       "key": "Expanded",
@@ -36,8 +42,20 @@
       "formatName": "Expanded",
       "sets": [
         "Free_Energy",
-        "CUSTOM",
         "BW1",
+        "BW2",
+        "BW3",
+        "BW4",
+        "BW5",
+        "BW6",
+        "DV",
+        "BW7",
+        "BW8",
+        "BW9",
+        "BW10",
+        "BW11",
+        "PROMO_BW",
+        "BW_Energy",
         "SWSH1",
         "SWSH2",
         "SWSH3",
@@ -62,8 +80,6 @@
         "SV08",
         "SV085",
         "SV10",
-        "BASE1",
-        "BASE2",
         "RSV10PT5",
         "SV09",
         "ZSV10PT5",
@@ -74,7 +90,6 @@
         "ME4",
         "ME5",
         "SVP",
-        "ME6",
         "SV1",
         "SM5",
         "XY6",
@@ -88,20 +103,40 @@
         "SM3",
         "SV2",
         "SM12",
-        "BW3",
         "XY9",
         "XY5",
         "SM8",
         "SM9",
-        "BW9",
         "XY11",
         "XY2",
-        "XY7"
+        "XY7",
+        "MEP",
+        "Promo_SM",
+        "SL",
+        "SM4",
+        "SM7",
+        "DM",
+        "GUM",
+        "SM11",
+        "HF",
+        "SVE",
+        "SV3",
+        "SV035",
+        "SV4",
+        "SV045",
+        "Promo_XY",
+        "TATM",
+        "TwentiethAnn",
+        "XY0",
+        "XY10",
+        "XY12",
+        "XY3"
       ],
       "allSets": false,
       "bannedCards": [],
       "extraLegalCards": [],
-      "legalFrom": {}
+      "legalFrom": {},
+      "regulationMarks": []
     },
     {
       "key": "Legacy",
@@ -109,23 +144,62 @@
       "formatName": "Legacy",
       "sets": [
         "Free_Energy",
-        "CUSTOM",
-        "BW1"
+        "Promo_HGSS",
+        "HGSS1",
+        "HGSS2",
+        "HGSS3",
+        "HGSS4",
+        "COL",
+        "BW1",
+        "BW2",
+        "BW3",
+        "BW4",
+        "BW5",
+        "BW6",
+        "DV",
+        "BW7",
+        "BW8",
+        "BW9",
+        "BW10",
+        "BW11",
+        "PROMO_BW",
+        "BW_Energy"
       ],
       "allSets": false,
       "bannedCards": [],
       "extraLegalCards": [],
-      "legalFrom": {}
+      "legalFrom": {},
+      "regulationMarks": []
     },
     {
       "key": "Unlimited",
       "guid": "6a1dec5a-34db-4cee-a503-4ee759304135",
       "formatName": "Unlimited",
-      "sets": [],
+      "sets": [
+        "SVE",
+        "SV1",
+        "SV2",
+        "SV3",
+        "SV035",
+        "SV4",
+        "SV045",
+        "SV05",
+        "SV06",
+        "SV065",
+        "SV07",
+        "SV08",
+        "SV085",
+        "SV09",
+        "SV10",
+        "RSV10PT5",
+        "ZSV10PT5",
+        "SVP"
+      ],
       "allSets": true,
       "bannedCards": [],
       "extraLegalCards": [],
-      "legalFrom": {}
+      "legalFrom": {},
+      "regulationMarks": []
     },
     {
       "key": "StandardNightly",
@@ -149,13 +223,19 @@
         "ZSV10PT5",
         "ME4",
         "ME5",
-        "ME6",
-        "SVP"
+        "SVP",
+        "MEP",
+        "SVE"
       ],
       "allSets": false,
       "bannedCards": [],
       "extraLegalCards": [],
-      "legalFrom": {}
+      "legalFrom": {},
+      "regulationMarks": [
+        "H",
+        "I",
+        "J"
+      ]
     }
   ]
 }

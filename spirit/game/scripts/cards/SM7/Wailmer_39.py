@@ -1,0 +1,35 @@
+from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.card_effects.standard_era import (
+    standard_ability, standard_attack, standard_passive,
+)
+
+
+card = PokemonCardDef(
+    guid='e6b0d3ed-c54b-5559-ab97-a39304cec8db',
+    key='SM7',
+    name='com.direwolfdigital.cake.data.archetypes.pokemon.Wailmer.Name',
+    display_name='Wailmer',
+    searchable_by=['Wailmer', 'Basic', 'Wailmer'],
+    subtypes=['Basic'],
+    collector_number=39,
+    set_code='SM7',
+    regulation_mark=None,
+    rarity=Rarities.Common,
+    hp=120,
+    elements=[PokemonTypes.WATER],
+    stage=PokemonStage.BASIC,
+    retreat_cost=3,
+    weakness_type=PokemonTypes.GRASS,
+    weakness_amount=2,
+    family_id=320,
+    abilities=[
+        Attack(
+            title='Wave Swallower',
+            game_text='Flip a coin until you get tails. For each heads, heal 50 damage from this Pokémon.',
+            cost={PokemonTypes.WATER: 3},
+            damage=50,
+            effect=standard_attack,
+        ),
+    ],
+)

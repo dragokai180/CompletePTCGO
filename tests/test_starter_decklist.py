@@ -1,6 +1,7 @@
 import unittest
 
 from spirit.game.starter_content import (
+    BOT_DECKS,
     SET_CODE_MAP,
     STARTER_DECKS,
     parse_tcgo_decklist,
@@ -71,8 +72,11 @@ class ParseTcgoDecklistTests(unittest.TestCase):
         self.assertEqual(SET_CODE_MAP["SSH"], "SWSH1")
         self.assertEqual(SET_CODE_MAP["FREE_ENERGY"], "Free_Energy")
 
-    def test_starter_decks_parse_to_sixty_cards(self):
-        for name, decklist in STARTER_DECKS:
+    def test_new_accounts_have_no_default_saved_decks(self):
+        self.assertEqual(STARTER_DECKS, [])
+
+    def test_internal_bot_decks_still_parse_to_sixty_cards(self):
+        for name, decklist in BOT_DECKS:
             entries = parse_tcgo_decklist(decklist)
             self.assertEqual(
                 sum(count for count, _, _ in entries),

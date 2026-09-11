@@ -40,6 +40,7 @@ from spirit.game.format_manager import FormatManager
 from spirit.game.scripts.cards import loader as card_loader
 from spirit.game.scripts.products import loader as product_loader
 from spirit.game.text_encoding import client_localization_value
+from spirit.game.localization_overrides import ui_localization_items
 
 SETS_DB_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), '..', '..', 'database', 'json_data', 'sets.json')
@@ -56,6 +57,33 @@ CARDS_BY_KEY = {}
 PRODUCTS_DB = []
 SETS_DB = []
 SETS_CHECKSUM = hashlib.md5(b"[]").hexdigest()
+
+# The collection client preserves the first-seen order of expansion blocks.
+# Keep every era explicit so newly added sets cannot inherit the arbitrary
+# order of the archived SetData file.  NONE is reserved for Mega Evolution.
+SERIES_DISPLAY_ORDER = {
+    "NONE": 0,  # Mega Evolution Series
+    "SV": 1,
+    "SWSH": 2,
+    "SM": 3,
+    "XY": 4,
+    "BW": 5,
+    "HGSS": 6,
+    "RSP": 7,
+}
+
+
+def _set_display_sort_key(set_data):
+    """Newest series first, then newest expansion within that series."""
+    try:
+        set_number = int(set_data.get("number") or 0)
+    except (TypeError, ValueError):
+        set_number = 0
+    return (
+        SERIES_DISPLAY_ORDER.get(set_data.get("block"), len(SERIES_DISPLAY_ORDER)),
+        -set_number,
+        str(set_data.get("name") or ""),
+    )
 
 # Per-process caches invalidated on reload: serialized card attrs and static payloads
 _CARD_ATTRS_CACHE = {}
@@ -131,6 +159,7 @@ def reload_sets():
                 # formats.json is the single source of truth for set legality
                 if isinstance(s.get("name"), str):
                     s["legalFormats"] = manager.legal_format_guids_for_set(s["name"])
+            SETS_DB.sort(key=_set_display_sort_key)
             logging.info(f"[DB] Loaded {len(SETS_DB)} sets.")
         except Exception as e:
             logging.error(f"[DB] Failed to load sets: {e}")
@@ -170,6 +199,7 @@ def _load_localizations():
         {"key": "ids_card_name_spirit", "value": "Spirit Card"},
         {"key": "minspec.init.collection", "value": "Initializing Spirit Collection..."}
     ]
+    custom_strings.extend(ui_localization_items())
 
     # Register card-specific display names. Keep the real 'Pokémon' spelling;
     # ASCII 'Pokemon Catcher' is an import/search alias, not the printed name.
@@ -199,12 +229,12 @@ def _load_localizations():
 # Archetype keys prioritized for Energy sets
 # "Free_Energy" MUST be first to prevent KeyNotFoundException in OwnedStacks
 ARCHETYPE_KEYS = [
-    "Free_Energy", "Energy", "Basic_Energy", "NoSet", "CUSTOM",
+    "Free_Energy", "Energy", "Basic_Energy", "NoSet",
     "TK7A", "XY6", "Promo_HGSS", "XY2", "TK5B", "BW10", "BW4", "BW7",
     "TK8A", "TK9B", "SM7", "TATM", "XY9", "AvatarItems", "CP", "BW6",
     "TwentiethAnn", "SWSH6", "XY0", "BW5", "SL", "BW8", "HGSS1",
     "SM_Energy", "BW1", "SM3", "TK10B", "XY5", "HGSS2", "XY8", "TK5A",
-    "COL", "TK6B", "Promo_BW", "XY12", "XY_Energy", "BW2", "RSP", "SM4",
+    "COL", "TK6B", "PROMO_BW", "XY12", "XY_Energy", "BW2", "RSP", "SM4",
     "TK9A", "SWSH5", "RewardItems", "HGSS3", "BW9", "XY1", "XY4", "TK10A",
     "SM2", "TK7B", "XY7", "XY11", "Promo_SM", "DV", "SF", "TK6A",
     "Promo_XY", "HGSS4", "BW11", "XY3", "TK8B", "XY10", "BW_Energy",
@@ -403,8 +433,8 @@ class DataSyncHandler(BaseHandler):
     #     res = {
     #         "messageName": OutboundMsg.MOTD.value,
     #         "id": 1,
-    #         "title": {"token": "SpiritPTCGO", "bundle": {}},
-    #         "text": {"token": "Welcome to the Spirit PTCGO Private Server!", "bundle": {}}
+    #         "title": {"token": "CompletePTCGO", "bundle": {}},
+    #         "text": {"token": "Welcome to the CompletePTCGO server!", "bundle": {}}
     #     }
     #     await self.client.send_packet(res, request_id, flags=WargFlags.CLEAR)
 
@@ -1042,13 +1072,22 @@ class DataSyncHandler(BaseHandler):
         res = {
             "messageName": OutboundMsg.ALL_LOCALIZATION_RELEASES.value,
             "locale": locale, 
-            "version": "spirit_v3", 
+        "version": "spirit_v4",
             "releases": {}
         }
         
         client_checksums = message.get("keyedChecksums", {})
         server_releases = ["core"]
-        current_md5 = "spirit_hash_v3_" + str(len(CACHED_LOCALIZATIONS))
+        # Hash the contents, not only the number of entries.  Rewording or
+        # replacing a localization must invalidate the client's cached release
+        # even when the list length stays unchanged.
+        localization_payload = json.dumps(
+            CACHED_LOCALIZATIONS,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        current_md5 = "spirit_hash_v4_" + hashlib.md5(localization_payload).hexdigest()
         
         for rk in server_releases:
             if client_checksums.get(rk) != current_md5:
