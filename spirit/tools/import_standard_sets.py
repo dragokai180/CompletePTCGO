@@ -158,8 +158,8 @@ def api_collector_number(card: dict, api_stem: str) -> str:
     return str(card.get("number"))
 
 
-def load_pobre_catalog(stem: str) -> Dict[str, Any]:
-    path = POBRE_ROOT / "outputs" / f"{stem}-cards.js"
+def load_external_catalog(stem: str) -> Dict[str, Any]:
+    path = LEGACY_CATALOG_ROOT / "outputs" / f"{stem}-cards.js"
     source = path.read_text(encoding="utf-8")
     match = re.search(
         r"=\s*(\{.*\})\s*;\s*\n\s*if \(typeof window", source, re.S
@@ -812,7 +812,7 @@ def run(selected: set[str], download_images: bool, workers: int) -> None:
         source_cache[api_stem] = api_cards
         catalog_names = {
             str(entry["n"]): fix_text(entry.get("name", ""))
-            for entry in load_pobre_catalog(catalog_stem)["cards"]
+            for entry in load_external_catalog(catalog_stem)["cards"]
         }
         for card in api_cards:
             number = api_collector_number(card, api_stem)
@@ -826,7 +826,7 @@ def run(selected: set[str], download_images: bool, workers: int) -> None:
     for catalog_stem, (api_stem, code) in STANDARD_SETS.items():
         if selected and catalog_stem not in selected and code.lower() not in selected:
             continue
-        catalog = load_pobre_catalog(catalog_stem)
+        catalog = load_external_catalog(catalog_stem)
         wanted = {str(card["n"]): card for card in catalog["cards"]}
         api_cards = source_cache[api_stem]
         api_by_number = {
@@ -934,7 +934,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "sets", nargs="*",
-        help="Optional Pobre stem or server code (default: every Standard set)",
+        help="Optional catalog stem or server code (default: every Standard set)",
     )
     parser.add_argument("--download-images", action="store_true")
     parser.add_argument("--workers", type=int, default=20)

@@ -1,0 +1,85 @@
+INSTALLING THE CBREW BUNDLES
+============================
+
+CompletePTCGO does not distribute card artwork, the original PTCGO client, or
+the original game AssetBundles. You must provide your own lawful local copy.
+This project refers to that local asset collection as the "cbrew bundles".
+
+Requirements
+------------
+
+1. A compatible Pokemon TCG Online client (version 2.95.0.5815).
+2. Python and the project dependencies installed as described in README.md.
+3. A local cbrew bundles folder. Depending on your archive, it can contain:
+   - BW Cache.zip
+   - SM Cache.zip
+   - PTCGO Exe.zip
+   - the era/set artwork ZIP files supplied with the cbrew bundles
+
+Installation on Windows PowerShell
+----------------------------------
+
+1. Open PowerShell in the CompletePTCGO repository directory.
+
+2. Activate the virtual environment:
+
+   .\venv\Scripts\Activate.ps1
+
+3. Point CompletePTCGO to your cbrew bundles directory. Replace the example
+   path with the real location on your computer:
+
+   $env:PTCGO_ART_SOURCE_DIR = "D:\path\to\cbrew bundles"
+   $env:PTCGO_CACHE_DIR = $env:PTCGO_ART_SOURCE_DIR
+
+4. Import the original card and menu artwork:
+
+   python -m spirit.tools.ptcgo_local_assets --source "$env:PTCGO_ART_SOURCE_DIR"
+
+   Use --cards-only to import only card artwork, or --ui-only to import only
+   the original menus and interface bundles.
+
+5. Start the server:
+
+   python -m spirit.main
+
+Generated files
+---------------
+
+The importer writes local files to these directories:
+
+   spirit/assets/cards/
+   spirit/assets/externalCache/
+   spirit/assets/bundleCache/
+
+These directories are intentionally excluded from Git. Do not commit their
+contents.
+
+Recent expansions
+-----------------
+
+The regular launchers (run.bat, run.sh, and start-server.command) do not
+download recent card artwork. The cbrew importer restores only artwork that is
+present in your local cbrew bundles and PTCGO cache archives.
+
+Scarlet & Violet artwork that is absent locally can be downloaded explicitly
+from the image URLs in the bundled pokemon-tcg-data snapshot:
+
+   python -m spirit.tools.import_sv_sets --download-missing
+
+This is an opt-in development command and requires an internet connection.
+Mega Evolution-era artwork is not currently downloaded by the regular
+installer. Keep the matching images in your local cbrew bundles/card-art
+archive until a standalone downloader is added.
+
+Troubleshooting
+---------------
+
+- "PTCGO asset directory does not exist": verify the path assigned to
+  PTCGO_ART_SOURCE_DIR.
+- Missing old card art: verify that the matching set ZIP or cache ZIP exists
+  in the cbrew bundles directory.
+- Missing recent card art: run the explicit Scarlet & Violet command above.
+- Missing menus: verify that SM Cache.zip or BW Cache.zip is available and run
+  the importer without --cards-only.
+- Never install the generated server certificate into the Windows Trusted Root
+  Store; the original client can reject it because of its IP hostname check.
