@@ -4,29 +4,27 @@ from spirit.game.card_effects.support_common import draw_attack
 from spirit.game.card_effects.trainers import is_basic_energy_card
 
 async def energy_wheel(ctx):
-    await ctx.deal_damage()
     bench = ctx.my_bench()
-    energies = ctx.attached_energies(ctx.attacker)
+    energies = [energy for pokemon in bench for energy in ctx.attached_energies(pokemon)]
     if not bench or not energies:
         return
     picked = await ctx.choose_cards(energies, 1, minimum=1, prompt="Choose an Energy to move")
     if not picked:
         return
-    target = await ctx.choose_pokemon(
-        bench, "Choose the Benched Pokémon to move the Energy to"
-    )
-    if target is not None:
-        await ctx.move_energy(picked[0], target)
+    await ctx.move_energy(picked[0], ctx.attacker)
 
 
 async def hurricane(ctx):
     await ctx.deal_damage()
     bench = ctx.my_bench()
-    if bench:
-        await ctx.move_energy_freely(
-            [ctx.attacker], bench, predicate=is_basic_energy_card, max_count=1,
-            prompt="Choose a basic Energy to move to a Benched Pokémon",
-        )
+    energies = [energy for energy in ctx.attached_energies(ctx.attacker)
+                if is_basic_energy_card(energy)]
+    if bench and energies:
+        picked = await ctx.choose_cards(energies, 1, minimum=1,
+                                       prompt="Choose a basic Energy to move")
+        target = await ctx.choose_pokemon(bench, "Choose a Benched Pokémon")
+        if picked and target is not None:
+            await ctx.move_energy(picked[0], target)
 
 
 

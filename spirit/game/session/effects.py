@@ -516,8 +516,8 @@ class EffectContext:
                    *, modify: bool = True) -> int:
         """Heals damage from a Pokemon (default: own Active); returns the healed amount.
 
-        `modify=False` skips heal multipliers (moving damage counters is not
-        the heal keyword, so Legendary Ocean Trench must not inflate it).
+        `modify=False` skips heal multipliers but still respects healing locks.
+        Moving damage counters uses its own primitive, not healing.
         """
         target = target if target is not None else self.my_active()
         if target is None or amount <= 0:
@@ -691,7 +691,8 @@ class EffectContext:
         """Attaches an effect-granted passive to `target` (expires_after_turn
         None = until it leaves the Active spot / play)."""
         self.board.temporary_passives.append(
-            TempPassive(passive, target.entity_id, expires_after_turn)
+            TempPassive(passive, target.entity_id, expires_after_turn,
+                        from_attack=self.is_attack_effect())
         )
 
     def add_temporary_player_passive(
@@ -706,7 +707,8 @@ class EffectContext:
         if player is None:
             return
         self.board.temporary_passives.append(
-            TempPassive(passive, player.entity_id, expires_after_turn, player_id)
+            TempPassive(passive, player.entity_id, expires_after_turn, player_id,
+                        from_attack=self.is_attack_effect())
         )
 
     def force_next_coin_result(self, heads: bool) -> None:
@@ -1172,7 +1174,7 @@ class EffectContext:
         max_count: Optional[int] = None,
         prompt: str = "Place the moved damage counters",
     ) -> int:
-        """Moves damage counters off `source` (heal + raw counter placement,
+        """Moves damage counters off `source` (HP update + raw counter placement,
         atomic), clamped to its actual damage; returns counters moved.
 
         A single shielded destination fizzles the WHOLE move; in a
@@ -1200,13 +1202,20 @@ class EffectContext:
             placement = await self.session.prompt_damage_counter_placement(
                 self.player_id, self.source.entity_id, pool, count, prompt=prompt,
             )
-        total = sum(v for v in placement.values() if v > 0)
+        valid_ids = {p.entity_id for p in pool}
+        placement = {key: value for key, value in placement.items()
+                     if key in valid_ids and isinstance(value, int) and value > 0}
+        total = sum(placement.values())
         if total <= 0:
             return 0
-        healed = await self.heal(total * 10, source, modify=False)
-        if healed <= 0:
+        if self.effects_blocked(source) or self._trainer_blocked(source):
             return 0
-        remaining = healed // 10
+        # Moving counters is not healing: Heal Block explicitly allows it.
+        # Do not apply healing locks/multipliers, healing statistics or flags.
+        moved = min(count, total)
+        source.set_attribute(AttrID.HP, source.get_attribute(AttrID.HP, 0) + moved * 10)
+        self._queue_hp_update(source)
+        remaining = moved
         by_id = {p.entity_id: p for p in pool}
         for entity_id, n in placement.items():
             if n <= 0 or entity_id not in by_id or remaining <= 0:
@@ -1215,7 +1224,7 @@ class EffectContext:
             remaining -= n
             await self.deal_damage(amount=n * 10, target=by_id[entity_id],
                                    as_counters=True)
-        return healed // 10
+        return moved
 
     # ------------------------------------------------------------------
     # Interactive primitives (resolve inline, before choreography)
@@ -2073,6 +2082,21 @@ class EffectContext:
         )
         return True
 
+    async def put_legend(self, first: CardEntity, second: CardEntity) -> bool:
+        """Validate and join both physical halves as one board Pokemon."""
+        from spirit.game.legend import legend_pairs
+        pairs = legend_pairs([first, second])
+        if not pairs or first.parent is not second.parent \
+                or first.owning_player_id != self.player_id \
+                or second.owning_player_id != self.player_id \
+                or first._containing_area_name() not in ("hand", "deck"):
+            return False
+        top, bottom = pairs[0]
+        if not await self.bench_pokemon(top):
+            return False
+        await self.attach_card(bottom, top)
+        return True
+
     async def bench_pokemon(self, card: CardEntity) -> bool:
         """Puts a Pokemon from a non-hand zone onto its owner's bench.
 
@@ -2583,7 +2607,10 @@ def is_stage2_pokemon(card: CardEntity) -> bool:
 def is_evolution_pokemon(card: CardEntity) -> bool:
     return (
         is_pokemon_card(card)
-        and card.get_attribute(AttrID.STAGE) != PokemonStage.BASIC.value
+        and card.get_attribute(AttrID.STAGE) in (
+            PokemonStage.STAGE1.value, PokemonStage.STAGE2.value,
+            PokemonStage.BREAK.value, PokemonStage.VMAX.value, PokemonStage.VSTAR.value,
+        )
     )
 
 
@@ -2668,6 +2695,11 @@ def split_pokemon_stack(
 
     remaining = [card for card in cards if card is not pokemon]
     evolution_ids = {pokemon.entity_id}
+    # Both LEGEND halves are the Pokemon, not an attached Tool or evolution.
+    from spirit.game.legend import complementary_halves
+    for card in remaining:
+        if complementary_halves(pokemon, card):
+            evolution_ids.add(card.entity_id)
     for expected_name in evolves_from_chain(pokemon.archetype_id):
         match = next((
             card for card in remaining

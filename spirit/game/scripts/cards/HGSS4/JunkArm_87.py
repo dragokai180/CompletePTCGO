@@ -17,6 +17,6 @@ card = ItemCardDef(
     set_code='HGSS4',
     regulation_mark=None,
     rarity=Rarities.Uncommon,
-    effect=standard_trainer_effect("Discard 2 cards from your hand. Search your discard pile for a Trainer card, show it to your opponent, and put it into your hand. You can't choose Junk Arm with the effect of this card."),
-    condition=standard_trainer_condition("Discard 2 cards from your hand. Search your discard pile for a Trainer card, show it to your opponent, and put it into your hand. You can't choose Junk Arm with the effect of this card."),
+    effect=standard_trainer_effect("Discard 2 cards from your hand. Search your discard pile for an Item card, show it to your opponent, and put it into your hand. You can't choose Junk Arm with the effect of this card."),
+    condition=standard_trainer_condition("Discard 2 cards from your hand. Search your discard pile for an Item card, show it to your opponent, and put it into your hand. You can't choose Junk Arm with the effect of this card."),
 )

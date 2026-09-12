@@ -184,6 +184,10 @@ class GameOver(Exception):
     """Raised once the game has been decided; unwinds the gameplay sequence."""
 
 
+class SuddenDeath(Exception):
+    """Unwind the completed round without awarding a match result."""
+
+
 class GameOptions:
     """
     Represents the gameplay options and match metadata sent to the client
@@ -1394,16 +1398,21 @@ class GameSession:
     async def run_gameplay_sequence(self):
         """Sequential gameplay workflow starting from the pre-game coin flip."""
         try:
-            for phase in (
-                self.run_pregame_coin_flip,
-                self.run_setup_phase,
-                self.run_mulligan_phase,
-            ):
-                await self._wait_for_connection_resume()
-                await self._run_state_unit(phase())
-            await self._wait_for_connection_resume()
-            await self.run_placement_phase()
-            await self.run_turn_loop()
+            while True:
+                try:
+                    for phase in (
+                        self.run_pregame_coin_flip,
+                        self.run_setup_phase,
+                        self.run_mulligan_phase,
+                    ):
+                        await self._wait_for_connection_resume()
+                        await self._run_state_unit(phase())
+                    await self._wait_for_connection_resume()
+                    await self.run_placement_phase()
+                    await self.run_turn_loop()
+                    break
+                except SuddenDeath:
+                    await self._run_state_unit(self._reset_sudden_death_round())
         except GameOver:
             logging.info(f"[Session {self.game_id}] Gameplay sequence finished (game over).")
         except Exception as e:
@@ -2554,11 +2563,7 @@ class GameSession:
 
         for (taker_id, mode), count in prize_awards.items():
             await self._take_prizes(taker_id, count, destination=mode)
-        for taker_id in {t for t, _ in prize_awards}:
-            prizes = self.board_state.find_player_area(taker_id, "prizePile")
-            if prizes is not None and self.board_state.prizes_dealt.get(taker_id) \
-                    and not prizes.children:
-                await self.end_game(taker_id, "Took all Prize cards")
+        await self._resolve_simultaneous_win_conditions()
         for owner_id in promotions:
             if not await self._promote_new_active(owner_id):
                 await self.end_game(
@@ -3057,6 +3062,63 @@ class GameSession:
                                 return t
                 return None
         return None
+
+    async def _resolve_simultaneous_win_conditions(self):
+        """Compare BOTH players after the complete effect/prize batch.
+
+        Two winning conditions beat one; equal simultaneous wins start a
+        new one-Prize round rather than letting dictionary order decide.
+        Deck-out is checked separately at the required start-of-turn draw.
+        """
+        scores = {}
+        reasons = {}
+        for pid in self.players:
+            prizes = self.board_state.find_player_area(pid, 'prizePile')
+            took_all = bool(prizes is not None and self.board_state.prizes_dealt.get(pid)
+                            and not prizes.children)
+            empty = not self.board_state.pokemon_in_play(self._opponent_id(pid))
+            scores[pid] = int(took_all) + int(empty)
+            reasons[pid] = 'Took all Prize cards' if took_all else 'Opponent has no Pokemon left'
+        best = max(scores.values(), default=0)
+        if not best:
+            return
+        winners = [pid for pid, score in scores.items() if score == best]
+        if len(winners) > 1:
+            raise SuddenDeath()
+        await self.end_game(winners[0], reasons[winners[0]])
+
+    async def _reset_sudden_death_round(self):
+        """Reuse the existing setup protocol and physical cards for a tie."""
+        from spirit.game.session.effects import full_stack
+        logging.info('[Session %s] Starting Sudden Death (one Prize each).', self.game_id)
+        self.board_state.temporary_passives.clear()
+        for pid in self.players:
+            ctx = EffectContext(self, pid, None, None)
+            cards = []
+            for zone in ('hand', 'deck', 'discard', 'lostZone', 'prizePile', 'activePokemonArea', 'bench'):
+                area = self.board_state.find_player_area(pid, zone)
+                for card in list(area.children) if area is not None else []:
+                    cards.extend(full_stack(card))
+            stadium = ctx.stadium_in_play()
+            if stadium is not None and stadium.owning_player_id == pid:
+                cards.append(stadium)
+            await ctx.shuffle_into_deck(list({card.entity_id: card for card in cards}.values()), player_id=pid)
+            await ctx.flush_choreography()
+        self.turn_state = TurnState()
+        self.board_state.turn_state = self.turn_state
+        self.board_state.prizes_dealt.clear()
+        self._forced_promotion_ids.clear()
+        self.scheduled_effects.clear()
+        self._turn_visualizations.clear()
+        self.sleep_checkup_coins.clear()
+        self.poison_counters.clear()
+        self.confusion_damage.clear()
+        self.paralyzed_since.clear()
+        self._effective_max_seen.clear()
+        self.extra_turn_pending = False
+        self.coin_flip_caller_id = self.coin_flip_winner_id = self.first_player_id = None
+        self._sudden_death = True
+        self.game_phase = GamePhase.INIT
 
     async def _promote_new_active(self, player_id: str) -> bool:
         """The player promotes a benched Pokemon into the empty Active spot.
@@ -4126,6 +4188,29 @@ class GameSession:
 
     async def _execute_play_basic(self, player_id: str, card):
         """Plays a Basic Pokemon from hand onto the bench."""
+        from spirit.game.legend import is_legend, complementary_halves, legend_pairs
+        if is_legend(card):
+            hand = self.board_state.find_player_area(player_id, "hand")
+            if hand is None or card not in hand.children:
+                return
+            partners = [other for other in hand.children
+                        if complementary_halves(card, other)]
+            if not partners:
+                return
+            ctx = EffectContext(self, player_id, card, None)
+            picked = partners if len(partners) == 1 else await ctx.choose_cards(
+                partners, 1, prompt="Choose the other LEGEND half", minimum=1)
+            if not picked or picked[0] not in partners:
+                return
+            partner = picked[0]
+            top, bottom = legend_pairs([card, partner])[0]
+            if not await ctx.put_legend(top, bottom):
+                return
+            await ctx.flush_choreography()
+            ends_turn = await self._fire_triggered_abilities(
+                player_id, top, Triggers.ON_PLAY)
+            await self.enforce_bench_capacity()
+            return ends_turn
         bench_area = self.board_state.find_player_area(player_id, "bench")
         if not bench_area or len(bench_area.children) >= \
                 effective_bench_capacity(self.board_state, player_id):
@@ -5769,6 +5854,7 @@ class GameSession:
 
         ctx = await resolve_attack(self, player_id, card, ability, action_id)
         # Effects like Aqua Return can remove the attacker itself from play.
+        await self._resolve_simultaneous_win_conditions()
         for pid in list(self.players.keys()):
             if self.board_state.active_pokemon(pid) is None \
                     and not await self._promote_new_active(pid):
@@ -6073,7 +6159,8 @@ class GameSession:
         """
         nested_sequences = []
         for player_id in self._turn_order():
-            dealt = self.board_state.deal_from_deck(player_id, "prizePile", PRIZE_COUNT)
+            dealt = self.board_state.deal_from_deck(
+                player_id, "prizePile", 1 if getattr(self, '_sudden_death', False) else PRIZE_COUNT)
             logging.info(
                 f"[Session {self.game_id}] Dealt {len(dealt)} prize cards to "
                 f"{self.players[player_id].screen_name}."

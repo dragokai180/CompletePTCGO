@@ -9,7 +9,7 @@ async def final_wish(ctx):
     if not ctx.ko_from_attack:
         return
     picks = await ctx.search_deck(
-        count=1, minimum=0, prompt="Choose a card to put into your hand.",
+        count=1, minimum=min(1, len(ctx.deck())), prompt="Choose a card to put into your hand.",
     )
     await ctx.put_in_hand(picks, reveal=False)
     await ctx.shuffle_deck()

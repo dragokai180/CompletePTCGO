@@ -4,7 +4,9 @@ from spirit.game.attributes import AttrID, PokemonTypes, PokemonStage, Rarities
 from spirit.game.session.passives import Passive, carrier_pokemon
 
 ALL_TYPES_TWO_AT_A_TIME = [
-    [option[0].value, option[0].value] for option in ALL_TYPES_ONE_AT_A_TIME
+    [first[0].value, second[0].value]
+    for index, first in enumerate(ALL_TYPES_ONE_AT_A_TIME)
+    for second in ALL_TYPES_ONE_AT_A_TIME[index:]
 ]
 
 
@@ -12,7 +14,7 @@ class NeoUpperPassive(Passive):
     """On a Stage 2 Pokémon: every type of Energy, 2 at a time."""
 
     def modify_energy_provided(self, options, energy, holder, board, carrier=None):
-        if carrier_pokemon(energy) is not holder or holder is None:
+        if carrier is not energy or carrier_pokemon(energy) is not holder or holder is None:
             return options
         if holder.get_attribute(AttrID.STAGE) != PokemonStage.STAGE2.value:
             return options

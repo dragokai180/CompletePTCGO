@@ -7,7 +7,9 @@ def _secret_box_condition(board, player_id, card) -> bool:
     # Must discard 3 other cards from hand => at least 4 cards including
     # Secret Box itself.
     hand = board.find_player_area(player_id, "hand")
-    return hand is not None and len(hand.children) >= 4
+    deck = board.find_player_area(player_id, "deck")
+    return bool(hand is not None and len(hand.children) >= 4
+                and deck is not None and deck.children)
 
 
 def _is_pokemon_tool_card(card) -> bool:

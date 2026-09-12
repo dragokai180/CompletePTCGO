@@ -1,4 +1,4 @@
-from spirit.game.data_utils import SupporterCardDef, is_pokemon_ex
+from spirit.game.data_utils import SupporterCardDef, subtypes_for
 from spirit.game.attributes import Rarities
 from spirit.game.card_effects.support_common import search_to_hand
 from spirit.game.card_effects.trainers import deck_nonempty
@@ -6,7 +6,7 @@ from spirit.game.session.effects import is_pokemon_card
 
 
 def _is_pokemon_ex(card) -> bool:
-    return is_pokemon_card(card) and is_pokemon_ex(card.archetype_id)
+    return is_pokemon_card(card) and "ex" in subtypes_for(card.archetype_id)
 
 
 card = SupporterCardDef(

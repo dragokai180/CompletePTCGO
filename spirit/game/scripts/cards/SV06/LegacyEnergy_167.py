@@ -11,17 +11,20 @@ class _LegacyEnergyPassive(Passive):
     def modify_prizes_for_knockout(self, pokemon, ctx, count, carrier):
         # Apply only to knockouts by damage from an attack, and only the
         # defending player's opponent gets the reduced prize count.
-        if not ctx.is_attack_effect() or ctx.player_id == pokemon.owning_player_id:
+        if (not ctx.is_attack_effect() or ctx.player_id == pokemon.owning_player_id
+                or pokemon.entity_id not in ctx.attack_damage):
             return count
 
         # Only when the knocked-out Pokémon is the one carrying Legacy Energy.
         if carrier_pokemon(carrier) is not pokemon:
             return count
 
-        if getattr(ctx.session, "legacy_energy_prize_reduced", False):
+        used = getattr(ctx.session, "legacy_energy_prize_reduced_players", set())
+        owner = pokemon.owning_player_id
+        if owner in used or count <= 0:
             return count
 
-        ctx.session.legacy_energy_prize_reduced = True
+        ctx.session.legacy_energy_prize_reduced_players = used | {owner}
         return max(0, count - 1)
 
 

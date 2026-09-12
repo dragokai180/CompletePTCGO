@@ -59,6 +59,8 @@ class TempPassive:
     # stable PlayerEntity is the carrier and this field deliberately bypasses
     # the ordinary "card is still in play" lifetime check.
     player_id: Optional[str] = None
+    # Ranger removes attack effects, not Trainer/Ability-granted rules.
+    from_attack: bool = False
 
 
 class DamageCalc:
@@ -884,9 +886,10 @@ def compute_damage(
         attacker_types = list(attacker.get_attribute(AttrID.POKEMON_TYPES) or [])
         for passive, carrier in passives:
             attacker_types = passive.modify_pokemon_types(attacker_types, attacker, carrier)
-        if calc.weakness_applies and any(t in calc.weak_types for t in attacker_types):
+        matched_weaknesses = set(calc.weak_types).intersection(attacker_types)
+        if calc.weakness_applies and matched_weaknesses:
             calc.weakness_hit = True
-            calc.amount *= calc.weakness_multiplier
+            calc.amount *= calc.weakness_multiplier ** len(matched_weaknesses)
         resist_type = target.get_attribute(AttrID.RESISTANCE_TYPES)
         if calc.resistance_applies and resist_type in attacker_types:
             calc.resistance_hit = True

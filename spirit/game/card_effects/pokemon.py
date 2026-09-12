@@ -546,6 +546,13 @@ def energy_provides_type(card, type_value) -> bool:
     declare provided types via ENERGY_INFO, not POKEMON_TYPES — Aurora)."""
     if not is_energy_card(card):
         return False
+    # Rainbow's alternatives only exist in play. Printed outside-play
+    # Colorless clauses also govern typed searches and acceleration powers.
+    definition = def_for(getattr(card, 'archetype_id', None))
+    text = str(getattr(getattr(definition, 'passive', None), 'text', '')).casefold()
+    if 'while not in play' in text and 'counts as colorless energy' in text \
+            and card._containing_area_name() not in ('activePokemonArea', 'bench'):
+        return type_value == PokemonTypes.COLORLESS.value
     info = card.get_attribute(AttrID.ENERGY_INFO) or {}
     for option in info.get("options", []):
         if type_value in option:

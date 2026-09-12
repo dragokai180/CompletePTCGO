@@ -1,4 +1,4 @@
-from spirit.game.data_utils import PokemonToolCardDef, is_pokemon_ex
+from spirit.game.data_utils import PokemonToolCardDef, subtypes_for
 from spirit.game.attributes import Rarities
 from spirit.game.session.passives import Passive, carrier_pokemon
 
@@ -12,7 +12,7 @@ class MaximumBeltPassive(Passive):
             and calc.is_opposing
             and calc.to_active
             and carrier_pokemon(carrier) is calc.attacker
-            and is_pokemon_ex(calc.target.archetype_id)
+            and "ex" in subtypes_for(calc.target.archetype_id)
         ):
             calc.amount += 50
 

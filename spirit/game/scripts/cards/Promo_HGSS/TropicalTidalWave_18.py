@@ -18,6 +18,6 @@ card = ItemCardDef(
     regulation_mark=None,
     rarity=Rarities.RarePromo,
     attributes={200790: {'type': 'string', 'value': 'HGSS18'}},
-    effect=standard_trainer_effect('Flip a coin. If heads, discard all Trainer and Stadium cards your opponent has in play. If tails, discard all Trainer and Stadium cards you have in play.'),
-    condition=standard_trainer_condition('Flip a coin. If heads, discard all Trainer and Stadium cards your opponent has in play. If tails, discard all Trainer and Stadium cards you have in play.'),
+    effect=standard_trainer_effect('Flip a coin. If heads, discard all Item and Stadium cards your opponent has in play. If tails, discard all Item and Stadium cards you have in play.'),
+    condition=standard_trainer_condition('Flip a coin. If heads, discard all Item and Stadium cards your opponent has in play. If tails, discard all Item and Stadium cards you have in play.'),
 )

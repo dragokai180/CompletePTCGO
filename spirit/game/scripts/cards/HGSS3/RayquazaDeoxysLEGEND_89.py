@@ -22,6 +22,7 @@ card = PokemonCardDef(
     retreat_cost=3,
     weakness_type=PokemonTypes.COLORLESS,
     weakness_amount=2,
+    weakness_types=[PokemonTypes.COLORLESS, PokemonTypes.PSYCHIC],
     family_id=384,
     abilities=[
         Ability(

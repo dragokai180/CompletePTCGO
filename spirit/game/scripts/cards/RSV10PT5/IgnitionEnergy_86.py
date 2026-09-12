@@ -9,7 +9,7 @@ class IgnitionEnergyPassive(Passive):
     Colorless instead of a single Colorless."""
 
     def modify_energy_provided(self, options, energy, holder, board, carrier=None):
-        if carrier_pokemon(energy) is not holder or holder is None:
+        if carrier is not energy or carrier_pokemon(energy) is not holder or holder is None:
             return options
         if not is_evolution_pokemon(holder):
             return options

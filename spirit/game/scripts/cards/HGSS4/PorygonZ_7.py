@@ -27,7 +27,7 @@ card = PokemonCardDef(
     abilities=[
         Ability(
             title='Dimension Transfer',
-            game_text="Once during your turn (before your attack), you may flip a coin. If heads, search your discard pile for a Trainer card, show it to your opponent, and put it on top of your deck. This power can't be used if Porygon-Z is affected by a Special Condition.",
+            game_text="Once during your turn (before your attack), you may flip a coin. If heads, search your discard pile for an Item card, show it to your opponent, and put it on top of your deck. This power can't be used if Porygon-Z is affected by a Special Condition.",
             ability_type=AbilityTypes.POKE_POWER,
             effect=standard_ability,
             activation=Activations.ONCE_PER_TURN,

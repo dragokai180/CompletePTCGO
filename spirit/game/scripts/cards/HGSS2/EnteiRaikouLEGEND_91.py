@@ -22,6 +22,7 @@ card = PokemonCardDef(
     retreat_cost=0,
     weakness_type=PokemonTypes.WATER,
     weakness_amount=2,
+    weakness_types=[PokemonTypes.WATER, PokemonTypes.FIGHTING],
     family_id=243,
     abilities=[
         Attack(

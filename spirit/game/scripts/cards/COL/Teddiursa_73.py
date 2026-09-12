@@ -26,7 +26,7 @@ card = PokemonCardDef(
     abilities=[
         Attack(
             title='Fake Tears',
-            game_text="Flip a coin. If heads, your opponent can't play any Trainer cards from his or her hand during your opponent's next turn, and any damage done to Teddiursa by attack is reduced by 30 (after applying weakness and resistance).",
+            game_text="Flip a coin. If heads, your opponent can't play any Item cards from his or her hand during your opponent's next turn, and any damage done to Teddiursa by attack is reduced by 30 (after applying weakness and resistance).",
             cost={PokemonTypes.COLORLESS: 1},
             effect=standard_attack,
         ),

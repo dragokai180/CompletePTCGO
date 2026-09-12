@@ -297,11 +297,20 @@ def standard_ability_condition(game_text: str):
             return bench is not None and len(bench.children) < \
                 effective_bench_capacity(board, pid)
 
+        # Legacy Poké-Powers print their own status restriction; modern
+        # Abilities (and powers without this sentence) must remain usable.
+        if re.search(r"this power (?:can't|cannot) be used if .+ is affected by a special condition", text) \
+                and source is not None and source.get_attribute(AttrID.SPECIAL_CONDITIONS):
+            return False
+
         # Position clauses placed before the optional action are real
         # activation requirements.  Do not confuse them with a later bonus
         # clause such as Tasting (which may draw from the Bench and draws one
         # extra only while Active).
         activation_clause = text.split("you may", 1)[0]
+        source_name = card_name(source) if source is not None else ""
+        if source_name:
+            activation_clause = activation_clause.replace(source_name, "this pokémon")
         if "if this pokémon is your active pokémon" in activation_clause \
                 and (source is None or board.active_pokemon(player_id) is not source):
             return False
@@ -309,6 +318,10 @@ def standard_ability_condition(game_text: str):
             bench = board.find_player_area(player_id, "bench")
             if source is None or bench is None or source not in bench.children:
                 return False
+        from spirit.game.card_effects.hgss_era import hgss_power_condition
+        hgss_legal = hgss_power_condition(board, player_id, source, text)
+        if hgss_legal is not None:
+            return hgss_legal
         became_active_this_turn = any(phrase in activation_clause for phrase in (
             "if this pokémon was on the bench and became your active pokémon this turn",
             "when this pokémon moves from your bench to become your active pokémon",
@@ -354,6 +367,21 @@ def standard_ability_condition(game_text: str):
 
         if "search your deck" in text and (deck_area is None or not deck_area.children):
             return False
+
+        draw_until = re.search(r"draw cards until you have (\d+) cards", text)
+        if draw_until and (len(hand) >= int(draw_until.group(1)) or deck_area is None or not deck_area.children):
+            return False
+        if "draw a card" in text and "discard" not in text and (deck_area is None or not deck_area.children):
+            return False
+
+        # Afterburner's older word order puts the zone before the Energy.
+        discard_attach = re.search(
+            r"search your discard pile for (?:an?|1) (\w+) energy card and attach", text)
+        if discard_attach:
+            ptype = getattr(PokemonTypes, discard_attach.group(1).upper(), None)
+            if not any(is_energy_card(card) and (ptype is None or
+                       energy_provides_type(card, ptype.value)) for card in discard):
+                return False
 
         if ("attach this card" in text or "attach it" in text) \
                 and "as a special energy card" in text:
@@ -482,7 +510,7 @@ def standard_ability_condition(game_text: str):
             if not any(is_pokemon_tool(card) for pokemon in own
                        for card in full_stack(pokemon)[1:]):
                 return False
-        if "move" in text and "energy" in text and "pokémon" in text:
+        if re.search(r"\bmove\b", text) and "energy" in text and "pokémon" in text:
             if not any(board.attached_energies(pokemon) for pokemon in own):
                 return False
             if len(own) < 2:
@@ -491,7 +519,7 @@ def standard_ability_condition(game_text: str):
             bench = board.find_player_area(opponent_id, "bench") if opponent_id else None
             if bench is None or not bench.children:
                 return False
-        if "discard an energy from your opponent's active" in text:
+        if re.search(r"discard an energy (?:from|attached to) your opponent's active", text):
             active = board.active_pokemon(opponent_id) if opponent_id else None
             if active is None or not board.attached_energies(active):
                 return False
@@ -502,6 +530,12 @@ def standard_ability_condition(game_text: str):
                 candidates = [active] if active is not None else []
             if not any(p.get_attribute(AttrID.HP, 0) < effective_max_hp(board, p)
                        for p in candidates):
+                return False
+
+        if re.search(r"remove (?:all|\d+) damage counters? from", text):
+            targets = [board.active_pokemon(player_id)] if "from your active pokémon" in text else own
+            if not any(p is not None and p.get_attribute(AttrID.HP, 0) < effective_max_hp(board, p)
+                       for p in targets):
                 return False
 
         energy_clause = re.search(
@@ -1227,11 +1261,14 @@ def standard_trainer_effect(game_text: str):
     covers broad, deterministic templates and leaves unfamiliar clauses as a
     harmless no-op rather than marking the card unimplemented in the client.
     """
-    normalized = _norm(game_text)
+    normalized = _trainer_rules_text(game_text)
 
     async def effect(ctx):
         text = normalized
         paid_hand_discard = False
+        from spirit.game.card_effects.hgss_era import resolve_hgss_trainer
+        if await resolve_hgss_trainer(ctx):
+            return
 
         # Choice and coin cards must resolve one complete printed branch
         # before broad discard/search patterns consume only half of it.
@@ -1310,12 +1347,14 @@ def standard_trainer_effect(game_text: str):
 
         if text.startswith("flip a coin. if heads, search your discard pile for a pokémon"):
             heads = bool((await ctx.flip_coins(1, _card_name(ctx.source)))[0])
-            predicate = is_pokemon_card if heads else is_trainer_card
+            predicate = is_pokemon_card if heads else (
+                is_item_card if "for an item card" in text or "for a item card" in text
+                else is_trainer_card)
             candidates = [card for card in ctx.discard_pile()
                           if predicate(card)]
             chosen = await _choose_one(
                 ctx, candidates,
-                "Choose a Pokémon" if heads else "Choose a Trainer card",
+                "Choose a Pokémon" if heads else "Choose an Item card",
             ) if candidates else None
             if chosen is not None:
                 await ctx.reveal_cards([chosen])
@@ -1516,36 +1555,36 @@ def standard_trainer_effect(game_text: str):
         # shuffle every unused card back into the deck.
         if text.startswith("reveal the top 10 cards of your deck") \
                 and "both halves of a pokémon legend" in text:
+            from spirit.game.legend import legend_pairs
             viewed = ctx.deck_top(10)
             if viewed:
                 await ctx.reveal_cards(viewed)
             legends = [card for card in viewed
                        if "legend" in _card_subtypes(card)]
-            pairs = []
-            for index, first in enumerate(legends):
-                second = next((other for other in legends[index + 1:]
-                               if _card_name(other).casefold()
-                               == _card_name(first).casefold()), None)
-                if second is not None:
-                    pairs.append((first, second))
+            pairs = legend_pairs(legends)
             selected = None
             if pairs:
                 first = await _choose_one(
                     ctx, [pair[0] for pair in pairs], "Choose a Pokémon LEGEND"
                 )
                 selected = next((pair for pair in pairs if pair[0] is first), None)
-            used = []
-            if selected is not None and len(ctx.my_bench()) < 5:
+            top = None
+            if selected is not None:
                 top, bottom = selected
-                await ctx.bench_pokemon(top)
-                await ctx.attach_card(bottom, top)
-                used.extend(selected)
-                for energy in [card for card in viewed if is_energy_card(card)]:
-                    await ctx.attach_energy(energy, top)
-                    used.append(energy)
+                if await ctx.put_legend(top, bottom):
+                    for energy in [card for card in viewed if is_energy_card(card)]:
+                        await ctx.attach_energy(energy, top)
+                else:
+                    top = None
             # Unused cards never left the deck; shuffle randomizes their order
             # and re-hides every revealed identity.
             await ctx.shuffle_deck()
+            if top is not None:
+                # Ocean Grow says "into play", not "from your hand". Finish
+                # Legend Box (including its shuffle) before this entry power.
+                await ctx.flush_choreography()
+                await ctx.session._fire_triggered_abilities(
+                    ctx.player_id, top, Triggers.ON_PLAY)
             return
 
         # HeartGold & SoulSilver Items that attach themselves predate the
@@ -1829,12 +1868,10 @@ def standard_trainer_effect(game_text: str):
             }
             ctx.board.temporary_passives = [
                 passive for passive in ctx.board.temporary_passives
-                if passive.player_id not in affected
-                and passive.carrier_entity_id not in affected_ids
+                if not passive.from_attack or (
+                    passive.player_id not in affected
+                    and passive.carrier_entity_id not in affected_ids)
             ]
-            # Register an observable rules action for semantic auditing; an
-            # empty deck shuffle is still a legitimate client-visible reset.
-            await ctx.shuffle_deck(ctx.player_id)
             return
 
         if text == "shuffle your deck!":
@@ -2024,8 +2061,13 @@ def standard_trainer_effect(game_text: str):
                 prompt="Choose Energy cards",
             ) if maximum and targets else []
             if "to each of your" in text:
-                for energy, target in zip(picks, targets):
-                    await ctx.attach_energy(energy, target)
+                remaining_targets = list(targets)
+                for energy in picks:
+                    target = remaining_targets[0] if len(remaining_targets) == 1 else \
+                        await ctx.choose_pokemon(remaining_targets, "Choose a Pokémon")
+                    if target in remaining_targets:
+                        await ctx.attach_energy(energy, target)
+                        remaining_targets.remove(target)
             else:
                 one_destination = bool(re.search(
                     r"to (?:1|one) of your ", text
@@ -2530,6 +2572,22 @@ def standard_trainer_effect(game_text: str):
                 ) if maximum else []
                 for pokemon in picks:
                     await ctx.bench_pokemon(pokemon)
+            return
+
+        # Flower Shop Lady selects two separate categories, not three cards
+        # from their union. Resolve as much of each public category as possible.
+        if "search your discard pile for 3 pokémon and 3 basic energy cards" in text:
+            picked = []
+            for predicate, label in ((is_pokemon_card, "Pokémon"),
+                                     (is_basic_energy, "basic Energy cards")):
+                pool = [card for card in ctx.discard_pile() if predicate(card)]
+                count = min(3, len(pool))
+                if count:
+                    picked.extend(await ctx.choose_cards(
+                        pool, count, minimum=count, prompt=f"Choose {label}"))
+            if picked:
+                await ctx.reveal_cards(picked)
+                await ctx.shuffle_into_deck(picked)
             return
 
         # Public discard -> deck/hand families whose wording begins with
@@ -3291,6 +3349,16 @@ def standard_trainer_effect(game_text: str):
     return effect
 
 
+def _trainer_rules_text(game_text: str) -> str:
+    # HGSS Supporters prepend a card-type reminder. It is not part of the
+    # effect: its word "Supporter" must not become a deck-search predicate.
+    text = _norm(game_text)
+    return re.sub(
+        r"^you can play only one supporter card each turn\. when you play this card, "
+        r"put it next to your active pokémon\. when your turn ends, discard this card\. ?",
+        "", text)
+
+
 def standard_trainer_condition(game_text: str):
     """Conservative legality checks for generated Trainer implementations.
 
@@ -3299,7 +3367,7 @@ def standard_trainer_condition(game_text: str):
     requirements, on the other hand, are known before the card is played and
     must keep the card out of the action map when they cannot be satisfied.
     """
-    text = _norm(game_text)
+    text = _trainer_rules_text(game_text)
 
     def cards(board, player_id: str, area_name: str):
         area = board.find_player_area(player_id, area_name)
@@ -3324,6 +3392,15 @@ def standard_trainer_condition(game_text: str):
 
         # Searching a non-empty private deck may legally fail even when no
         # matching card is actually present.
+        if text.startswith('choose an energy card from your hand') and not any(is_energy_card(c) for c in hand):
+            return False
+        if text.startswith('choose 1 pokémon in your hand') and not any(is_pokemon_card(c) for c in hand):
+            return False
+        if 'discard all trainer and stadium cards' in text or 'discard all item and stadium cards' in text:
+            stadium_area = board.find_global_area('activeStadium')
+            if not (stadium_area is not None and stadium_area.children) and not any(
+                    is_item_card(c) for p in own_in_play + opposing_in_play for c in full_stack(p)[1:]):
+                return False
         if "search your deck" in text and not deck:
             return False
         if _top_deck_count(text) is not None and not deck:
@@ -3339,9 +3416,17 @@ def standard_trainer_condition(game_text: str):
                 and not own_in_play:
             return False
         if text.startswith("flip a coin. if heads, search your discard pile for a pokémon") \
-                and not any(is_pokemon_card(entry) or is_trainer_card(entry)
+                and not any(is_pokemon_card(entry) or (
+                    is_item_card(entry) if "item card" in text else is_trainer_card(entry))
                             for entry in discard):
             return False
+
+        if "can't choose junk arm" in text and not any(
+                is_item_card(entry) and _card_name(entry).casefold() != "junk arm"
+                for entry in discard):
+            return False
+        if "search your discard pile for 3 pokémon and 3 basic energy cards" in text:
+            return any(is_pokemon_card(entry) or is_basic_energy(entry) for entry in discard)
         if text.startswith("put 2 cards from your hand on the bottom of your deck") \
                 and len(hand) < 2:
             return False
@@ -3415,7 +3500,7 @@ def standard_trainer_condition(game_text: str):
             return False
 
         if "each player returns 1 of his or her benched pokémon" in text \
-                and (not own_bench or not opposing_bench):
+                and not own_bench and not opposing_bench:
             return False
 
         if "discard an energy from 1 of your opponent's pokémon" in text \
@@ -3590,7 +3675,9 @@ def standard_trainer_condition(game_text: str):
             if not has_cost or not has_target:
                 return False
 
-        if "during this turn, you can play 3 supporter cards" in text:
+        if "during this turn, you can play 3 supporter cards" in text \
+                or "only if you have more prize cards left than your opponent" in text \
+                or "only if you have more prize cards remaining than your opponent" in text:
             own_prizes = cards(board, player_id, "prizePile")
             opposing_prizes = cards(board, opponent_id, "prizePile")
             if len(own_prizes) <= len(opposing_prizes):
@@ -3879,7 +3966,8 @@ def standard_trainer_condition(game_text: str):
                     effective_pokemon_types(board, active) or not own_bench:
                 return False
 
-        if "heal" in text and "your pokémon" in text:
+        legacy_heal = 'remove' in text and 'damage counters' in text and 'your pokémon' in text
+        if ("heal" in text and "your pokémon" in text) or legacy_heal:
             if not any(
                 int(pokemon.get_attribute(AttrID.HP, 0) or 0)
                 < effective_max_hp(board, pokemon)
@@ -3891,8 +3979,9 @@ def standard_trainer_condition(game_text: str):
             ):
                 return False
 
-        if "from your discard pile" in text:
-            predicate = _search_predicate(text)
+        if "from your discard pile" in text or "search your discard pile" in text:
+            search_clause = re.search(r"search your discard pile for (.+?)(?:\.|,|$)", text)
+            predicate = _search_predicate(search_clause.group(1) if search_clause else text)
             candidates = [entry for entry in discard
                           if predicate is None or predicate(entry)]
             if not candidates and "up to" not in text:
@@ -3936,6 +4025,7 @@ def standard_trigger(game_text: str):
     if (
         "when you play this pokémon from your hand onto your bench" in text
         or re.search(r"when you (?:put|play) .+ from your hand (?:onto|to) your bench", text)
+        or "when you put lugia legend into play" in text
     ):
         return Triggers.ON_PLAY
     if (

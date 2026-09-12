@@ -27,9 +27,9 @@ card = PokemonCardDef(
     abilities=[
         Ability(
             title='Allergy Flower',
-            game_text="Each player can't play any Trainer cards from his or her hand.",
+            game_text="Each player can't play any Item cards from his or her hand.",
             ability_type=AbilityTypes.POKE_BODY,
-            passive=standard_passive("Each player can't play any Trainer cards from his or her hand."),
+            passive=standard_passive("Each player can't play any Item cards from his or her hand."),
         ),
         Attack(
             title='Dazzling Pollen',

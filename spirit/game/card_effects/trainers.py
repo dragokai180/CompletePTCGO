@@ -122,7 +122,7 @@ def has_other_item_in_hand(board, player_id):
     return bool(hand) and sum(1 for c in hand.children if is_item_card(c)) >= 2
 
 
-def deck_nonempty(board, player_id):
+def deck_nonempty(board, player_id, source=None):
     deck = board.find_player_area(player_id, "deck")
     return bool(deck) and bool(deck.children)
 
@@ -557,7 +557,8 @@ async def catcher_switch_both(ctx):
     )
     if target is None:
         return
-    await ctx.switch_active(ctx.opponent_id, target)
+    if not await ctx.switch_active(ctx.opponent_id, target):
+        return
     my_bench = ctx.my_bench()
     if not my_bench:
         return

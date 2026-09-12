@@ -27,7 +27,7 @@ card = PokemonCardDef(
     abilities=[
         Ability(
             title='Second Sight',
-            game_text="Once during your turn (before your attack), you may look at the top 3 cards of that player's deck and put them back on top of that player's deck in any order. This power can't be used if Slowking is affected by a Special Condition.",
+            game_text="Once during your turn (before your attack), you may look at the top 3 cards of either player's deck and put them back on top of that player's deck in any order. This power can't be used if Slowking is affected by a Special Condition.",
             ability_type=AbilityTypes.POKE_POWER,
             effect=standard_ability,
             activation=Activations.ONCE_PER_TURN,

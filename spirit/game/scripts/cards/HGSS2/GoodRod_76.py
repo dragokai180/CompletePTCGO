@@ -17,6 +17,6 @@ card = ItemCardDef(
     set_code='HGSS2',
     regulation_mark=None,
     rarity=Rarities.Uncommon,
-    effect=standard_trainer_effect('Flip a coin. If heads, search your discard pile for a Pokémon, show it to your opponent, and put it on top of your deck. If tails, search your discard pile for a Trainer card, show it to your opponent, and put it on top of your deck.'),
-    condition=standard_trainer_condition('Flip a coin. If heads, search your discard pile for a Pokémon, show it to your opponent, and put it on top of your deck. If tails, search your discard pile for a Trainer card, show it to your opponent, and put it on top of your deck.'),
+    effect=standard_trainer_effect('Flip a coin. If heads, search your discard pile for a Pokémon, show it to your opponent, and put it on top of your deck. If tails, search your discard pile for an Item card, show it to your opponent, and put it on top of your deck.'),
+    condition=standard_trainer_condition('Flip a coin. If heads, search your discard pile for a Pokémon, show it to your opponent, and put it on top of your deck. If tails, search your discard pile for an Item card, show it to your opponent, and put it on top of your deck.'),
 )

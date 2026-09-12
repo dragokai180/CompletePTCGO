@@ -525,12 +525,15 @@ class PlayabilityConditionTests(unittest.TestCase):
             acerola_def.condition, self.board, P1, acerola,
         ))
 
-    def test_seeker_requires_a_benched_pokemon_for_each_player(self):
+    def test_seeker_requires_a_benched_pokemon_on_either_side(self):
         seeker_def = self.definition("HGSS4", 88)
         seeker = self.add(seeker_def, "hand")
-        self.add(self.definition("BW1", 1), "bench")
-
         self.assertFalse(trainer_condition_met(
+            seeker_def.condition, self.board, P1, seeker,
+        ))
+        self.add(self.definition("BW1", 1), "bench")
+        # Seeker/Hunter's Lost Link FAQ permits just one occupied Bench.
+        self.assertTrue(trainer_condition_met(
             seeker_def.condition, self.board, P1, seeker,
         ))
         self.add_for(self.definition("BW1", 15), "bench", P2)

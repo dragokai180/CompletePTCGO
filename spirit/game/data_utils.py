@@ -316,6 +316,10 @@ def has_rule_box(archetype_id: Optional[str]) -> bool:
 
 def prize_value(archetype_id: Optional[str]) -> int:
     """Prizes taken when this Pokemon is knocked out."""
+    definition = def_for(archetype_id)
+    if definition and "LEGEND" in subtypes_for(archetype_id):
+        # Only the dual-Pokemon LEGEND print the two-Prize rule.
+        return 2 if "&" in (definition.display_name or "") else 1
     return max(
         [_MULTI_PRIZE_SUBTYPES[s] for s in subtypes_for(archetype_id)
          if s in _MULTI_PRIZE_SUBTYPES],
@@ -843,7 +847,8 @@ class PokemonCardDef(CardDefinition):
         passive: Optional[Any] = None,
         unplayable_from_hand: bool = False,
         setup_as_active: bool = False,
-        foil: Optional[Foil] = None
+        foil: Optional[Foil] = None,
+        weakness_types: Optional[List[PokemonTypes]] = None,
     ):
         super().__init__(
             guid, key, name, collector_number, set_code, rarity,
@@ -867,7 +872,9 @@ class PokemonCardDef(CardDefinition):
             str(AttrID.STAGE.value): {"type": "int", "value": stage.value},
             str(AttrID.POKEMON_TYPES.value): {"type": "json", "value": json.dumps([t.value for t in elements])},
             str(AttrID.RETREAT_COST.value): {"type": "int", "value": retreat_cost},
-            str(AttrID.WEAKNESS_TYPES.value): {"type": "json", "value": json.dumps([weakness_type.value] if weakness_type != PokemonTypes.UNSET else [])},
+            str(AttrID.WEAKNESS_TYPES.value): {"type": "json", "value": json.dumps(
+                [t.value for t in weakness_types] if weakness_types is not None
+                else [weakness_type.value] if weakness_type != PokemonTypes.UNSET else [])},
             str(AttrID.RESISTANCE_TYPES.value): {"type": "int", "value": resistance_type.value},
         })
 
@@ -910,6 +917,8 @@ class PokemonCardDef(CardDefinition):
         if abilities:
             ability_list = []
             for idx, a in enumerate(abilities):
+                a.printed_pokemon_name = display_name
+                a.printed_set_code = set_code
                 if not a.ability_id:
                     a.ability_id = ability_id_for(guid, idx)
                 ABILITIES_BY_ID[a.ability_id] = a

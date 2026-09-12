@@ -22,6 +22,7 @@ card = PokemonCardDef(
     retreat_cost=2,
     weakness_type=PokemonTypes.FIGHTING,
     weakness_amount=2,
+    weakness_types=[PokemonTypes.FIGHTING, PokemonTypes.PSYCHIC],
     family_id=488,
     abilities=[
         Attack(

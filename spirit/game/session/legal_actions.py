@@ -19,6 +19,7 @@ from spirit.game.attributes import (
     TrainerType,
 )
 from spirit.game.data_utils import ABILITIES_BY_ID, Activations, def_for
+from spirit.game.legend import complementary_halves
 from spirit.game.models.board import (
     BoardState,
     EnergyEntity,
@@ -533,6 +534,15 @@ def compute_legal_actions(
             if pokemon_play_blocked(board, player_id, card):
                 continue
             stage = card.get_attribute(AttrID.STAGE)
+            if stage == PokemonStage.LEGEND.value:
+                if bench_has_space and any(complementary_halves(card, other)
+                                           for other in hand_area.children):
+                    entries.append(_target_map_entry(
+                        game_id, card.entity_id,
+                        action_id_for(card.entity_id, "play"), ACTION_PLAY_POKEMON,
+                        [entity_list_target_info([bench_area.entity_id])],
+                    ))
+                continue
             if stage == PokemonStage.BASIC.value:
                 if getattr(def_for(card.archetype_id), "unplayable_from_hand", False):
                     continue  # Shedinja: enters play only via an effect
