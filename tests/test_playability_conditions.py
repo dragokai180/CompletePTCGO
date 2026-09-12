@@ -19,6 +19,7 @@ from spirit.game.session.effects import resolve_attack
 from spirit.game.session.passives import (
     ability_locked, compute_damage, conditions_blocked,
     effective_bench_capacity, effective_max_hp, energy_provided_options,
+    trainer_play_blocked,
 )
 from spirit.game.card_effects.standard_era import (
     _trainer_energy_targets_on_board, hex_maniac_effect, karen_condition,
@@ -131,6 +132,29 @@ class PlayabilityConditionTests(unittest.TestCase):
         self.assertTrue(ability_locked(self.board, pokemon))
         self.turn.begin_turn(P1, self.board)
         self.assertFalse(ability_locked(self.board, pokemon))
+
+    def test_hex_maniac_disables_trevenants_forest_curse(self):
+        trevenant_definition = self.definition("XY1", 55)
+        trevenant = create_card_entity(
+            self.card_model(trevenant_definition), P2,
+        )
+        self.board.add_card_to_area(
+            trevenant,
+            self.board.find_player_area(P2, "activePokemonArea"),
+        )
+        item = self.add(self.definition("XY1", 128), "hand")
+
+        self.assertTrue(trainer_play_blocked(self.board, P1, item))
+        ctx = type("Ctx", (), {
+            "session": type("Session", (), {"turn_state": self.turn})(),
+        })()
+        asyncio.run(hex_maniac_effect(ctx))
+        self.assertFalse(trainer_play_blocked(self.board, P1, item))
+
+        self.turn.begin_turn(P2, self.board)
+        self.assertFalse(trainer_play_blocked(self.board, P1, item))
+        self.turn.begin_turn(P1, self.board)
+        self.assertTrue(trainer_play_blocked(self.board, P1, item))
 
     def test_fighting_fury_belt_only_buffs_basic_pokemon(self):
         basic = self.add(self.definition("XY11", 26), "activePokemonArea")

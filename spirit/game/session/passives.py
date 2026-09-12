@@ -787,9 +787,13 @@ def active_passives(board: BoardState) -> List[Tuple[Passive, BoardEntity]]:
     passives riding a suppressed Special Energy (Temple of Sinnoh).
     """
     triples = _collect_passives(board)
+    state = getattr(board, "turn_state", None)
+    all_abilities_disabled = state is not None and state.turn_number <= getattr(
+        state, "abilities_disabled_through_turn", 0
+    )
 
     def blocked(pokemon: PokemonEntity) -> bool:
-        return _locks_abilities_of(triples, pokemon)
+        return all_abilities_disabled or _locks_abilities_of(triples, pokemon)
 
     return [(p, c) for p, c, is_ability in triples
             if not (is_ability and blocked(c))
