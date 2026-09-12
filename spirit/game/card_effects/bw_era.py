@@ -888,10 +888,13 @@ async def rock_guard_trigger(ctx):
 
 async def rescue_scarf_trigger(ctx):
     pokemon = ctx.source
-    # The KO resolver invokes the trigger before moving the stack.  Return
-    # only the Pokémon cards (attachments still follow their normal discard).
-    cards = [pokemon] + [c for c in full_stack(pokemon)[1:]
-                         if isinstance(c, PokemonEntity)]
+    # ON_KNOCKED_OUT resolves after the public Knockout movement.  Use the
+    # pre-move snapshot supplied by the resolver because the evolution cards
+    # are separate discard-pile children by the time this trigger runs.
+    stack = getattr(ctx, "knocked_out_stack", None) or full_stack(pokemon)
+    # Return every Pokemon card in the evolution stack.  Energy, Tools and
+    # other attachments remain in the discard pile.
+    cards = [card for card in stack if isinstance(card, PokemonEntity)]
     await ctx.put_in_hand(cards, reveal=False)
 
 

@@ -2241,7 +2241,9 @@ class GameSession:
         # Snapshot ON_KNOCKED_OUT triggers BEFORE any stack moves: ability_locked
         # reads board position, so the carrier must still be top-level in-play;
         # was_active is captured here too (Radiant Jirachi's Active-spot gate).
-        ko_triggers: List[Tuple[PokemonEntity, str, Ability, bool]] = []
+        ko_triggers: List[
+            Tuple[PokemonEntity, str, Ability, bool, List[BoardEntity]]
+        ] = []
         for pokemon in ctx.knockouts:
             owner_id = pokemon.owning_player_id
             if owner_id is None:
@@ -2255,7 +2257,13 @@ class GameSession:
                 if ability is not None \
                         and not ability_locked(self.board_state, pokemon, ability) \
                         and ability.has_trigger(Triggers.ON_KNOCKED_OUT):
-                    ko_triggers.append((pokemon, owner_id, ability, was_active))
+                    ko_triggers.append((
+                        pokemon,
+                        owner_id,
+                        ability,
+                        was_active,
+                        [pokemon] + _stack_descendants(pokemon),
+                    ))
 
         # Special-energy leave-play hooks (Gift Energy's draw) snapshotted with
         # the KO'd carrier before any stack moves; run only for attack KOs.
@@ -2504,16 +2512,20 @@ class GameSession:
                     f"depth exceeded ({_ko_depth}); skipping further triggers."
                 )
             else:
-                for pokemon, owner_id, ability, was_active in ko_triggers:
+                for pokemon, owner_id, ability, was_active, stack in ko_triggers:
                     ko_from_attack = _damage_ko(pokemon) \
                         and ctx.attacker.owning_player_id != owner_id
                     ko_attacker = ctx.attacker if ko_from_attack else None
 
                     def _setup(c, _from_attack=ko_from_attack, _attacker=ko_attacker,
-                               _was_active=was_active):
+                               _was_active=was_active, _pokemon=pokemon,
+                               _stack=stack):
                         c.ko_from_attack = _from_attack
                         c.ko_attacker = _attacker
                         c.was_active_at_ko = _was_active
+                        c.knocked_out_pokemon = _pokemon
+                        c.knocked_out_stack = list(_stack)
+                        c.knocked_out_attachments = list(_stack[1:])
 
                     trigger_ctx = await resolve_triggered_ability(
                         self, owner_id, pokemon, ability, ctx_setup=_setup,

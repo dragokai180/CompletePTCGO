@@ -2810,6 +2810,61 @@ async def test_passive_knockout_event_snapshot():
     assert was_active and from_attack and attacker is e["p2_active"]
 
 
+async def test_rescue_scarf_returns_the_whole_evolution_stack():
+    rig, e = new_rig()
+    board = rig.board
+
+    def definition(set_code, number):
+        return next(
+            card for card in CARD_DEFS_BY_GUID.values()
+            if getattr(card, "set_code", None) == set_code
+            and getattr(card, "collector_number", None) == number
+        )
+
+    def create(definition, area_name):
+        model = card_loader.cards_by_guid.get(definition.guid) \
+            or card_loader.cards_by_guid[definition.guid.lower()]
+        entity = create_card_entity(model, P1)
+        board.add_card_to_area(
+            entity, board.find_player_area(P1, area_name)
+        )
+        return entity
+
+    # Keep a legal promotion available, then build Snivy -> Servine ->
+    # Serperior as the Active stack with Rescue Scarf and an Energy attached.
+    board.move_card(
+        e["p1_active"].entity_id,
+        board.find_player_area(P1, "bench").entity_id,
+    )
+    snivy = create(definition("BW1", 1), "hand")
+    servine = create(definition("BW1", 3), "hand")
+    serperior = create(definition("BW1", 5), "activePokemonArea")
+    scarf = create(definition("BW6", 115), "hand")
+    board.attach_card(snivy.entity_id, serperior.entity_id)
+    board.attach_card(servine.entity_id, serperior.entity_id)
+    board.attach_card(scarf.entity_id, serperior.entity_id)
+    energy = rig.pull_guid(P1, next(iter(ENERGY_GUIDS.values())))
+    rig.attach(energy, serperior)
+    await rig.session.refresh_granted_abilities(serperior)
+
+    ko_ctx = EffectContext(
+        rig.session, P2, e["p2_active"],
+        Attack("Test Knock Out", cost={}, damage=200),
+    )
+    serperior.set_attribute(AttrID.HP, 0)
+    ko_ctx.attack_damage[serperior.entity_id] = (200, 200)
+    ko_ctx.knockouts.append(serperior)
+    await rig.session.resolve_knockouts(ko_ctx)
+
+    hand = board.find_player_area(P1, "hand")
+    discard = board.find_player_area(P1, "discard")
+    assert all(card.parent is hand for card in (serperior, servine, snivy)), \
+        "Rescue Scarf must return the top Pokemon and every previous stage"
+    assert scarf.parent is discard, "Rescue Scarf itself must be discarded"
+    assert energy is not None and energy.parent is discard, \
+        "attached Energy must remain discarded"
+
+
 async def test_shared_passive_knockout_replacements():
     rig, e = new_rig()
     victim = e["p1_active"]
@@ -3291,6 +3346,7 @@ TESTS = [
     test_shared_passive_darkest_impulse_nonstacking,
     test_special_conditions_persist_through_evolution,
     test_passive_knockout_event_snapshot,
+    test_rescue_scarf_returns_the_whole_evolution_stack,
     test_shared_passive_knockout_replacements,
     test_imported_first_turn_abilities_are_activated,
     test_shared_passive_conditional_rules,
