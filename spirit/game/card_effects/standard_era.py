@@ -724,6 +724,50 @@ def _card_subtypes(card) -> set[str]:
             (getattr(definition, "subtypes", []) or [])}
 
 
+def _opponent_switch_targets_on_board(board, player_id: str, text: str):
+    """Return the public Benched targets named by a Trainer's switch text.
+
+    Catcher effects are not deck searches: whether a legal target exists is
+    public information and must gate the card before any printed cost is paid.
+    Keep the target filtering shared by legality and resolution so cards such
+    as Great Catcher cannot light up for, or select, an ordinary Pokémon.
+    """
+    opponent_id = _opponent_id(board, player_id)
+    bench = board.find_player_area(opponent_id, "bench") \
+        if opponent_id is not None else None
+    targets = list(bench.children) if bench is not None else []
+
+    if re.search(r"pok.mon-gx or pok.mon-ex", text):
+        targets = [pokemon for pokemon in targets
+                   if _card_subtypes(pokemon).intersection({"gx", "ex"})]
+    elif re.search(r"benched pok.mon-gx", text):
+        targets = [pokemon for pokemon in targets
+                   if "gx" in _card_subtypes(pokemon)]
+    elif re.search(r"benched pok.mon-ex", text):
+        targets = [pokemon for pokemon in targets
+                   if "ex" in _card_subtypes(pokemon)]
+    elif re.search(r"benched pok.mon v(?:\s|\.|,|$)", text):
+        targets = [pokemon for pokemon in targets
+                   if "v" in _card_subtypes(pokemon)]
+    elif "benched mega evolution pokémon" in text:
+        targets = [pokemon for pokemon in targets
+                   if _card_subtypes(pokemon).intersection({"mega", "sv_mega"})]
+    elif "benched basic pokémon" in text:
+        targets = [pokemon for pokemon in targets if is_basic_pokemon(pokemon)]
+    elif "benched evolution pokémon" in text:
+        targets = [pokemon for pokemon in targets
+                   if is_evolution_pokemon(pokemon)]
+
+    remaining_hp = re.search(
+        r"benched pok.mon that has (\d+) hp or less remaining", text,
+    )
+    if remaining_hp:
+        maximum = int(remaining_hp.group(1))
+        targets = [pokemon for pokemon in targets
+                   if int(pokemon.get_attribute(AttrID.HP, 0) or 0) <= maximum]
+    return targets
+
+
 def _definition_has_type(archetype_id: Optional[str], pokemon_type: PokemonTypes) -> bool:
     """Read a historical KO ledger's card type without a live entity."""
     definition = def_for(archetype_id)
@@ -1879,6 +1923,16 @@ def standard_trainer_effect(game_text: str):
             return
 
         if "discard an energy from 1 of your opponent's pokémon" in text:
+            discard_cost = _mandatory_hand_discard_cost(text)
+            if discard_cost is not None:
+                count, descriptor = discard_cost
+                paid = await ctx.discard_from_hand(
+                    count,
+                    predicate=_hand_discard_predicate(ctx.board, descriptor),
+                    prompt="Choose cards to discard",
+                )
+                if len(paid) != count:
+                    return
             energies = [energy for pokemon in ctx.opponent_pokemon_in_play()
                         for energy in ctx.attached_energies(pokemon)]
             chosen = await _choose_one(ctx, energies, "Choose an Energy") \
@@ -2917,9 +2971,12 @@ def standard_trainer_effect(game_text: str):
             "switch in 1 of your opponent's benched pokémon" in text
             or "switch 1 of your opponent's benched pokémon" in text
         ) and ctx.opponent_bench():
-            target = await ctx.choose_pokemon(
-                ctx.opponent_bench(), "Choose your opponent's new Active Pokémon"
+            targets = _opponent_switch_targets_on_board(
+                ctx.board, ctx.player_id, text,
             )
+            target = await ctx.choose_pokemon(
+                targets, "Choose your opponent's new Active Pokémon"
+            ) if targets else None
             if target is not None:
                 await ctx.switch_active(ctx.opponent_id, target)
 
@@ -3113,10 +3170,12 @@ def standard_trainer_effect(game_text: str):
             "opponent switches his or her active pokémon" in text
             or "switch out your opponent's active pokémon to the bench" in text
         ) and ctx.opponent_bench():
-            bench = ctx.opponent_bench()
+            bench = _opponent_switch_targets_on_board(
+                ctx.board, ctx.player_id, text,
+            )
             target = bench[0] if len(bench) == 1 else await ctx.choose_pokemon(
                 bench, "Choose a new Active Pokémon", player_id=ctx.opponent_id
-            )
+            ) if bench else None
             if target is not None:
                 await ctx.switch_active(ctx.opponent_id, target)
 
@@ -3325,6 +3384,73 @@ def standard_trainer_condition(game_text: str):
                         if predicate is None or predicate(entry)]
             if len(eligible) < count:
                 return False
+
+        opponent_switch = bool(
+            re.search(
+                r"switch(?: in)? 1 of your opponent's benched pok.mon",
+                text,
+            )
+            or "switch out your opponent's active pokémon to the bench" in text
+            or "opponent switches his or her active pokémon" in text
+        )
+        own_switch = (
+            "switch your active pokémon with 1 of your benched pokémon" in text
+            or "switch 1 of your active pokémon with 1 of your benched pokémon" in text
+        )
+        coin_switch_alternative = (
+            "if heads" in text and "if tails" in text
+            and opponent_switch and own_switch
+        )
+        switch_targets = _opponent_switch_targets_on_board(
+            board, player_id, text,
+        ) if opponent_switch else []
+        if opponent_switch and "custom catcher cards at once" not in text \
+                and not switch_targets \
+                and not (coin_switch_alternative and own_bench):
+            return False
+        if own_switch and not own_bench \
+                and not (text.startswith("choose 1:") and "draw" in text) \
+                and not (coin_switch_alternative and switch_targets):
+            return False
+
+        if "each player returns 1 of his or her benched pokémon" in text \
+                and (not own_bench or not opposing_bench):
+            return False
+
+        if "discard an energy from 1 of your opponent's pokémon" in text \
+                and not any(
+                    board.attached_energies(pokemon)
+                    for pokemon in opposing_in_play
+                ):
+            return False
+
+        moves_own_energy = (
+            "move" in text and "energy" in text
+            and "your pokémon" in text
+            and "another of your pokémon" in text
+        )
+        if moves_own_energy:
+            movable = [
+                energy for pokemon in own_in_play
+                for energy in board.attached_energies(pokemon)
+                if "basic energy" not in text or is_basic_energy(energy)
+            ]
+            if len(own_in_play) < 2 or not movable:
+                return False
+
+        if text.startswith("remove all special conditions from your active pokémon"):
+            active = board.active_pokemon(player_id)
+            if active is None or not active.get_attribute(
+                    AttrID.SPECIAL_CONDITIONS):
+                return False
+
+        if "put 1 of your pokémon that has any damage counters on it" in text \
+                and not any(
+                    pokemon.get_attribute(AttrID.HP, 0)
+                    < effective_max_hp(board, pokemon)
+                    for pokemon in own_in_play
+                ):
+            return False
         if text.startswith("discard your hand and search your deck") and not hand:
             return False
         if "shuffle a card from your hand into your deck. if you do" in text \
@@ -3746,11 +3872,6 @@ def standard_trainer_condition(game_text: str):
                 and hand:
             return False
 
-        if "switch your active pokémon with 1 of your benched pokémon" in text:
-            bench = board.find_player_area(player_id, "bench")
-            if bench is None or not bench.children:
-                return False
-
         if "switch your active water pokémon" in text:
             active = board.active_pokemon(player_id)
             if active is None or PokemonTypes.WATER.value not in \
@@ -3761,6 +3882,10 @@ def standard_trainer_condition(game_text: str):
             if not any(
                 int(pokemon.get_attribute(AttrID.HP, 0) or 0)
                 < effective_max_hp(board, pokemon)
+                or (
+                    "special condition" in text
+                    and bool(pokemon.get_attribute(AttrID.SPECIAL_CONDITIONS) or [])
+                )
                 for pokemon in board.pokemon_in_play(player_id)
             ):
                 return False

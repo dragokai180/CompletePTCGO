@@ -66,6 +66,12 @@ class PlayabilityConditionTests(unittest.TestCase):
         self.board.add_card_to_area(entity, area)
         return entity
 
+    def add_for(self, definition, area_name, player_id):
+        entity = create_card_entity(self.card_model(definition), player_id)
+        area = self.board.find_player_area(player_id, area_name)
+        self.board.add_card_to_area(entity, area)
+        return entity
+
     def add_stadium(self, definition, owner=P1):
         entity = create_card_entity(self.card_model(definition), owner)
         self.board.add_card_to_area(
@@ -351,6 +357,193 @@ class PlayabilityConditionTests(unittest.TestCase):
         self.add(self.definition("BW1", 15), "bench")
         self.assertTrue(trainer_condition_met(
             max_elixir_def.condition, self.board, P1, max_elixir,
+        ))
+
+    def test_great_catcher_requires_a_benched_gx_or_ex_and_its_cost(self):
+        catcher_def = self.definition("SM12", 192)
+        catcher = self.add(catcher_def, "hand")
+        self.add(self.definition("BW1", 1), "hand")
+        self.add(self.definition("BW1", 15), "hand")
+        self.add_for(self.definition("BW1", 15), "activePokemonArea", P2)
+
+        self.assertFalse(trainer_condition_met(
+            catcher_def.condition, self.board, P1, catcher,
+        ))
+        self.add_for(self.definition("BW1", 1), "bench", P2)
+        self.assertFalse(trainer_condition_met(
+            catcher_def.condition, self.board, P1, catcher,
+        ))
+        self.add_for(self.definition("SM1", 12), "bench", P2)
+        self.assertTrue(trainer_condition_met(
+            catcher_def.condition, self.board, P1, catcher,
+        ))
+
+    def test_great_catcher_only_offers_benched_gx_or_ex_during_resolution(self):
+        catcher_def = self.definition("SM12", 192)
+        source = self.add(catcher_def, "hand")
+        normal = self.add_for(self.definition("BW1", 1), "bench", P2)
+        gx = self.add_for(self.definition("SM1", 12), "bench", P2)
+        costs = [
+            self.add(self.definition("BW1", 1), "hand"),
+            self.add(self.definition("BW1", 15), "hand"),
+        ]
+        choose_pokemon = AsyncMock(return_value=gx)
+        discard_from_hand = AsyncMock(return_value=costs)
+        switch_active = AsyncMock()
+        ctx = type("Ctx", (), {
+            "source": source,
+            "board": self.board,
+            "player_id": P1,
+            "opponent_id": P2,
+            "discard_from_hand": discard_from_hand,
+            "opponent_bench": lambda _self: [normal, gx],
+            "choose_pokemon": choose_pokemon,
+            "switch_active": switch_active,
+        })()
+
+        asyncio.run(catcher_def.effect(ctx))
+
+        discard_from_hand.assert_awaited_once()
+        self.assertEqual(choose_pokemon.await_args.args[0], [gx])
+        switch_active.assert_awaited_once_with(P2, gx)
+
+    def test_boss_orders_requires_an_opposing_benched_pokemon(self):
+        boss_def = self.definition("SV2", 172)
+        boss = self.add(boss_def, "hand")
+        self.add_for(self.definition("BW1", 15), "activePokemonArea", P2)
+
+        self.assertFalse(trainer_condition_met(
+            boss_def.condition, self.board, P1, boss,
+        ))
+        self.add_for(self.definition("BW1", 1), "bench", P2)
+        self.assertTrue(trainer_condition_met(
+            boss_def.condition, self.board, P1, boss,
+        ))
+
+    def test_plumeria_requires_an_opposing_attached_energy(self):
+        plumeria_def = self.definition("SM3", 120)
+        plumeria = self.add(plumeria_def, "hand")
+        self.add(self.definition("BW1", 1), "hand")
+        self.add(self.definition("BW1", 15), "hand")
+        target = self.add_for(
+            self.definition("BW1", 15), "activePokemonArea", P2,
+        )
+
+        self.assertFalse(trainer_condition_met(
+            plumeria_def.condition, self.board, P1, plumeria,
+        ))
+        energy = self.add_for(self.fire_energy_definition(), "hand", P2)
+        self.board.attach_card(energy.entity_id, target.entity_id)
+        self.assertTrue(trainer_condition_met(
+            plumeria_def.condition, self.board, P1, plumeria,
+        ))
+
+    def test_plumeria_pays_its_discard_cost_before_discarding_energy(self):
+        plumeria_def = self.definition("SM3", 120)
+        source = self.add(plumeria_def, "hand")
+        costs = [
+            self.add(self.definition("BW1", 1), "hand"),
+            self.add(self.definition("BW1", 15), "hand"),
+        ]
+        target = self.add_for(
+            self.definition("BW1", 15), "activePokemonArea", P2,
+        )
+        energy = self.add_for(self.fire_energy_definition(), "hand", P2)
+        self.board.attach_card(energy.entity_id, target.entity_id)
+        events = []
+
+        async def discard_from_hand(*_args, **_kwargs):
+            events.append("cost")
+            return costs
+
+        async def choose_cards(*_args, **_kwargs):
+            events.append("choose-energy")
+            return [energy]
+
+        async def discard_cards(_self, cards):
+            events.append("discard-energy")
+            self.assertEqual(cards, [energy])
+
+        ctx = type("Ctx", (), {
+            "source": source,
+            "board": self.board,
+            "player_id": P1,
+            "opponent_id": P2,
+            "discard_from_hand": discard_from_hand,
+            "opponent_pokemon_in_play": lambda _self: [target],
+            "attached_energies": lambda _self, pokemon: [energy]
+                if pokemon is target else [],
+            "choose_cards": choose_cards,
+            "discard_cards": discard_cards,
+        })()
+
+        asyncio.run(plumeria_def.effect(ctx))
+
+        self.assertEqual(events, ["cost", "choose-energy", "discard-energy"])
+
+    def test_energy_switch_requires_movable_energy_and_two_pokemon(self):
+        switch_def = self.definition("HGSS1", 91)
+        switch = self.add(switch_def, "hand")
+        active = self.add(self.definition("BW1", 1), "activePokemonArea")
+
+        self.assertFalse(trainer_condition_met(
+            switch_def.condition, self.board, P1, switch,
+        ))
+        self.add(self.definition("BW1", 15), "bench")
+        self.assertFalse(trainer_condition_met(
+            switch_def.condition, self.board, P1, switch,
+        ))
+        energy = self.add(self.grass_energy_definition(), "hand")
+        self.board.attach_card(energy.entity_id, active.entity_id)
+        self.assertTrue(trainer_condition_met(
+            switch_def.condition, self.board, P1, switch,
+        ))
+
+    def test_full_heal_requires_a_special_condition(self):
+        full_heal_def = self.definition("HGSS1", 93)
+        full_heal = self.add(full_heal_def, "hand")
+        active = self.add(self.definition("BW1", 1), "activePokemonArea")
+
+        self.assertFalse(trainer_condition_met(
+            full_heal_def.condition, self.board, P1, full_heal,
+        ))
+        active.set_attribute(AttrID.SPECIAL_CONDITIONS, ["Poisoned"])
+        self.assertTrue(trainer_condition_met(
+            full_heal_def.condition, self.board, P1, full_heal,
+        ))
+
+    def test_acerola_requires_a_damaged_pokemon(self):
+        acerola_def = self.definition("SM3", 112)
+        acerola = self.add(acerola_def, "hand")
+        active = self.add(self.definition("BW1", 1), "activePokemonArea")
+
+        self.assertFalse(trainer_condition_met(
+            acerola_def.condition, self.board, P1, acerola,
+        ))
+        active.set_attribute(AttrID.HP, active.get_attribute(AttrID.HP) - 10)
+        self.assertTrue(trainer_condition_met(
+            acerola_def.condition, self.board, P1, acerola,
+        ))
+
+    def test_seeker_requires_a_benched_pokemon_for_each_player(self):
+        seeker_def = self.definition("HGSS4", 88)
+        seeker = self.add(seeker_def, "hand")
+        self.add(self.definition("BW1", 1), "bench")
+
+        self.assertFalse(trainer_condition_met(
+            seeker_def.condition, self.board, P1, seeker,
+        ))
+        self.add_for(self.definition("BW1", 15), "bench", P2)
+        self.assertTrue(trainer_condition_met(
+            seeker_def.condition, self.board, P1, seeker,
+        ))
+
+    def test_choice_supporter_remains_usable_through_its_non_switch_option(self):
+        tate_liza_def = self.definition("SM7", 148)
+        tate_liza = self.add(tate_liza_def, "hand")
+
+        self.assertTrue(trainer_condition_met(
+            tate_liza_def.condition, self.board, P1, tate_liza,
         ))
 
     def test_mega_turbo_only_offers_mega_evolution_targets(self):
