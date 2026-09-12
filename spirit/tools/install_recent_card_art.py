@@ -1,4 +1,4 @@
-"""Download missing Scarlet & Violet and Mega Evolution card artwork.
+"""Download missing Sword & Shield, Scarlet & Violet, and Mega artwork.
 
 This installer is intentionally limited to artwork.  It never creates or
 modifies card definitions, so it is safe to run on a clean CompletePTCGO
@@ -8,7 +8,7 @@ Run from the repository root::
 
     python -m spirit.tools.install_recent_card_art
 
-Pass ``mega`` or ``sv`` to limit the download to one era::
+Pass ``swsh``, ``sv``, or ``mega`` to limit the download to one era::
 
     python -m spirit.tools.install_recent_card_art mega
 """
@@ -46,6 +46,23 @@ class RecentSet:
 RECENT_SETS = OrderedDict(
     (entry.data_stem, entry)
     for entry in (
+        RecentSet("swsh", "swsh1", "SWSH1"),
+        RecentSet("swsh", "swsh2", "SWSH2"),
+        RecentSet("swsh", "swsh3", "SWSH3"),
+        RecentSet("swsh", "swsh35", "SWSH35"),
+        RecentSet("swsh", "swsh4", "SWSH4"),
+        RecentSet("swsh", "swsh45", "SWSH45"),
+        RecentSet("swsh", "swsh5", "SWSH5"),
+        RecentSet("swsh", "swsh6", "SWSH6"),
+        RecentSet("swsh", "swsh7", "SWSH7"),
+        RecentSet("swsh", "cel25", "CEL25"),
+        RecentSet("swsh", "swsh8", "SWSH8"),
+        RecentSet("swsh", "swsh9", "SWSH9"),
+        RecentSet("swsh", "swsh10", "SWSH10"),
+        RecentSet("swsh", "pgo", "PGO"),
+        RecentSet("swsh", "swsh11", "SWSH11"),
+        RecentSet("swsh", "swsh12", "SWSH12"),
+        RecentSet("swsh", "swsh12pt5", "CZ"),
         RecentSet("sv", "sve", "SVE"),
         RecentSet("sv", "sv1", "SV1"),
         RecentSet("sv", "sv2", "SV2"),
@@ -143,6 +160,9 @@ def selected_sets(values: Iterable[str]) -> list[RecentSet]:
         return list(RECENT_SETS.values())
 
     aliases = {
+        "sword-shield": "swsh",
+        "sword-and-shield": "swsh",
+        "sword_and_shield": "swsh",
         "scarlet-violet": "sv",
         "scarlet_and_violet": "sv",
         "mega-evolution": "mega",
@@ -255,7 +275,7 @@ def main() -> None:
     parser.add_argument(
         "eras_or_sets",
         nargs="*",
-        help="Optional era (sv or mega), data stem, or server set code",
+        help="Optional era (swsh, sv, or mega), data stem, or server set code",
     )
     parser.add_argument("--workers", type=int, default=20)
     parser.add_argument("--overwrite", action="store_true")

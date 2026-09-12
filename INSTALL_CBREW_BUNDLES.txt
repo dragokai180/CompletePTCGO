@@ -61,15 +61,16 @@ The regular launchers (run.bat, run.sh, and start-server.command) do not
 download recent card artwork. The cbrew importer restores only artwork that is
 present in your local cbrew bundles and PTCGO cache archives.
 
-Scarlet & Violet and Mega Evolution artwork that is absent locally can be
-downloaded explicitly from the English image URLs in the bundled card-data
-snapshot:
+Sword & Shield, Scarlet & Violet, and Mega Evolution artwork that is absent
+locally can be downloaded explicitly from the English image URLs in the
+bundled card-data snapshot:
 
    python -m spirit.tools.install_recent_card_art
 
 This is an opt-in development command and requires an internet connection.
-To download only one recent era, pass either sv or mega:
+To download only one era, pass swsh, sv, or mega:
 
+   python -m spirit.tools.install_recent_card_art swsh
    python -m spirit.tools.install_recent_card_art mega
 
 Troubleshooting

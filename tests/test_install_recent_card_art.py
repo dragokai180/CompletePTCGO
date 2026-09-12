@@ -11,6 +11,18 @@ from spirit.tools.install_recent_card_art import (
 
 
 class InstallRecentCardArtTests(unittest.TestCase):
+    def test_sword_shield_era_contains_all_implemented_sets(self):
+        selected = selected_sets(["sword-and-shield"])
+        self.assertEqual(
+            [card_set.set_code for card_set in selected],
+            [
+                "SWSH1", "SWSH2", "SWSH3", "SWSH35", "SWSH4",
+                "SWSH45", "SWSH5", "SWSH6", "SWSH7", "CEL25",
+                "SWSH8", "SWSH9", "SWSH10", "PGO", "SWSH11",
+                "SWSH12", "CZ",
+            ],
+        )
+
     def test_mega_era_contains_main_sets_and_promos(self):
         selected = selected_sets(["mega"])
         self.assertEqual(
