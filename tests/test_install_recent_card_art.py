@@ -1,8 +1,13 @@
 import unittest
+import tempfile
+from unittest.mock import patch
 from pathlib import Path
 
 from spirit.tools.install_recent_card_art import (
     RECENT_SETS,
+    SCRIPTS_ROOT,
+    build_tasks,
+    load_image_urls,
     collector_number_from_script,
     image_url,
     mega_promo_url,
@@ -11,6 +16,39 @@ from spirit.tools.install_recent_card_art import (
 
 
 class InstallRecentCardArtTests(unittest.TestCase):
+    def test_default_includes_older_sets(self):
+        codes = {s.set_code for s in selected_sets([])}
+        self.assertTrue({"HGSS1", "BW6", "BW11", "Promo_XY", "HF"} <= codes)
+
+    def test_all_old_scripts_have_catalog_urls(self):
+        for card_set in selected_sets(["hgss", "bw", "xy", "sm"]):
+            known = load_image_urls(card_set)
+            for script in (SCRIPTS_ROOT / card_set.set_code).glob("*.py"):
+                if script.name != "__init__.py":
+                    with self.subTest(card=script.name, set=card_set.set_code):
+                        self.assertIn(collector_number_from_script(script), known)
+
+    def test_radiant_collection_and_promos_keep_printed_urls(self):
+        self.assertIn("/bw11/RC17_hires.png", load_image_urls(RECENT_SETS["bw11"])["rc17"])
+        self.assertIn("/bwp/BW48_hires.png", load_image_urls(RECENT_SETS["bwp"])["bw48"])
+
+    def test_existing_bundle_art_is_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scripts = root / "scripts" / "BW11"
+            assets = root / "assets" / "BW11"
+            scripts.mkdir(parents=True)
+            assets.mkdir(parents=True)
+            (scripts / "Audino_RC17.py").touch()
+            (scripts / "Snivy_RC1.py").touch()
+            existing = assets / "Snivy_RC1.png"
+            existing.write_bytes(b"original cbrew artwork")
+            with patch("spirit.tools.install_recent_card_art.SCRIPTS_ROOT", root / "scripts"), patch("spirit.tools.install_recent_card_art.ASSETS_ROOT", root / "assets"):
+                tasks = build_tasks(RECENT_SETS["bw11"])
+                self.assertEqual([path.name for _, path in tasks], ["Audino_RC17.png"])
+                self.assertEqual(existing.read_bytes(), b"original cbrew artwork")
+                self.assertEqual(len(build_tasks(RECENT_SETS["bw11"], overwrite=True)), 2)
+
     def test_sword_shield_era_contains_all_implemented_sets(self):
         selected = selected_sets(["sword-and-shield"])
         self.assertEqual(

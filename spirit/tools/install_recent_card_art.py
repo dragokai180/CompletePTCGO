@@ -1,4 +1,4 @@
-"""Download missing Sword & Shield, Scarlet & Violet, and Mega artwork.
+"""Download missing English card artwork from HGSS through Mega Evolution.
 
 This installer is intentionally limited to artwork.  It never creates or
 modifies card definitions, so it is safe to run on a clean CompletePTCGO
@@ -8,7 +8,8 @@ Run from the repository root::
 
     python -m spirit.tools.install_recent_card_art
 
-Pass ``swsh``, ``sv``, or ``mega`` to limit the download to one era::
+Pass ``hgss``, ``bw``, ``xy``, ``sm``, ``swsh``, ``sv``, or ``mega``
+to limit the download to one era::
 
     python -m spirit.tools.install_recent_card_art mega
 """
@@ -46,6 +47,22 @@ class RecentSet:
 RECENT_SETS = OrderedDict(
     (entry.data_stem, entry)
     for entry in (
+        *(RecentSet("hgss", f"hgss{i}", f"HGSS{i}") for i in range(1, 5)),
+        RecentSet("hgss", "hsp", "Promo_HGSS"),
+        RecentSet("hgss", "col1", "COL"),
+        *(RecentSet("bw", f"bw{i}", f"BW{i}") for i in range(1, 12)),
+        RecentSet("bw", "bwp", "PROMO_BW"),
+        RecentSet("bw", "dv1", "DV"),
+        *(RecentSet("xy", f"xy{i}", f"XY{i}") for i in range(13)),
+        RecentSet("xy", "xyp", "Promo_XY"),
+        RecentSet("xy", "dc1", "TATM"),
+        RecentSet("xy", "g1", "TwentiethAnn"),
+        *(RecentSet("sm", f"sm{i}", f"SM{i}") for i in range(1, 13)),
+        RecentSet("sm", "smp", "Promo_SM"),
+        RecentSet("sm", "sm35", "SL"),
+        RecentSet("sm", "sm75", "DM"),
+        RecentSet("sm", "sm115", "HF"),
+        RecentSet("sm", "det1", "GUM"),
         RecentSet("swsh", "swsh1", "SWSH1"),
         RecentSet("swsh", "swsh2", "SWSH2"),
         RecentSet("swsh", "swsh3", "SWSH3"),
@@ -135,13 +152,28 @@ def load_image_urls(card_set: RecentSet) -> dict[str, str]:
     if not isinstance(payload, list):
         raise ValueError(f"Expected a card list in {data_path}")
 
+    # Use the importers' protocol numbering for promos and alternate prints.
+    numbers = {}
+    if card_set.era == "hgss":
+        from spirit.tools.import_hgss_sets import internal_number
+        numbers = {c["id"]: internal_number(c, card_set.data_stem) for c in payload}
+    elif card_set.era == "xy":
+        from spirit.tools.import_xy_sets import internal_number
+        numbers = {c["id"]: internal_number(c, card_set.data_stem) for c in payload}
+    elif card_set.era == "sm":
+        from spirit.tools.import_sm_sets import number_map
+        numbers = number_map(payload, card_set.data_stem)
+
     result: dict[str, str] = {}
     for card in payload:
-        number = normalize_collector_number(card.get("number"))
+        number = normalize_collector_number(numbers.get(card.get("id"), card.get("number")))
         card_id = str(card.get("id") or "").lower()
         url = IMAGE_OVERRIDES.get(card_id) or (card.get("images") or {}).get("large")
         if number and url:
             result[number] = str(url)
+    if card_set.data_stem == "sm115":
+        # Shiny Vault shares HF's directory, with slots starting at 101.
+        result.update(load_image_urls(RecentSet("sm", "sma", "HF")))
     return result
 
 
@@ -160,6 +192,8 @@ def selected_sets(values: Iterable[str]) -> list[RecentSet]:
         return list(RECENT_SETS.values())
 
     aliases = {
+        "black-and-white": "bw",
+        "sun-moon": "sm",
         "sword-shield": "swsh",
         "sword-and-shield": "swsh",
         "sword_and_shield": "swsh",
@@ -275,7 +309,7 @@ def main() -> None:
     parser.add_argument(
         "eras_or_sets",
         nargs="*",
-        help="Optional era (swsh, sv, or mega), data stem, or server set code",
+        help="Optional era (hgss, bw, xy, sm, swsh, sv, mega), data stem, or server set code",
     )
     parser.add_argument("--workers", type=int, default=20)
     parser.add_argument("--overwrite", action="store_true")

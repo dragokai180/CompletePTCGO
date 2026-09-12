@@ -38,7 +38,15 @@ Installation on Windows PowerShell
    Use --cards-only to import only card artwork, or --ui-only to import only
    the original menus and interface bundles.
 
-5. Start the server:
+5. Fill gaps in the imported artwork (requires an internet connection):
+
+   python -m spirit.tools.install_recent_card_art
+
+   This preserves existing images and downloads only missing artwork. It
+   includes older sets with incomplete cbrew coverage, such as Dragons Exalted
+   (BW6) and Legendary Treasures' Radiant Collection (BW11).
+
+6. Start the server:
 
    python -m spirit.main
 
@@ -54,22 +62,25 @@ The importer writes local files to these directories:
 These directories are intentionally excluded from Git. Do not commit their
 contents.
 
-Recent expansions
------------------
+Missing card artwork (old and recent expansions)
+-----------------------------------------------
 
 The regular launchers (run.bat, run.sh, and start-server.command) do not
 download recent card artwork. The cbrew importer restores only artwork that is
 present in your local cbrew bundles and PTCGO cache archives.
 
-Sword & Shield, Scarlet & Violet, and Mega Evolution artwork that is absent
+HGSS, Black & White, XY, Sun & Moon, Sword & Shield, Scarlet & Violet, and
+Mega Evolution artwork that is absent
 locally can be downloaded explicitly from the English image URLs in the
 bundled card-data snapshot:
 
    python -m spirit.tools.install_recent_card_art
 
 This is an opt-in development command and requires an internet connection.
-To download only one era, pass swsh, sv, or mega:
+To download only one era, pass hgss, bw, xy, sm, swsh, sv, or mega.
+Server set codes are also accepted:
 
+   python -m spirit.tools.install_recent_card_art BW6 BW11
    python -m spirit.tools.install_recent_card_art swsh
    python -m spirit.tools.install_recent_card_art mega
 
@@ -78,8 +89,8 @@ Troubleshooting
 
 - "PTCGO asset directory does not exist": verify the path assigned to
   PTCGO_ART_SOURCE_DIR.
-- Missing old card art: verify that the matching set ZIP or cache ZIP exists
-  in the cbrew bundles directory.
+- Missing old card art: import the matching set/cache ZIP first, then run the
+  card-art command above to fill gaps. Some cbrew archives are incomplete.
 - Missing recent card art: run the recent card-art command above.
 - Missing menus: verify that SM Cache.zip or BW Cache.zip is available and run
   the importer without --cards-only.
