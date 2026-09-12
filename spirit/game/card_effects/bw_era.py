@@ -638,7 +638,9 @@ async def bw_trainer_effect(ctx):
         paid = await ctx.discard_from_hand(2, prompt="Discard 2 cards")
         if len(paid) != 2:
             return
-        energies = [c for c in ctx.discard_pile() if is_basic_energy(c)]
+        paid_ids = {card.entity_id for card in paid}
+        energies = [c for c in ctx.discard_pile()
+                    if is_basic_energy(c) and c.entity_id not in paid_ids]
         picks = await ctx.choose_cards(
             energies, min(4, len(energies)), minimum=0,
             prompt="Choose up to 4 basic Energy cards",
@@ -1132,12 +1134,40 @@ class _BWTextPassive(Passive):
         t = self.text
         if not (calc.is_attack and calc.is_opposing and calc.attacker is not None):
             return
-        amount = _number_before(t, "more damage")
-        less = _number_before(t, "less damage")
-        if amount is None and less is None:
+        # Only attack-output clauses belong before Weakness/Resistance.
+        # "Take N less damage" is defensive, and "N more damage counters"
+        # belongs to Checkup; neither changes the carrier's own attacks.
+        modifier = re.search(
+            r"\b(?:do|does) (\d+) (more|less) damage\b(?! counters?)([^.]*)", t
+        )
+        if modifier is None:
+            return
+        amount = int(modifier.group(1)) if modifier.group(2) == "more" else 0
+        less = int(modifier.group(1)) if modifier.group(2) == "less" else 0
+        damage_clause = modifier.group(0)
+        if re.search(
+                r"\bto (?:your opponent's |the opponent's |the )?"
+                r"(?:active|defending)\b", damage_clause) and not calc.to_active:
             return
         owner = carrier.owning_player_id
         holder = carrier_pokemon(carrier)
+        # Some outgoing modifiers name the opposing attacker as their
+        # subject but restrict the damage destination to this holder.
+        holder_target = re.search(
+            r"\bto the (?:(grass|fire|water|lightning|psychic|fighting|darkness|"
+            r"metal|fairy|dragon|colorless) )?pokémon this card is attached to",
+            damage_clause,
+        )
+        if holder_target:
+            if holder is not calc.target:
+                return
+            if holder_target.group(1) and getattr(
+                    PokemonTypes, holder_target.group(1).upper()).value not in \
+                    effective_pokemon_types(calc.board, calc.target):
+                return
+            if self._claim_nonstacking(calc):
+                calc.amount += amount - less
+            return
         if holder is not None and "as long as this pokémon is on your bench" in t \
                 and _is_active(holder):
             return
@@ -1146,6 +1176,18 @@ class _BWTextPassive(Passive):
                 or "as long as this pokémon is in the active spot" in t
         ) and not _is_active(holder):
             return
+        named_attackers = {
+            "zygarde's and zygarde-gx's attacks": {"zygarde", "zygarde-gx"},
+            "attacks used by your marowak": {"marowak"},
+            "your passimian's attacks": {"passimian"},
+            "your nidoqueen's attacks": {"nidoqueen"},
+            "your registeel's attacks": {"registeel"},
+            "your wishiwashi-gx": {"wishiwashi-gx"},
+        }
+        opposing_active_attacks = bool(re.search(
+            r"\byour opponent's active pokémon's attacks?\b|"
+            r"\battacks used by your opponent's active pokémon\b", t
+        ))
         team_wide = any(phrase in t for phrase in (
             "your pokémon's attacks", "your dragon pokémon's attacks",
             "your team plasma pokémon's attacks",
@@ -1156,7 +1198,8 @@ class _BWTextPassive(Passive):
             "attacks used by your opponent's active pokémon",
             "pokémon in play (both yours and your opponent's)",
             "pokémon (both yours and your opponent's)",
-        )) or "stadium" in (subtypes_for(carrier.archetype_id) or [])
+        )) or _has_subtype(carrier, "Stadium") or opposing_active_attacks \
+            or any(phrase in t for phrase in named_attackers)
         if not team_wide and holder is not calc.attacker:
             return
         if team_wide and "your " in t and "both yours and your opponent's" not in t \
@@ -1164,13 +1207,13 @@ class _BWTextPassive(Passive):
             # Intimidating Fang/Pressure modifies the opposing attacker while
             # its source remains Active.  Every other "your ... attacks"
             # family benefits the carrier's side.
-            opposing_debuff = "your opponent's active pokémon" in t \
-                or "attacks used by your opponent's active pokémon" in t
-            if not opposing_debuff:
+            # Mentioning the opposing Active as the DAMAGE TARGET does not
+            # make an own-team aura apply to the opposing attacker.
+            if not opposing_active_attacks:
                 return
-        if ("your opponent's active pokémon's attacks" in t
-                or "attacks used by your opponent's active pokémon" in t) \
-                and calc.attacker.owning_player_id == owner:
+        if opposing_active_attacks and (
+                calc.attacker.owning_player_id == owner
+                or not _is_active(calc.attacker)):
             return
         if "this ↓ player's darkness pokémon" in t and (
                 calc.attacker.owning_player_id != owner
@@ -1239,14 +1282,6 @@ class _BWTextPassive(Passive):
                 _has_subtype(calc.attacker, "GX")
                 and evolves_from(calc.attacker.archetype_id, "Eevee")):
             return
-        named_attackers = {
-            "zygarde's and zygarde-gx's attacks": {"zygarde", "zygarde-gx"},
-            "attacks used by your marowak": {"marowak"},
-            "your passimian's attacks": {"passimian"},
-            "your nidoqueen's attacks": {"nidoqueen"},
-            "your registeel's attacks": {"registeel"},
-            "your wishiwashi-gx": {"wishiwashi-gx"},
-        }
         for phrase, names in named_attackers.items():
             if phrase in t and _name(calc.attacker).casefold() not in names:
                 return
@@ -1255,6 +1290,9 @@ class _BWTextPassive(Passive):
             return
         if "excluding regirock-ex" in t \
                 and _name(calc.attacker).casefold() == "regirock-ex":
+            return
+        if "excluding deoxys-ex" in t \
+                and _name(calc.attacker).casefold() == "deoxys-ex":
             return
         if "excluding" in t and calc.attacker is carrier:
             return
@@ -1318,9 +1356,13 @@ class _BWTextPassive(Passive):
             other = _area_from(carrier, opponent_id, "hand") if opponent_id else None
             if own is None or other is None or len(own.children) != len(other.children):
                 return
-        if "active pokémon-gx" in t or "defending pokémon-ex" in t \
-                or "active pokémon-ex" in t:
-            if not (_has_subtype(calc.target, "GX") or _pokemon_ex(calc.target)):
+        targets_gx = "active pokémon-gx" in damage_clause \
+            or "defending pokémon-gx" in damage_clause
+        targets_ex = "active pokémon-ex" in damage_clause \
+            or "defending pokémon-ex" in damage_clause
+        if targets_gx or targets_ex:
+            if not (targets_gx and _has_subtype(calc.target, "GX")
+                    or targets_ex and _pokemon_ex(calc.target)):
                 return
         if "active pokémon ex" in t and not _has_exact_subtype(calc.target, "ex"):
             return
@@ -1366,10 +1408,13 @@ class _BWTextPassive(Passive):
         t = self.text
         if not (calc.is_attack and calc.is_opposing):
             return
+        reduction = re.search(r"\b(?:take|takes) (\d+) less damage\b", t)
+        if reduction is None and "reduced by" not in t:
+            # An opposing attack that "does N less" was already modified
+            # before W/R. Do not subtract it again on the defender's side.
+            return
         holder = carrier_pokemon(carrier)
-        stadium = "stadium" in {
-            s.casefold() for s in (subtypes_for(carrier.archetype_id) or [])
-        }
+        stadium = _has_subtype(carrier, "Stadium")
         if holder is not None and "as long as this pokémon is on your bench" in t \
                 and _is_active(holder):
             return
@@ -1419,7 +1464,9 @@ class _BWTextPassive(Passive):
             r"(?:the |each )?(grass|fire|water|lightning|psychic|fighting|darkness|metal|dragon) "
             r"pokémon (?:this card is attached to|\(both yours)", t,
         )
-        if target_type:
+        # Aether Paradise names two eligible types. The trailing Lightning
+        # phrase alone must not filter out the Grass Pokemon in the same rule.
+        if target_type and "basic grass and basic lightning pokémon" not in t:
             required = getattr(PokemonTypes, target_type.group(1).upper()).value
             if required not in target_types:
                 return
@@ -1509,7 +1556,8 @@ class _BWTextPassive(Passive):
         # not also apply their printed per-card value as a flat reduction.
         amount = None if (
             "flip a coin" in t or "reduced by" in t and " for each " in t
-        ) else (_number_after(t, "reduced by") or _number_before(t, "less damage"))
+        ) else (_number_after(t, "reduced by") or
+                (int(reduction.group(1)) if reduction else None))
         if amount is not None:
             if not self._claim_nonstacking(calc):
                 return
@@ -5657,7 +5705,14 @@ async def bw_legacy_attack(ctx):
             damage *= _energy_count(ctx, ctx.attacker, snipe_scale.group(1))
         picks = await ctx.choose_cards(pool, min(count, len(pool)), prompt="Choose Pokémon to damage") if pool else []
         for target in picks:
-            await ctx.deal_damage(damage, target=target, apply_modifiers=None)
+            # Double Thread explicitly applies W/R on the Bench.
+            bench_wr = "apply weakness and resistance" in text \
+                and "don't apply weakness" not in text \
+                and "do not apply weakness" not in text
+            await ctx.deal_damage(
+                damage, target=target,
+                apply_modifiers=True if bench_wr else None,
+            )
 
     # Spread damage has no selection and never applies W/R to the Bench.
     spread = re.search(
@@ -5976,12 +6031,23 @@ async def bw_legacy_attack(ctx):
         "paralyzed": SpecialConditions.PARALYZED,
         "poisoned": SpecialConditions.POISONED,
     }
+    # Preserve the condition's complete clause: "Paralyzed and Poisoned"
+    # applies BOTH conditions, with the same coin requirement for each one.
+    status_clauses = list(re.finditer(
+        r"(?:(if heads|if tails), )?(?:the )?defending pokémon is now "
+        r"((?:asleep|burned|confused|paralyzed|poisoned)"
+        r"(?:(?:,? and |, )(?:asleep|burned|confused|paralyzed|poisoned))*)",
+        text,
+    ))
     for word, condition in condition_map.items():
-        if f"defending pokémon is now {word}" not in text:
+        clauses = [match for match in status_clauses
+                   if re.search(rf"\b{word}\b", match.group(2))]
+        if not clauses:
             continue
-        if f"if heads, the defending pokémon is now {word}" in text and not heads:
-            continue
-        if f"if tails, the defending pokémon is now {word}" in text and heads:
+        if not any(match.group(1) is None
+                   or match.group(1) == "if heads" and heads
+                   or match.group(1) == "if tails" and not heads
+                   for match in clauses):
             continue
         poison = 1
         if condition == SpecialConditions.POISONED:
@@ -10888,6 +10954,20 @@ async def bw_legacy_ability(ctx):
         return
 
     # Direct counter placement on several/all opposing Pokemon.
+    # Sand Slammer is automatic and only works while Flygon is Active. Keep
+    # it ahead of the generic spread selector, which used to swallow it.
+    if "between turns" in text \
+            and "damage counter on each of your opponent's pokémon" in text:
+        if _is_active(ctx.source):
+            for pokemon in list(ctx.opponent_pokemon_in_play()):
+                await ctx.deal_damage(
+                    10, target=pokemon, apply_modifiers=False,
+                    as_counters=True, is_attack=False,
+                )
+        else:
+            ctx.suppress_announce = True
+        return
+
     if "damage counters on your opponent's pokémon-gx and pokémon-ex in any way" in text:
         count = int((re.search(r"put (\d+) damage counters", text)
                      or [None, 0])[1])
@@ -10906,7 +10986,7 @@ async def bw_legacy_ability(ctx):
     if spread:
         pool = ctx.opponent_bench() if spread.group(2) else ctx.opponent_pokemon_in_play()
         count = int(spread.group(1) or len(pool))
-        targets = await ctx.choose_cards(
+        targets = list(pool) if count >= len(pool) else await ctx.choose_cards(
             pool, min(count, len(pool)), minimum=min(count, len(pool)),
             prompt="Choose Pokémon to receive damage counters",
         ) if pool else []
@@ -11116,12 +11196,6 @@ async def bw_legacy_ability(ctx):
     between_heal = re.search(r"between turns, heal (\d+) damage from this pokémon", text)
     if between_heal:
         await ctx.heal(int(between_heal.group(1)), ctx.source)
-        return
-    if "between turns" in text and "damage counter on each of your opponent's pokémon" in text:
-        if _is_active(ctx.source):
-            for pokemon in list(ctx.opponent_pokemon_in_play()):
-                await ctx.deal_damage(10, target=pokemon, apply_modifiers=False,
-                                      as_counters=True)
         return
 
     if "attach a fire energy card from your hand to 1 of your pokémon" in text:

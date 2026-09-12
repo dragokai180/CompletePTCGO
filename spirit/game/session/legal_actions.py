@@ -169,9 +169,10 @@ class TurnState:
     trainers_played_last_turn: List[Tuple[str, str, int]] = field(default_factory=list)
     attacks_used_last_turn: List[Tuple[str, str, str]] = field(default_factory=list)
     kos_by_attack_last_turn: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
-    # Every knockout, whatever caused it, keyed by the owner of the Pokemon
-    # that was lost. "Knocked Out during your opponent's last turn" counts
-    # poison, damage counters and Trainers too, which kos_by_attack does not.
+    # Checkup is between turns, not part of the turn that just ended.
+    in_checkup: bool = False
+    # All in-turn knockouts, including Ability/Trainer damage counters, keyed
+    # by the victim's owner. Checkup knockouts must never enter this ledger.
     kos_suffered: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     kos_suffered_last_turn: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     damage_taken_last_turn: Dict[str, int] = field(default_factory=dict)
@@ -214,7 +215,7 @@ class TurnState:
 
     def pokemon_lost_last_turn(self, player_id: str) -> List[Dict[str, Any]]:
         """"if any of your Pokemon were Knocked Out during your opponent's
-        last turn" -- every knockout, whatever caused it.
+        last turn" -- every in-turn knockout, whatever caused it.
 
         The one place that decides which ledger that sentence means. Text
         that instead says "by damage from an opponent's attack" (Dhelmise V,

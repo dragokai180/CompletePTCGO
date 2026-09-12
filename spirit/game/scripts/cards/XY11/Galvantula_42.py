@@ -29,7 +29,7 @@ card = PokemonCardDef(
     abilities=[
         Attack(
             title='Double Thread',
-            game_text="This attack does 30 damage to 2 of your opponent's Pokémon. Also apply Weakness and Resistance for Benched Pokémon.",
+            game_text="This attack does 30 damage to 2 of your opponent's Benched Pokémon. Apply Weakness and Resistance.",
             cost={PokemonTypes.COLORLESS: 1},
             effect=standard_attack,
         ),

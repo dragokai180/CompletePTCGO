@@ -7,17 +7,17 @@ def sacred_ash_condition(board, player_id):
     discard = board.find_player_area(player_id, "discard")
     if discard is None:
         return False
-    return sum(1 for c in discard.children if is_pokemon_card(c)) >= 5
+    return any(is_pokemon_card(c) for c in discard.children)
 
 
 async def sacred_ash(ctx):
-    """Shuffle 5 Pokémon from your discard pile into your deck."""
+    """Shuffle up to 5 Pokémon from your discard pile into your deck (errata)."""
     pokemon = [c for c in ctx.discard_pile() if is_pokemon_card(c)]
-    if len(pokemon) < 5:
+    if not pokemon:
         return
     picks = await ctx.choose_cards(
-        pokemon, 5, minimum=5,
-        prompt="Choose 5 Pokémon to shuffle into your deck.",
+        pokemon, min(5, len(pokemon)), minimum=1,
+        prompt="Choose up to 5 Pokémon to shuffle into your deck.",
     )
     if picks:
         await ctx.shuffle_into_deck(picks)

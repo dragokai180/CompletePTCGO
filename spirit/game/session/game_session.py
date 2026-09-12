@@ -2465,13 +2465,13 @@ class GameSession:
                 "archetype_id": pokemon.archetype_id,
                 "subtypes": list(subtypes_for(pokemon.archetype_id)),
             }
-            # "Knocked Out during your opponent's last turn" (Fezandipiti ex,
-            # Oricorio-GX) counts every knockout: poison at Checkup, damage
-            # counters, a Trainer. kos_by_attack stays narrow because some
-            # text does say "by damage from an opponent's attack" (Dhelmise V).
-            self.turn_state.kos_suffered.setdefault(owner_id, []).append(dict(entry))
-            if _damage_ko(pokemon) and ctx.attacker.owning_player_id != owner_id:
-                self.turn_state.kos_by_attack.setdefault(owner_id, []).append(entry)
+            # Fezandipiti ex / Oricorio-GX count Ability and Trainer KOs too,
+            # but only DURING a turn. Poison, Sand Slammer and other Checkup
+            # effects resolve between turns and do not qualify.
+            if not self.turn_state.in_checkup:
+                self.turn_state.kos_suffered.setdefault(owner_id, []).append(dict(entry))
+                if _damage_ko(pokemon) and ctx.attacker.owning_player_id != owner_id:
+                    self.turn_state.kos_by_attack.setdefault(owner_id, []).append(entry)
             if was_active and owner_id not in promotions:
                 promotions.append(owner_id)
             logging.info(
@@ -3391,6 +3391,15 @@ class GameSession:
             )
 
     async def _run_pokemon_checkup(self, active_id: Optional[str] = None):
+        """Keep every Checkup effect (including nested KO triggers) outside turns."""
+        previous = self.turn_state.in_checkup
+        self.turn_state.in_checkup = True
+        try:
+            await self._resolve_pokemon_checkup(active_id)
+        finally:
+            self.turn_state.in_checkup = previous
+
+    async def _resolve_pokemon_checkup(self, active_id: Optional[str] = None):
         """Between-turns checkup, per player (turn order), on that player's
         ACTIVE only: Poison -> Burn -> Sleep -> Paralysis-cure. Then fires
         BETWEEN_TURNS triggered abilities for every in-play Pokemon."""
@@ -4920,6 +4929,16 @@ class GameSession:
             f"uses ability '{ability.title}'."
         )
         ctx = await resolve_activated_ability(self, player_id, card, ability)
+        # Big Jump and other self-removal Abilities are not Knock Outs. Fill
+        # their empty Active spot after all movement/KO choreography, before
+        # offering the player any more actions.
+        for pid in self.players:
+            if self.board_state.active_pokemon(pid) is None \
+                    and not await self._promote_new_active(pid):
+                await self.end_game(
+                    self._opponent_id(pid),
+                    f"{self.players[pid].screen_name} has no Pokémon left",
+                )
         return ctx is not None and ctx.ends_turn
 
     async def _execute_evolve(self, player_id, card, entry, target_ids):

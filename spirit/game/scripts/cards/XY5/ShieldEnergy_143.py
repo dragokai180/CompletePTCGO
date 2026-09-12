@@ -19,7 +19,7 @@ card = EnergyCardDef(
     energy_type=PokemonTypes.METAL,
     is_special=True,
     provides=[[PokemonTypes.METAL]],
-    passive=standard_passive("This card can only be attached to Metal Pokémon. This card provides Metal Energy only while this card is attached to a Metal Pokémon. The attacks of your opponent's Pokémon do 10 less damage to the Metal Pokémon this card is attached to (before applying Weakness and Resistance). (If this card is attached to anything other than a Metal Pokémon, discard this card.)"),
+    passive=standard_passive("This card can only be attached to Metal Pokémon. This card provides Metal Energy only while this card is attached to a Metal Pokémon. Any damage done to the Metal Pokémon this card is attached to by an opponent's attack is reduced by 10 (after applying Weakness and Resistance). (If this card is attached to anything other than a Metal Pokémon, discard this card.)"),
     attach_to=energy_attach_to("This card can only be attached to Metal Pokémon. This card provides Metal Energy only while this card is attached to a Metal Pokémon. The attacks of your opponent's Pokémon do 10 less damage to the Metal Pokémon this card is attached to (before applying Weakness and Resistance). (If this card is attached to anything other than a Metal Pokémon, discard this card.)"),
     discard_if_invalid=True,
 )

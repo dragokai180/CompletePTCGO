@@ -1055,6 +1055,12 @@ class StadiumCardDef(TrainerCardDef):
             if not ability.ability_id:
                 ability.ability_id = ability_id_for(self.guid, 0)
             ABILITIES_BY_ID[ability.ability_id] = ability
+            # UsePokemonAbility opens the native ability panel, which looks
+            # up the offered action in PIE_ABILITIES. Registration alone
+            # leaves interactive Stadiums with no clickable activation row.
+            self.extra_attributes[str(AttrID.PIE_ABILITIES.value)] = {
+                "type": "json", "value": json.dumps([ability.to_dict()]),
+            }
 
 class PokemonToolCardDef(TrainerCardDef):
     """`passive` is the tool's continuous effect while attached (a

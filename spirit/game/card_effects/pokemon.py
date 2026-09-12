@@ -1277,9 +1277,9 @@ def ally_ko_last_turn(board, player_id, pokemon=None) -> bool:
 
     Fezandipiti ex's Flip the Script and Oricorio-GX's Dance of Tribute, which
     print the same clause. Neither says "by damage from an opponent's attack",
-    so this reads kos_suffered_last_turn -- every knockout, including poison
-    at Checkup and damage counters -- rather than the narrower kos_by_attack
-    ledger that Dhelmise V's printed wording does ask for.
+    so this reads kos_suffered_last_turn -- every in-turn knockout, including
+    Ability/Trainer damage counters, but never Checkup -- rather than the
+    narrower kos_by_attack ledger that Dhelmise V's wording does ask for.
     """
     turn_state = getattr(board, "turn_state", None)
     if turn_state is None:
