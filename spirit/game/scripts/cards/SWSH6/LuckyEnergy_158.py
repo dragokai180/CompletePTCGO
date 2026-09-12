@@ -1,5 +1,6 @@
 from spirit.game.data_utils import EnergyCardDef
 from spirit.game.attributes import PokemonTypes, Rarities
+from spirit.game.card_effects.energies import LuckyEnergyPassive
 
 card = EnergyCardDef(
     guid="e66efd6e-a8c3-5233-aa0a-11c17f1fe25f",
@@ -12,5 +13,6 @@ card = EnergyCardDef(
     set_code="SWSH6",
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.COLORLESS,
-    is_special=True
+    is_special=True,
+    passive=LuckyEnergyPassive(),
 )

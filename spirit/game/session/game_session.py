@@ -115,6 +115,7 @@ from .effects import (
     resolve_energy_on_attach,
     resolve_trainer_effect,
     resolve_triggered_ability,
+    split_pokemon_stack,
 )
 from .passives import (
     ability_locked, active_passives, active_to_bench_counters,
@@ -2272,7 +2273,9 @@ class GameSession:
         def _damage_ko(pokemon) -> bool:
             return ctx.is_attack_effect() \
                 and pokemon.entity_id in ctx.attack_damage
-        energy_ko_hooks: List[Tuple[str, Any, EnergyEntity, PokemonEntity]] = []
+        energy_ko_hooks: List[
+            Tuple[str, Any, EnergyEntity, PokemonEntity, List[BoardEntity]]
+        ] = []
         for pokemon in ctx.knockouts:
             owner_id = pokemon.owning_player_id
             if owner_id is None or not _damage_ko(pokemon) \
@@ -2282,7 +2285,10 @@ class GameSession:
                 definition = def_for(energy.archetype_id)
                 hook = getattr(definition, "on_carrier_knocked_out", None)
                 if hook is not None and hook is not unimplemented:
-                    energy_ko_hooks.append((owner_id, hook, energy, pokemon))
+                    energy_ko_hooks.append((
+                        owner_id, hook, energy, pokemon,
+                        [pokemon] + _stack_descendants(pokemon),
+                    ))
 
         # Prize counts/destinations evaluate BEFORE any stack moves so the
         # KO'd Pokemon's own passives and Special Conditions still count.
@@ -2393,9 +2399,12 @@ class GameSession:
             attachment_dest = self.board_state.find_player_area(
                 owner_id, attachment_dest_name) or discard
             stack = [pokemon] + _stack_descendants(pokemon)
+            evolution_cards, _ = split_pokemon_stack(pokemon, stack)
+            evolution_ids = {card.entity_id for card in evolution_cards}
             moves = []
             for entity in stack:
-                area = dest_area if entity is pokemon else attachment_dest
+                area = dest_area if entity.entity_id in evolution_ids \
+                    else attachment_dest
                 # Prism Star: anything in the stack that would hit a discard
                 # pile goes to the Lost Zone instead, the Pokemon included.
                 if area is discard or dest_name == "discard":
@@ -2534,9 +2543,11 @@ class GameSession:
                     if trigger_ctx is not None:
                         trigger_ctxs.append(trigger_ctx)
 
-        for owner_id, hook, energy, pokemon in energy_ko_hooks:
+        for owner_id, hook, energy, pokemon, stack in energy_ko_hooks:
             hook_ctx = EffectContext(self, owner_id, energy, None)
             hook_ctx.knocked_out_pokemon = pokemon
+            hook_ctx.knocked_out_stack = list(stack)
+            hook_ctx.knocked_out_attachments = list(stack[1:])
             await hook(hook_ctx)
             if hook_ctx._messages:
                 await self._flush_effect_runs(hook_ctx)

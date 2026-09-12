@@ -1,5 +1,6 @@
 from spirit.game.data_utils import EnergyCardDef
 from spirit.game.attributes import PokemonTypes, Rarities
+from spirit.game.card_effects.energies import WashWaterPassive
 
 card = EnergyCardDef(
     guid="ea6c7c3d-b04f-547c-abca-e5e92777ed57",
@@ -11,6 +12,7 @@ card = EnergyCardDef(
     collector_number=165,
     set_code="SWSH4",
     rarity=Rarities.Uncommon,
-    energy_type=PokemonTypes.COLORLESS,
-    is_special=True
+    energy_type=PokemonTypes.WATER,
+    is_special=True,
+    passive=WashWaterPassive(),
 )

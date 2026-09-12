@@ -44,6 +44,7 @@ from spirit.game.session.effects import (
     is_special_energy,
     is_supporter_card,
     is_trainer_card,
+    split_pokemon_stack,
 )
 
 
@@ -2315,9 +2316,9 @@ def standard_trainer_effect(game_text: str):
                 candidates, "Choose a Pokémon"
             ) if candidates else None
             if target is not None:
-                stack = full_stack(target)
-                await ctx.discard_cards(stack[1:])
-                await ctx.put_in_hand([target], reveal=False)
+                evolution_cards, attachments = split_pokemon_stack(target)
+                await ctx.discard_cards(attachments)
+                await ctx.put_in_hand(evolution_cards, reveal=False)
             return
 
         if text.startswith("each player shuffles all cards in his or her discard pile"):
@@ -2632,9 +2633,9 @@ def standard_trainer_effect(game_text: str):
             target = await ctx.choose_pokemon(candidates, "Choose a Pokémon") \
                 if candidates else None
             if target is not None:
-                stack = full_stack(target)
-                await ctx.discard_cards(stack[1:])
-                await ctx.put_in_hand([target], reveal=False)
+                evolution_cards, attachments = split_pokemon_stack(target)
+                await ctx.discard_cards(attachments)
+                await ctx.put_in_hand(evolution_cards, reveal=False)
             return
 
         # Move an opposing attached Energy to the specified public zone.
@@ -4060,6 +4061,11 @@ def energy_attach_to(game_text: str):
 async def splash_energy_on_ko(ctx):
     """Return Splash Energy's Knocked Out Water Pokemon to its owner's hand."""
     pokemon = getattr(ctx, "knocked_out_pokemon", None)
-    if pokemon is None or pokemon not in ctx.discard_pile(ctx.player_id):
+    if pokemon is None:
         return
-    await ctx.put_in_hand([pokemon], reveal=False)
+    stack = getattr(ctx, "knocked_out_stack", None) or [pokemon]
+    evolution_cards, _ = split_pokemon_stack(pokemon, stack)
+    discard = ctx.discard_pile(ctx.player_id)
+    await ctx.put_in_hand(
+        [card for card in evolution_cards if card in discard], reveal=False
+    )

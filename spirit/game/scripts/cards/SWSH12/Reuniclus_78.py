@@ -1,5 +1,6 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Triggers
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.session.effects import split_pokemon_stack
 
 
 async def persistent_cells(ctx):
@@ -7,7 +8,12 @@ async def persistent_cells(ctx):
     discard pile (attached cards are discarded normally)."""
     if not ctx.ko_from_attack:
         return
-    await ctx.put_in_hand([ctx.source], reveal=False)
+    stack = getattr(ctx, "knocked_out_stack", None) or [ctx.source]
+    evolution_cards, _ = split_pokemon_stack(ctx.source, stack)
+    discard = ctx.discard_pile(ctx.player_id)
+    await ctx.put_in_hand(
+        [card for card in evolution_cards if card in discard], reveal=False
+    )
 
 
 async def cell_fork(ctx):

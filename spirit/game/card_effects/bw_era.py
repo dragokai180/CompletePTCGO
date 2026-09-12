@@ -57,6 +57,7 @@ from spirit.game.session.effects import (
     is_stadium_card,
     is_supporter_card,
     is_trainer_card,
+    split_pokemon_stack,
 )
 
 
@@ -892,9 +893,9 @@ async def rescue_scarf_trigger(ctx):
     # pre-move snapshot supplied by the resolver because the evolution cards
     # are separate discard-pile children by the time this trigger runs.
     stack = getattr(ctx, "knocked_out_stack", None) or full_stack(pokemon)
-    # Return every Pokemon card in the evolution stack.  Energy, Tools and
-    # other attachments remain in the discard pile.
-    cards = [card for card in stack if isinstance(card, PokemonEntity)]
+    # Follow the printed evolution line so an attached Pokémon Tool is not
+    # incorrectly returned as a prior stage.
+    cards, _ = split_pokemon_stack(pokemon, stack)
     await ctx.put_in_hand(cards, reveal=False)
 
 
@@ -2850,6 +2851,11 @@ class _BWTextPassive(Passive):
         return 0
 
     def modify_energy_provided(self, options, energy, holder, board, carrier=None):
+        # A Special Energy's printed "this card provides ..." text belongs to
+        # that physical card only.  Without this guard, one attached Rainbow/
+        # Prism-style passive rewrote every other Energy on the same Pokémon.
+        if carrier is not None and is_energy_card(carrier) and carrier is not energy:
+            return options
         source = carrier_pokemon(carrier)
         if holder is None:
             return options
@@ -8406,12 +8412,10 @@ async def bw_legacy_attack(ctx):
         await ctx.put_in_hand(full_stack(ctx.attacker), reveal=False)
     if "put this pokémon into your hand" in text \
             and "discard all cards attached to this pokémon" in text:
-        stack = full_stack(ctx.attacker)
-        attached = [card for card in stack[1:] if not isinstance(card, PokemonEntity)]
-        previous_stages = [card for card in stack[1:] if isinstance(card, PokemonEntity)]
-        if attached:
-            await ctx.discard_cards(attached)
-        await ctx.put_in_hand([ctx.attacker, *previous_stages], reveal=False)
+        evolution_cards, attachments = split_pokemon_stack(ctx.attacker)
+        if attachments:
+            await ctx.discard_cards(attachments)
+        await ctx.put_in_hand(evolution_cards, reveal=False)
     if "devolve the defending pokémon" in text:
         await ctx.devolve_pokemon(ctx.defender, 1, destination="hand")
 
@@ -11674,9 +11678,9 @@ async def bw_legacy_ability(ctx):
         await ctx.shuffle_into_deck(full_stack(ctx.source))
         return
     if "discard all cards attached to this pokémon and return it to your hand" in text:
-        stack = full_stack(ctx.source)
-        await ctx.discard_cards(stack[1:])
-        await ctx.put_in_hand([ctx.source], reveal=False)
+        evolution_cards, attachments = split_pokemon_stack(ctx.source)
+        await ctx.discard_cards(attachments)
+        await ctx.put_in_hand(evolution_cards, reveal=False)
         return
 
     # Top-of-deck Energy acceleration (Powerful Squall, Fully Blooming

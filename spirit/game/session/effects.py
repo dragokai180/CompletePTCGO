@@ -32,6 +32,7 @@ from spirit.game.data_utils import (
     Triggers,
     def_for,
     discard_area_name,
+    evolves_from_chain,
     has_rule_box,
     unimplemented,
 )
@@ -2210,6 +2211,9 @@ class EffectContext:
         self._queue_intro_and_move(energy, pokemon.entity_id, position)
         if getattr(def_for(energy.archetype_id), "granted_abilities", None):
             await self.session.refresh_granted_abilities(pokemon)
+        hook = getattr(def_for(energy.archetype_id), "on_attach_anywhere", None)
+        if hook is not None and hook is not unimplemented:
+            await hook(self, energy, pokemon)
         if counts_as_attachment:
             self.deferred_actions.append(
                 lambda e=energy, p=pokemon: self.session.fire_energy_attached_triggers(
@@ -2256,6 +2260,9 @@ class EffectContext:
             await self.session.refresh_granted_abilities(granted_holder)
         if getattr(def_for(energy.archetype_id), "granted_abilities", None):
             await self.session.refresh_granted_abilities(to_pokemon)
+        hook = getattr(def_for(energy.archetype_id), "on_attach_anywhere", None)
+        if hook is not None and hook is not unimplemented:
+            await hook(self, energy, to_pokemon)
         if old_holder is not None:
             self._shift_max_hp(old_holder, max_before_old)
         self._shift_max_hp(to_pokemon, max_before_new)
@@ -2643,6 +2650,42 @@ def full_stack(pokemon: PokemonEntity) -> List[CardEntity]:
     return out
 
 
+def split_pokemon_stack(
+        pokemon: PokemonEntity,
+        stack: Optional[Sequence[CardEntity]] = None,
+) -> Tuple[List[PokemonEntity], List[CardEntity]]:
+    """Split a stack into its real evolution line and attached cards.
+
+    A Pokémon card can itself be attached as a Tool, so merely testing for
+    ``PokemonEntity`` incorrectly treats cards such as Shedinja as an earlier
+    evolution. Follow the top Pokémon's printed evolution lineage instead;
+    missing intermediate stages are valid because Rare Candy may have put a
+    Stage 2 directly on a Basic Pokémon.
+    """
+    cards = list(stack) if stack is not None else full_stack(pokemon)
+    if pokemon not in cards:
+        cards.insert(0, pokemon)
+
+    remaining = [card for card in cards if card is not pokemon]
+    evolution_ids = {pokemon.entity_id}
+    for expected_name in evolves_from_chain(pokemon.archetype_id):
+        match = next((
+            card for card in remaining
+            if isinstance(card, PokemonEntity)
+            and card.get_attribute(AttrID.EVOLUTION_LOGIC_NAME) == expected_name
+        ), None)
+        if match is not None:
+            evolution_ids.add(match.entity_id)
+            remaining.remove(match)
+
+    evolution_cards = [
+        card for card in cards
+        if isinstance(card, PokemonEntity) and card.entity_id in evolution_ids
+    ]
+    attachments = [card for card in cards if card.entity_id not in evolution_ids]
+    return evolution_cards, attachments
+
+
 def is_colorless_no_rule_box(card: CardEntity) -> bool:
     """Summoning Star's filter: Colorless Pokemon without a Rule Box."""
     types = card.get_attribute(AttrID.POKEMON_TYPES) or []
@@ -2964,13 +3007,18 @@ async def resolve_energy_attach_cost(session, player_id: str, energy: EnergyEnti
 
 async def resolve_energy_on_attach(session, player_id: str, energy: EnergyEntity,
                                    target: PokemonEntity) -> Optional[EffectContext]:
-    """Runs an energy's on_attach hook after it attached from hand."""
+    """Runs hand-specific and universal hooks after a manual attachment."""
     definition = def_for(energy.archetype_id)
     hook = getattr(definition, "on_attach", None)
-    if hook is None or hook is unimplemented:
+    universal = getattr(definition, "on_attach_anywhere", None)
+    if (hook is None or hook is unimplemented) \
+            and (universal is None or universal is unimplemented):
         return None
     ctx = EffectContext(session, player_id, energy, None, attached_to=target)
-    await hook(ctx)
+    if hook is not None and hook is not unimplemented:
+        await hook(ctx)
+    if universal is not None and universal is not unimplemented:
+        await universal(ctx, energy, target)
     return ctx
 
 

@@ -1,5 +1,6 @@
 from spirit.game.data_utils import EnergyCardDef
 from spirit.game.attributes import PokemonTypes, Rarities
+from spirit.game.card_effects.energies import TwinEnergyPassive
 
 card = EnergyCardDef(
     guid="616713d7-e9f3-5aea-8ae5-7072c779b3e9",
@@ -13,6 +14,6 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
-    # Provides 2 Colorless (for non-V/GX; the deck's Regis are all non-V).
     provides=[[PokemonTypes.COLORLESS, PokemonTypes.COLORLESS]],
+    passive=TwinEnergyPassive(),
 )

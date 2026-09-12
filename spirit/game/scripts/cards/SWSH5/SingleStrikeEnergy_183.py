@@ -1,5 +1,8 @@
 from spirit.game.data_utils import EnergyCardDef
 from spirit.game.attributes import PokemonTypes, Rarities
+from spirit.game.card_effects.energies import (
+    SingleStrikeEnergyPassive, is_single_strike,
+)
 
 card = EnergyCardDef(
     guid="a3759d28-263b-58da-96a8-1a4818d21e03",
@@ -11,6 +14,10 @@ card = EnergyCardDef(
     collector_number=183,
     set_code="SWSH5",
     rarity=Rarities.RareSecret,
-    energy_type=PokemonTypes.COLORLESS,
-    is_special=True
+    energy_type=PokemonTypes.FIGHTING,
+    is_special=True,
+    provides=[[PokemonTypes.FIGHTING], [PokemonTypes.DARKNESS]],
+    attach_to=is_single_strike,
+    discard_if_invalid=True,
+    passive=SingleStrikeEnergyPassive(),
 )

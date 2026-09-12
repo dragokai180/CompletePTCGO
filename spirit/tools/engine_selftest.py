@@ -21,6 +21,7 @@ from spirit.game.attributes import (
 )
 from spirit.game.card_effects.attacks_common import smokescreen_attack
 from spirit.game.card_effects.bw_era import bw_legacy_attack, bw_legacy_passive
+from spirit.game.card_effects.trainers import scoop_up_net
 from spirit.game.card_effects.passives_common import (
     energy_attach_tax_passive,
     flip_prevent_damage_passive,
@@ -1141,6 +1142,120 @@ async def test_modify_energy_provided():
         [[PokemonTypes.COLORLESS.value]]
     assert legal_actions._energy_provided_types(energy, board) == \
         {PokemonTypes.COLORLESS.value}
+
+
+async def test_special_energy_rule_audit():
+    """Special Energy printings keep their types, restrictions and passives."""
+    def definition(set_code, number):
+        return next(
+            card for card in CARD_DEFS_BY_GUID.values()
+            if getattr(card, "set_code", None) == set_code
+            and getattr(card, "collector_number", None) == number
+        )
+
+    def attached(set_code, number):
+        energy_def = definition(set_code, number)
+        rig = Rig(energy_def, FILLER, ENERGY_GUIDS, ITEM)
+        entities = rig.setup("energy")
+        energy = entities["target"]
+        rig.attach(energy, entities["p1_active"])
+        return rig, entities, energy
+
+    # Regression reported in live play: Hiding was a bare Colorless stub and
+    # therefore neither paid Darkness costs nor removed Retreat Cost.
+    rig, entities, hiding = attached("SWSH3", 175)
+    active = entities["p1_active"]
+    active.set_attribute(AttrID.RETREAT_COST, 3)
+    active.set_attribute(AttrID.POKEMON_TYPES, [PokemonTypes.DARKNESS.value])
+    assert passives.energy_provided_options(rig.board, hiding) == [
+        [PokemonTypes.DARKNESS.value]
+    ]
+    assert passives.effective_retreat_cost(rig.board, active) == 0
+    active.set_attribute(AttrID.POKEMON_TYPES, [PokemonTypes.FIRE.value])
+    assert passives.effective_retreat_cost(rig.board, active) == 3, \
+        "Hiding's free Retreat applies only to a Darkness Pokemon"
+
+    # Both Twin arts provide two units to ordinary Pokemon and only one to a
+    # Pokemon V/GX.  Reprints must not silently fall back to Colorless x1.
+    pokemon_v = next(
+        card for card in CARD_DEFS_BY_GUID.values()
+        if "V" in (getattr(card, "subtypes", None) or [])
+    )
+    for number in (174, 209):
+        rig, entities, twin = attached("SWSH2", number)
+        holder = entities["p1_active"]
+        assert passives.energy_provided_options(rig.board, twin) == [[
+            PokemonTypes.COLORLESS.value, PokemonTypes.COLORLESS.value,
+        ]]
+        holder.archetype_id = pokemon_v.guid
+        assert passives.energy_provided_options(rig.board, twin) == [[
+            PokemonTypes.COLORLESS.value,
+        ]]
+
+    # Old BW printings had the same missing-values defect.
+    for set_code, number in (("BW4", 92), ("BW11", 113)):
+        rig, _entities, dce = attached(set_code, number)
+        assert passives.energy_provided_options(rig.board, dce) == [[
+            PokemonTypes.COLORLESS.value, PokemonTypes.COLORLESS.value,
+        ]]
+
+    # A Prism/Rainbow passive must rewrite only its own physical card, never
+    # all other attached Energy on the holder.
+    rig, entities, prism = attached("BW4", 93)
+    holder = entities["p1_active"]
+    basic = next(
+        energy for energy in rig.board.attached_energies(holder)
+        if energy is not prism and not energy.get_attribute(AttrID.IS_SPECIAL_ENERGY)
+    )
+    basic_before = [
+        list(option)
+        for option in (basic.get_attribute(AttrID.ENERGY_INFO) or {}).get(
+            "options", [])
+    ]
+    prism_types = passives.energy_provided_options(rig.board, prism)
+    assert len(prism_types) > 1
+    assert passives.energy_provided_options(rig.board, basic) == basic_before
+
+    # Every typed SWSH special must expose its printed Energy type, not C.
+    expected = {
+        ("SWSH2", 172): PokemonTypes.PSYCHIC,
+        ("SWSH3", 175): PokemonTypes.DARKNESS,
+        ("SWSH4", 162): PokemonTypes.GRASS,
+        ("SWSH4", 163): PokemonTypes.METAL,
+        ("SWSH4", 164): PokemonTypes.FIGHTING,
+        ("SWSH4", 165): PokemonTypes.WATER,
+    }
+    for (set_code, number), energy_type in expected.items():
+        rig, _entities, energy = attached(set_code, number)
+        assert passives.energy_provided_options(rig.board, energy) == [[
+            energy_type.value,
+        ]]
+
+    # The secret V Guard printing must carry the same non-stacking passive.
+    assert type(definition("SWSH12", 215).passive) is type(
+        definition("SWSH12", 169).passive
+    )
+
+    # Recovery is an attachment rule, not a hand-only play rule: Houndoom may
+    # fetch Impact from the deck and energy-moving effects may move Spiral.
+    single_strike = next(
+        card for card in CARD_DEFS_BY_GUID.values()
+        if "Single Strike" in (getattr(card, "subtypes", None) or [])
+        and hasattr(card, "abilities")
+    )
+    rig = Rig(definition("SWSH6", 157), FILLER, ENERGY_GUIDS, ITEM)
+    entities = rig.setup("energy")
+    holder = entities["p1_active"]
+    holder.archetype_id = single_strike.guid
+    holder.set_attribute(
+        AttrID.SPECIAL_CONDITIONS,
+        [CLIENT_SPECIAL_CONDITION_NAMES[SpecialConditions.POISONED]],
+    )
+    ctx = EffectContext(rig.session, P1, holder, None)
+    assert await ctx.attach_energy(entities["target"], holder)
+    assert CLIENT_SPECIAL_CONDITION_NAMES[SpecialConditions.POISONED] not in (
+        holder.get_attribute(AttrID.SPECIAL_CONDITIONS) or []
+    )
 
 
 async def test_hyper_potion_double_turbo_energy():
@@ -2840,9 +2955,11 @@ async def test_rescue_scarf_returns_the_whole_evolution_stack():
     servine = create(definition("BW1", 3), "hand")
     serperior = create(definition("BW1", 5), "activePokemonArea")
     scarf = create(definition("BW6", 115), "hand")
+    pokemon_tool = create(definition("SM8", 95), "hand")
     board.attach_card(snivy.entity_id, serperior.entity_id)
     board.attach_card(servine.entity_id, serperior.entity_id)
     board.attach_card(scarf.entity_id, serperior.entity_id)
+    board.attach_card(pokemon_tool.entity_id, serperior.entity_id)
     energy = rig.pull_guid(P1, next(iter(ENERGY_GUIDS.values())))
     rig.attach(energy, serperior)
     await rig.session.refresh_granted_abilities(serperior)
@@ -2861,8 +2978,107 @@ async def test_rescue_scarf_returns_the_whole_evolution_stack():
     assert all(card.parent is hand for card in (serperior, servine, snivy)), \
         "Rescue Scarf must return the top Pokemon and every previous stage"
     assert scarf.parent is discard, "Rescue Scarf itself must be discarded"
+    assert pokemon_tool.parent is discard, \
+        "a Pokémon used as a Tool must not be mistaken for an evolution stage"
     assert energy is not None and energy.parent is discard, \
         "attached Energy must remain discarded"
+
+
+async def test_scoop_up_net_returns_the_whole_evolution_stack():
+    rig, e = new_rig()
+    board = rig.board
+
+    def definition(set_code, number):
+        return next(
+            card for card in CARD_DEFS_BY_GUID.values()
+            if getattr(card, "set_code", None) == set_code
+            and getattr(card, "collector_number", None) == number
+        )
+
+    def create(definition, area_name):
+        model = card_loader.cards_by_guid.get(definition.guid) \
+            or card_loader.cards_by_guid[definition.guid.lower()]
+        entity = create_card_entity(model, P1)
+        board.add_card_to_area(entity, board.find_player_area(P1, area_name))
+        return entity
+
+    board.move_card(
+        e["p1_active"].entity_id,
+        board.find_player_area(P1, "bench").entity_id,
+    )
+    snivy = create(definition("BW1", 1), "hand")
+    servine = create(definition("BW1", 3), "hand")
+    serperior = create(definition("BW1", 5), "activePokemonArea")
+    pokemon_tool = create(definition("SM8", 95), "hand")
+    board.attach_card(snivy.entity_id, serperior.entity_id)
+    board.attach_card(servine.entity_id, serperior.entity_id)
+    board.attach_card(pokemon_tool.entity_id, serperior.entity_id)
+    energy = rig.pull_guid(P1, next(iter(ENERGY_GUIDS.values())))
+    rig.attach(energy, serperior)
+
+    ctx = EffectContext(rig.session, P1, serperior, None)
+
+    async def choose_target(*_args, **_kwargs):
+        return serperior
+
+    ctx.choose_pokemon = choose_target
+    await scoop_up_net(ctx)
+
+    hand = board.find_player_area(P1, "hand")
+    discard = board.find_player_area(P1, "discard")
+    assert all(card.parent is hand for card in (serperior, servine, snivy)), \
+        "Scoop Up Net must return the top Pokémon and every previous stage"
+    assert pokemon_tool.parent is discard, \
+        "Scoop Up Net must discard a Pokémon being used as a Tool"
+    assert energy is not None and energy.parent is discard, \
+        "Scoop Up Net must discard attached Energy"
+
+
+async def test_rescue_energy_returns_the_whole_evolution_stack():
+    rig, e = new_rig()
+    board = rig.board
+
+    def definition(set_code, number):
+        return next(
+            card for card in CARD_DEFS_BY_GUID.values()
+            if getattr(card, "set_code", None) == set_code
+            and getattr(card, "collector_number", None) == number
+        )
+
+    def create(definition, area_name):
+        model = card_loader.cards_by_guid.get(definition.guid) \
+            or card_loader.cards_by_guid[definition.guid.lower()]
+        entity = create_card_entity(model, P1)
+        board.add_card_to_area(entity, board.find_player_area(P1, area_name))
+        return entity
+
+    board.move_card(
+        e["p1_active"].entity_id,
+        board.find_player_area(P1, "bench").entity_id,
+    )
+    snivy = create(definition("BW1", 1), "hand")
+    servine = create(definition("BW1", 3), "hand")
+    serperior = create(definition("BW1", 5), "activePokemonArea")
+    rescue_energy = create(definition("HGSS4", 90), "hand")
+    board.attach_card(snivy.entity_id, serperior.entity_id)
+    board.attach_card(servine.entity_id, serperior.entity_id)
+    board.attach_card(rescue_energy.entity_id, serperior.entity_id)
+
+    ko_ctx = EffectContext(
+        rig.session, P2, e["p2_active"],
+        Attack("Test Knock Out", cost={}, damage=200),
+    )
+    serperior.set_attribute(AttrID.HP, 0)
+    ko_ctx.attack_damage[serperior.entity_id] = (200, 200)
+    ko_ctx.knockouts.append(serperior)
+    await rig.session.resolve_knockouts(ko_ctx)
+
+    hand = board.find_player_area(P1, "hand")
+    discard = board.find_player_area(P1, "discard")
+    assert all(card.parent is hand for card in (serperior, servine, snivy)), \
+        "Rescue Energy must return the entire evolution line"
+    assert rescue_energy.parent is discard, \
+        "Rescue Energy itself must remain discarded"
 
 
 async def test_shared_passive_knockout_replacements():
@@ -3288,6 +3504,7 @@ TESTS = [
     test_prize_hooks,
     test_move_damage_counters,
     test_modify_energy_provided,
+    test_special_energy_rule_audit,
     test_hyper_potion_double_turbo_energy,
     test_on_move_to_active_once,
     test_on_ally_knocked_out,
@@ -3347,6 +3564,8 @@ TESTS = [
     test_special_conditions_persist_through_evolution,
     test_passive_knockout_event_snapshot,
     test_rescue_scarf_returns_the_whole_evolution_stack,
+    test_scoop_up_net_returns_the_whole_evolution_stack,
+    test_rescue_energy_returns_the_whole_evolution_stack,
     test_shared_passive_knockout_replacements,
     test_imported_first_turn_abilities_are_activated,
     test_shared_passive_conditional_rules,

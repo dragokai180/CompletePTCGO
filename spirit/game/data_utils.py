@@ -1100,11 +1100,16 @@ class EnergyCardDef(CardDefinition):
     on_attach        -- async (ctx) run after attaching from hand (Capture's
                         search, Speed Lightning's draw). ctx.source is the
                         energy, ctx.attached_to the Pokemon.
+    on_attach_anywhere -- async (ctx, energy, pokemon) run whenever the card
+                        becomes attached, including moves and deck effects
+                        (Impact/Spiral/Aromatic condition recovery).
     on_discarded_by_carrier_attack -- async (ctx, energy, pokemon) queued after
                         an attack used by the attached Pokemon discards this
                         card (Boomerang Energy). Runs in deferred_actions after
                         the attack, so the Pokemon is still in play if it lived.
     passive          -- continuous effect while attached (a passives.Passive).
+    abilities        -- out-of-play triggered Abilities declared by the Energy
+                        itself (Treasure Energy's ON_TAKEN_AS_PRIZE window).
     granted_abilities -- Abilities the energy grants its holder while attached
                         (Spiky Energy's ON_DAMAGED_BY_ATTACK), mirrored onto
                         PIE_ABILITIES like Pokemon Tool grants.
@@ -1125,9 +1130,11 @@ class EnergyCardDef(CardDefinition):
         attach_condition: Optional[Callable] = None,
         attach_cost: Optional[Any] = None,
         on_attach: Optional[Any] = None,
+        on_attach_anywhere: Optional[Any] = None,
         on_carrier_knocked_out: Optional[Any] = None,
         on_discarded_by_carrier_attack: Optional[Any] = None,
         passive: Optional[Any] = None,
+        abilities: Optional[List[Ability]] = None,
         granted_abilities: Optional[List[Ability]] = None,
         display_name: Optional[str] = None,
         searchable_by: Optional[List[str]] = None,
@@ -1148,6 +1155,7 @@ class EnergyCardDef(CardDefinition):
         self.attach_condition = attach_condition
         self.attach_cost = attach_cost
         self.on_attach = on_attach
+        self.on_attach_anywhere = on_attach_anywhere
         # async (ctx) run when the carrier Pokemon is Knocked Out by an
         # opponent's attack (Gift Energy's draw); ctx.source is the energy.
         self.on_carrier_knocked_out = on_carrier_knocked_out
@@ -1155,6 +1163,14 @@ class EnergyCardDef(CardDefinition):
         # card (Boomerang Energy reattach).
         self.on_discarded_by_carrier_attack = on_discarded_by_carrier_attack
         self.passive = passive
+        # Energy cards normally have no selectable PIE ability, but a card can
+        # carry a zone trigger of its own (Treasure Energy while being taken
+        # as a Prize).  GameSession's trigger scanner reads this list directly.
+        self.abilities: List[Ability] = abilities or []
+        for idx, ability in enumerate(self.abilities):
+            if not ability.ability_id:
+                ability.ability_id = ability_id_for(guid, idx + 100)
+            ABILITIES_BY_ID[ability.ability_id] = ability
         self.granted_abilities: List[Ability] = granted_abilities or []
         for idx, a in enumerate(self.granted_abilities):
             if not a.ability_id:

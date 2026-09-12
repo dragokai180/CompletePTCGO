@@ -17,6 +17,7 @@ from spirit.game.session.effects import (
     full_stack,
     is_basic_pokemon,
     is_trainer_card,
+    split_pokemon_stack,
 )
 from spirit.game.session.passives import effective_max_hp
 from spirit.game.card_effects.trainers import deck_nonempty, is_energy_card
@@ -626,8 +627,8 @@ def remove_self_from_play(destination="hand", with_attachments="same",
             return
         was_active = pokemon is ctx.my_active()
         if with_attachments == "discard":
-            await ctx.discard_cards([c for c in full_stack(pokemon) if c is not pokemon])
-            stack = [pokemon]
+            stack, attachments = split_pokemon_stack(pokemon)
+            await ctx.discard_cards(attachments)
         else:
             stack = full_stack(pokemon)
         if destination == "hand":

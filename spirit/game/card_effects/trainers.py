@@ -23,6 +23,7 @@ from spirit.game.session.effects import (
     is_special_energy,
     is_supporter_card,
     is_water_pokemon,
+    split_pokemon_stack,
 )
 from spirit.game.card_effects.pokemon import energy_provides_type
 from spirit.game.session.passives import (
@@ -1040,8 +1041,9 @@ async def scoop_up_net(ctx):
     if target is None:
         return
     was_active = target is ctx.my_active()
-    await ctx.discard_cards([c for c in full_stack(target) if c is not target])
-    await ctx.put_in_hand([target], reveal=False)
+    evolution_cards, attachments = split_pokemon_stack(target)
+    await ctx.discard_cards(attachments)
+    await ctx.put_in_hand(evolution_cards, reveal=False)
     if was_active:
         async def _promote():
             if not await ctx.session._promote_new_active(ctx.player_id):
