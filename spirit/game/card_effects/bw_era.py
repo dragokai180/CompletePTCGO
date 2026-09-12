@@ -7024,19 +7024,19 @@ async def bw_legacy_attack(ctx):
             )
             maximum = min(capacity, len(candidates))
             picks = await ctx.choose_cards(
-                candidates, maximum, minimum=0,
+                candidates if capacity else [], max(1, maximum), minimum=0,
                 prompt="Choose Pokémon for your Bench", display_cards=viewed,
-            ) if maximum else []
+            ) if viewed else []
             for card in picks:
                 await ctx.bench_pokemon(card)
         elif "put them into your hand" in text or "put it into your hand" in text:
             candidates = [card for card in viewed if is_pokemon_card(card)]
             maximum = len(candidates) if "any number" in text else min(1, len(candidates))
             picks = await ctx.choose_cards(
-                candidates, maximum,
+                candidates, max(1, maximum),
                 minimum=0 if "any number" in text else maximum,
                 prompt="Choose Pokémon to put into your hand", display_cards=viewed,
-            ) if maximum else []
+            ) if viewed else []
             if "reveal any number" in text or "show it to your opponent" in text:
                 await ctx.reveal_cards(picks)
             await ctx.put_in_hand(picks, reveal=False)
@@ -7052,9 +7052,9 @@ async def bw_legacy_attack(ctx):
                     candidates = [card for card in candidates
                                   if energy_provides_type(card, ptype.value)]
             picks = await ctx.choose_cards(
-                candidates, len(candidates), minimum=0,
+                candidates, max(1, len(candidates)), minimum=0,
                 prompt="Choose Energy cards to attach", display_cards=viewed,
-            ) if candidates else []
+            ) if viewed else []
             for energy in picks:
                 targets = [ctx.attacker] if "to this pokémon" in text else \
                     list(ctx.my_pokemon_in_play())
@@ -11698,9 +11698,9 @@ async def bw_legacy_ability(ctx):
                               if energy_provides_type(card, ptype.value)]
                 break
         picks = await ctx.choose_cards(
-            candidates, len(candidates), minimum=0,
+            candidates, max(1, len(candidates)), minimum=0,
             prompt="Choose Energy cards to attach", display_cards=viewed,
-        ) if candidates else []
+        ) if viewed else []
         for energy in picks:
             targets = [ctx.source] if "to this pokémon" in text else ctx.my_pokemon_in_play()
             target = targets[0] if len(targets) == 1 else await ctx.choose_pokemon(

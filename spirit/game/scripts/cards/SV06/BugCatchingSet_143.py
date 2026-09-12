@@ -23,16 +23,15 @@ async def bug_catching_set(ctx):
     eligible = [
         c for c in top if _is_grass_pokemon(c) or _is_basic_grass_energy(c)
     ]
-    if eligible:
-        picks = await ctx.choose_cards(
-            eligible,
-            2,
-            minimum=0,
-            prompt="Choose up to 2 cards from the top 7.",
-            display_cards=top,
-        )
-        if picks:
-            await ctx.put_in_hand(picks, reveal=True)
+    picks = await ctx.choose_cards(
+        eligible,
+        2,
+        minimum=0,
+        prompt="Choose up to 2 cards from the top 7.",
+        display_cards=top,
+    )
+    if picks:
+        await ctx.put_in_hand(picks, reveal=True)
     await ctx.shuffle_deck()
 
 

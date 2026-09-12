@@ -8,16 +8,15 @@ async def attract_customers(ctx):
     """Once during your turn (while Active): look at top 6, put supporter into hand."""
     top = ctx.deck_top(6)
     supporters = [c for c in top if is_supporter_card(c)]
-    if supporters:
-        picks = await ctx.choose_cards(
-            supporters,
-            1,
-            minimum=0,
-            prompt="Choose a Supporter card to put into your hand.",
-            display_cards=top,
-        )
-        if picks:
-            await ctx.put_in_hand(picks, reveal=True)
+    picks = await ctx.choose_cards(
+        supporters,
+        1,
+        minimum=0,
+        prompt="Choose a Supporter card to put into your hand.",
+        display_cards=top,
+    )
+    if picks:
+        await ctx.put_in_hand(picks, reveal=True)
     # Regardless of whether you found a Supporter, return the other cards.
     await ctx.shuffle_deck()
 

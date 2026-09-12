@@ -1135,15 +1135,20 @@ async def _generic_top_deck(ctx, text: str) -> bool:
         chosen = [card for group in groups for card in group]
     else:
         maximum, minimum = _top_pick_count(text, len(eligible))
-        maximum = min(maximum, len(eligible))
-        minimum = min(minimum, maximum)
+        # Keep one browser slot even when the inspected cards contain no
+        # legal find. The deck is private information, so effects such as
+        # Max Elixir must still let the player see every looked-at card and
+        # then finish with no selection. prompt_card_chooser clamps the
+        # required amount to the actual selectable set.
+        maximum = max(1, maximum)
+        minimum = min(minimum, len(eligible))
         chosen = await ctx.choose_cards(
             eligible,
             maximum,
             minimum=minimum,
             prompt="Choose cards",
             display_cards=viewed,
-        ) if maximum else []
+        )
 
     if attaches_energy:
         targets = _attachment_targets(ctx, text)
@@ -2299,11 +2304,12 @@ def standard_trainer_effect(game_text: str):
             if "onto your bench" in text:
                 free = max(0, 5 - len(ctx.my_bench()))
                 count = min(count, free)
+            selectable = eligible if count > 0 else []
             picks = await ctx.choose_cards(
-                eligible, min(count, len(eligible)),
+                selectable, max(1, min(count, len(eligible))),
                 minimum=0 if "you may" in text else min(count, len(eligible)),
                 prompt="Choose cards", display_cards=viewed,
-            ) if eligible else []
+            ) if viewed else []
             if picks and "reveal" in text:
                 await ctx.reveal_cards(picks)
             if "onto your bench" in text:

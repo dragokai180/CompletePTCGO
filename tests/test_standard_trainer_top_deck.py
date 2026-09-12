@@ -70,6 +70,68 @@ class StandardTrainerTopDeckTests(unittest.IsolatedAsyncioTestCase):
         ctx.choose_pokemon.assert_not_awaited()
         ctx.shuffle_deck.assert_awaited_once()
 
+    async def test_max_elixir_still_displays_the_top_six_when_it_finds_nothing(self):
+        max_elixir_def = self.definition("XY9", 102)
+        viewed = [self.entity("BW1", 1) for _ in range(6)]
+        bench_basic = self.entity("BW1", 15)
+        choose_cards = AsyncMock(return_value=[])
+        ctx = SimpleNamespace(
+            source=self.entity("XY9", 102),
+            deck_top=lambda count: viewed[:count],
+            choose_cards=choose_cards,
+            my_bench=lambda: [bench_basic],
+            my_pokemon_in_play=lambda: [bench_basic],
+            choose_pokemon=AsyncMock(),
+            attach_energy=AsyncMock(return_value=True),
+            shuffle_deck=AsyncMock(),
+        )
+
+        await max_elixir_def.effect(ctx)
+
+        self.assertEqual(choose_cards.await_args.args, ([], 1))
+        self.assertEqual(choose_cards.await_args.kwargs["minimum"], 0)
+        self.assertEqual(choose_cards.await_args.kwargs["display_cards"], viewed)
+        ctx.attach_energy.assert_not_awaited()
+        ctx.shuffle_deck.assert_awaited_once()
+
+    async def test_trainers_mail_still_displays_the_top_four_when_it_finds_nothing(self):
+        trainers_mail_def = self.definition("XY6", 92)
+        viewed = [self.entity("BW1", 1) for _ in range(4)]
+        choose_cards = AsyncMock(return_value=[])
+        ctx = SimpleNamespace(
+            source=self.entity("XY6", 92),
+            deck_top=lambda count: viewed[:count],
+            choose_cards=choose_cards,
+            put_in_hand=AsyncMock(),
+            shuffle_deck=AsyncMock(),
+        )
+
+        await trainers_mail_def.effect(ctx)
+
+        self.assertEqual(choose_cards.await_args.args, ([], 1))
+        self.assertEqual(choose_cards.await_args.kwargs["display_cards"], viewed)
+        ctx.put_in_hand.assert_not_awaited()
+        ctx.shuffle_deck.assert_awaited_once()
+
+    async def test_bug_catching_set_still_displays_the_top_seven_when_it_finds_nothing(self):
+        bug_catching_set_def = self.definition("SV06", 143)
+        viewed = [self.entity("BW1", 15) for _ in range(7)]
+        choose_cards = AsyncMock(return_value=[])
+        ctx = SimpleNamespace(
+            source=self.entity("SV06", 143),
+            deck_top=lambda count: viewed[:count],
+            choose_cards=choose_cards,
+            put_in_hand=AsyncMock(),
+            shuffle_deck=AsyncMock(),
+        )
+
+        await bug_catching_set_def.effect(ctx)
+
+        self.assertEqual(choose_cards.await_args.args, ([], 2))
+        self.assertEqual(choose_cards.await_args.kwargs["display_cards"], viewed)
+        ctx.put_in_hand.assert_not_awaited()
+        ctx.shuffle_deck.assert_awaited_once()
+
     async def test_electric_generator_requires_basic_lightning_energy(self):
         generator_def = self.definition("SV1", 170)
         generator = self.entity("SV1", 170)

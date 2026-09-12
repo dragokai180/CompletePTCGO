@@ -36,14 +36,13 @@ async def trainers_mail(ctx):
     """Look at the top 4; you may take a Trainer other than this card."""
     top = ctx.deck_top(4)
     eligible = [c for c in top if _eligible_trainer(c)]
-    if eligible:
-        picks = await ctx.choose_cards(
-            eligible, 1, minimum=0,
-            prompt="Choose a Trainer card to put into your hand.",
-            display_cards=top,
-        )
-        if picks:
-            await ctx.put_in_hand(picks, reveal=True)
+    picks = await ctx.choose_cards(
+        eligible, 1, minimum=0,
+        prompt="Choose a Trainer card to put into your hand.",
+        display_cards=top,
+    )
+    if picks:
+        await ctx.put_in_hand(picks, reveal=True)
     await ctx.shuffle_deck()
 
 
