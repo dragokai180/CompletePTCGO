@@ -30,6 +30,7 @@ from typing import Iterable
 
 import requests
 from PIL import Image
+from spirit.game.gallery_catalog import GALLERY_SETS, gallery_number
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -69,6 +70,7 @@ RECENT_SETS = OrderedDict(
         RecentSet("sm", "sm115", "HF"),
         RecentSet("sm", "det1", "GUM"),
         RecentSet("swsh", "swsh_energy", "SWSH_Energy"),
+        RecentSet("swsh", "swshp", "Promo_SWSH"),
         RecentSet("swsh", "swsh1", "SWSH1"),
         RecentSet("swsh", "swsh2", "SWSH2"),
         RecentSet("swsh", "swsh3", "SWSH3"),
@@ -167,6 +169,26 @@ def mega_promo_url(number: str) -> str:
     )
 
 
+def load_catalog(data_stem: str) -> list[dict]:
+    """Use a local snapshot when present, otherwise fetch the public catalog.
+
+    card-builder/data is gitignored and is not guaranteed on a fresh checkout.
+    Downloading metadata does not import artwork or assets from TCG Live.
+    """
+    path = DATA_ROOT / f"{data_stem}.json"
+    if path.exists():
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        response = requests.get(
+            "https://raw.githubusercontent.com/PokemonTCG/pokemon-tcg-data/"
+            f"master/cards/en/{data_stem}.json", timeout=45)
+        response.raise_for_status()
+        payload = response.json()
+    if not isinstance(payload, list):
+        raise ValueError(f"Expected a card list for {data_stem}")
+    return payload
+
+
 def load_image_urls(card_set: RecentSet) -> dict[str, str]:
     if card_set.set_code in ("SWSH_Energy", "Free_Energy"):
         return energy_image_urls(card_set.set_code)
@@ -176,9 +198,7 @@ def load_image_urls(card_set: RecentSet) -> dict[str, str]:
         # archive follows Limitless' stable English collector-number scheme.
         if card_set.data_stem == "mep":
             return {}
-        raise FileNotFoundError(f"Missing bundled card catalog: {data_path}")
-
-    payload = json.loads(data_path.read_text(encoding="utf-8"))
+    payload = load_catalog(card_set.data_stem)
     if not isinstance(payload, list):
         raise ValueError(f"Expected a card list in {data_path}")
 
@@ -197,6 +217,8 @@ def load_image_urls(card_set: RecentSet) -> dict[str, str]:
     result: dict[str, str] = {}
     for card in payload:
         number = normalize_collector_number(numbers.get(card.get("id"), card.get("number")))
+        if card_set.data_stem == "swshp":
+            number = str(int(str(card["number"]).removeprefix("SWSH")))
         card_id = str(card.get("id") or "").lower()
         if card_set.era in ("sv", "mega") and card_id.startswith(card_set.data_stem + "-"):
             # Black Bolt #80 incorrectly repeats #60 in upstream metadata.
@@ -207,6 +229,14 @@ def load_image_urls(card_set: RecentSet) -> dict[str, str]:
     if card_set.data_stem == "sm115":
         # Shiny Vault shares HF's directory, with slots starting at 101.
         result.update(load_image_urls(RecentSet("sm", "sma", "HF")))
+    # TG/GG prints belong to their parent set in the client's numeric catalog,
+    # but the artwork provider uses a separate gallery ID and printed number.
+    for gallery, (parent, _offset, _size) in GALLERY_SETS.items():
+        if parent != card_set.set_code:
+            continue
+        for card in load_catalog(gallery):
+            number = str(gallery_number(gallery, card["number"]))
+            result[number] = card["images"]["large"]
     return result
 
 

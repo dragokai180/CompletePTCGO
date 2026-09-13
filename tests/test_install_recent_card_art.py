@@ -199,7 +199,7 @@ class InstallRecentCardArtTests(unittest.TestCase):
         self.assertEqual(
             [card_set.set_code for card_set in selected],
             [
-                "SWSH_Energy", "SWSH1", "SWSH2", "SWSH3", "SWSH35", "SWSH4",
+                "SWSH_Energy", "Promo_SWSH", "SWSH1", "SWSH2", "SWSH3", "SWSH35", "SWSH4",
                 "SWSH45", "SWSH5", "SWSH6", "SWSH7", "CEL25",
                 "SWSH8", "SWSH9", "SWSH10", "PGO", "SWSH11",
                 "SWSH12", "CZ",
