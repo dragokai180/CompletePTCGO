@@ -988,6 +988,9 @@ def _search_predicate(text: str):
         return is_energy_card
     if "pokémon tool" in text:
         return is_pokemon_tool
+    if "helix fossil omanyte, dome fossil kabuto, or old amber aerodactyl" in text:
+        return lambda card: _card_name(card).casefold() in {
+            'helix fossil omanyte', 'dome fossil kabuto', 'old amber aerodactyl'}
     if "supporter" in text:
         return is_supporter_card
     if "item card" in text:
@@ -1266,6 +1269,22 @@ def standard_trainer_effect(game_text: str):
     async def effect(ctx):
         text = normalized
         paid_hand_discard = False
+        if text.startswith('you may play 2 puzzle of time cards at once'):
+            copies = [card for card in ctx.hand() if card is not ctx.source
+                      and _card_name(card).casefold() == 'puzzle of time']
+            pool = [card for card in ctx.discard_pile() if card is not ctx.source]
+            paired = bool(copies and pool) and (
+                not ctx.deck() or await ctx.ask_yes_no('Play a second Puzzle of Time?'))
+            if paired:
+                # Both played Items are unavailable to their own recovery effect.
+                await ctx.discard_cards([copies[0]])
+                count = min(2, len(pool))
+                picks = await ctx.choose_cards(pool, count, minimum=count,
+                                               prompt='Choose cards to recover')
+                await ctx.put_in_hand(picks, reveal=True)
+            elif ctx.deck():
+                await ctx.reorder_deck_top(3)
+            return
         from spirit.game.card_effects.hgss_era import resolve_hgss_trainer
         if await resolve_hgss_trainer(ctx):
             return
@@ -1854,18 +1873,7 @@ def standard_trainer_effect(game_text: str):
                 pokemon.entity_id for pid in affected
                 for pokemon in ctx.board.pokemon_in_play(pid)
             }
-            state.retreat_locks = {
-                entity_id: expiry for entity_id, expiry in state.retreat_locks.items()
-                if entity_id not in affected_ids
-            }
-            state.attack_locks = {
-                key: expiry for key, expiry in state.attack_locks.items()
-                if key[0] not in affected_ids
-            }
-            state.attack_flip_checks = {
-                entity_id: entry for entity_id, entry in state.attack_flip_checks.items()
-                if entity_id not in affected_ids
-            }
+            state.remove_attack_effects(affected, affected_ids)
             ctx.board.temporary_passives = [
                 passive for passive in ctx.board.temporary_passives
                 if not passive.from_attack or (
@@ -2436,7 +2444,14 @@ def standard_trainer_effect(game_text: str):
             await ctx.reorder_deck_top(int(top_order.group(1)), player_id=pid)
             return
         if "look at the top card of either player's deck" in text:
-            card = (ctx.deck_top(1) or [None])[0]
+            sides = [pid for pid in (ctx.player_id, ctx.opponent_id) if ctx.deck(pid)]
+            if not sides:
+                return
+            index = await ctx.choose("Choose a deck", [
+                "Your deck" if pid == ctx.player_id else "Opponent's deck"
+                for pid in sides
+            ]) if len(sides) > 1 else 0
+            card = (ctx.deck_top(1, player_id=sides[index]) or [None])[0]
             if card is not None:
                 await ctx.reveal_cards([card], to_player=ctx.player_id)
                 if await ctx.ask_yes_no("Discard this card?"):
@@ -3353,6 +3368,8 @@ def _trainer_rules_text(game_text: str) -> str:
     # HGSS Supporters prepend a card-type reminder. It is not part of the
     # effect: its word "Supporter" must not become a deck-search predicate.
     text = _norm(game_text)
+    # A subclass reminder must never become an Item/Supporter search filter.
+    text = re.sub(r"you may play as many (?:item|pokémon tool) cards as you like.*$", "", text).strip()
     return re.sub(
         r"^you can play only one supporter card each turn\. when you play this card, "
         r"put it next to your active pokémon\. when your turn ends, discard this card\. ?",
@@ -3380,6 +3397,12 @@ def standard_trainer_condition(game_text: str):
         opponent_id = _opponent_id(board, player_id)
         opponent_discard = cards(board, opponent_id, "discard") if opponent_id else []
         opponent_hand = cards(board, opponent_id, "hand") if opponent_id else []
+        if "look at the top card of either player's deck" in text:
+            return bool(deck or (opponent_id and cards(board, opponent_id, "deck")))
+        if text.startswith('you may play 2 puzzle of time cards at once'):
+            return bool(deck) or bool(
+                any(_card_name(entry).casefold() == 'puzzle of time' for entry in hand)
+                and any(entry is not card for entry in discard))
         own_in_play = list(board.pokemon_in_play(player_id))
         opposing_in_play = list(board.pokemon_in_play(opponent_id)) \
             if opponent_id else []
@@ -3747,12 +3770,9 @@ def standard_trainer_condition(game_text: str):
                 ptype = getattr(PokemonTypes, type_word.upper())
                 energies = [entry for entry in energies
                             if energy_provides_type(entry, ptype.value)]
-            requested = re.search(
-                r"attach (?:up to )?(\d+) ", attachment.group(0)
-            )
-            required = int(requested.group(1)) if requested \
-                and "up to" not in attachment.group(0) else 1
-            if len(energies) < required or not _trainer_energy_targets_on_board(
+            # This is the effect, not an activation cost: attach as many of
+            # the printed number as possible (e.g. Blacksmith with one Fire).
+            if not energies or not _trainer_energy_targets_on_board(
                     board, player_id, text):
                 return False
 

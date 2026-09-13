@@ -94,6 +94,15 @@ def action_id_for(entity_id: str, verb: str) -> str:
     return str(uuid.uuid5(_ACTION_ID_NAMESPACE, f"{entity_id}:{verb}"))
 
 
+class EffectExpiry(int):
+    """A turn deadline retaining its source without changing numeric consumers."""
+
+    def __new__(cls, value, from_attack=True):
+        result = super().__new__(cls, value)
+        result.from_attack = from_attack
+        return result
+
+
 @dataclass
 class TurnState:
     """Per-game turn bookkeeping consumed by the legality rules."""
@@ -128,6 +137,7 @@ class TurnState:
     # Players forbidden from declaring GX attacks for the rest of the game
     # (Clear Vision-GX). This is distinct from spending one's own GX token.
     gx_locked_players: Set[str] = field(default_factory=set)
+    attack_gx_locked_players: Set[str] = field(default_factory=set)
     # player_id -> (forced result, last affected turn). Sinister Suggestion
     # applies to every flip made by the opponent during their next turn.
     forced_coins_through_turn: Dict[str, Tuple[bool, int]] = field(
@@ -318,35 +328,35 @@ class TurnState:
         self.entered_play_turn[entity_id] = self.turn_number
 
     def lock_attack(self, entity_id: str, ability_id: str,
-                    through_turn: Optional[int] = None):
+                    through_turn: Optional[int] = None, *, from_attack=True):
         """Locks an attack through its user's next turn by default."""
-        self.attack_locks[(entity_id, ability_id)] = (
-            self.turn_number + 2 if through_turn is None else through_turn
+        self.attack_locks[(entity_id, ability_id)] = EffectExpiry(
+            self.turn_number + 2 if through_turn is None else through_turn, from_attack
         )
 
-    def require_trainer_flip(self, player_id: str, title: str = ""):
-        self.trainer_flip_checks[player_id] = (self.turn_number + 1, title)
+    def require_trainer_flip(self, player_id: str, title: str = "", *, from_attack=True):
+        self.trainer_flip_checks[player_id] = (EffectExpiry(self.turn_number + 1, from_attack), title)
 
-    def require_attach_ends_turn(self, entity_id: str, title: str = ""):
-        self.attach_ends_turn_checks[entity_id] = (self.turn_number + 1, title)
+    def require_attach_ends_turn(self, entity_id: str, title: str = "", *, from_attack=True):
+        self.attach_ends_turn_checks[entity_id] = (EffectExpiry(self.turn_number + 1, from_attack), title)
 
     def attack_locked(self, entity_id: str, ability_id: str) -> bool:
         return self.turn_number <= self.attack_locks.get((entity_id, ability_id), 0)
 
-    def lock_retreat(self, entity_id: str, through_turn: Optional[int] = None):
+    def lock_retreat(self, entity_id: str, through_turn: Optional[int] = None, *, from_attack=True):
         """Blocks retreat through `through_turn` (default: the opponent's next turn)."""
-        self.retreat_locks[entity_id] = (
-            self.turn_number + 1 if through_turn is None else through_turn
+        self.retreat_locks[entity_id] = EffectExpiry(
+            self.turn_number + 1 if through_turn is None else through_turn, from_attack
         )
 
     def retreat_locked(self, entity_id: str) -> bool:
         return self.turn_number <= self.retreat_locks.get(entity_id, 0)
 
-    def lock_plays(self, player_id: str, predicate, through_turn: Optional[int] = None):
+    def lock_plays(self, player_id: str, predicate, through_turn: Optional[int] = None, *, from_attack=True):
         """Forbids `player_id` playing hand cards matching `predicate`
         (default: through their next turn)."""
         self.play_locks.setdefault(player_id, []).append(
-            (predicate, self.turn_number + 1 if through_turn is None else through_turn)
+            (predicate, EffectExpiry(self.turn_number + 1 if through_turn is None else through_turn, from_attack))
         )
 
     def play_locked(self, player_id: str, card: Any) -> bool:
@@ -355,22 +365,22 @@ class TurnState:
             for pred, exp in self.play_locks.get(player_id, [])
         )
 
-    def restrict_attachments(self, entity_id: str, through_turn: Optional[int] = None):
+    def restrict_attachments(self, entity_id: str, through_turn: Optional[int] = None, *, from_attack=True):
         """Forbids energy attachments onto `entity_id` (default: through the
         opponent's next turn)."""
-        self.attach_restrictions[entity_id] = (
-            self.turn_number + 1 if through_turn is None else through_turn
+        self.attach_restrictions[entity_id] = EffectExpiry(
+            self.turn_number + 1 if through_turn is None else through_turn, from_attack
         )
 
     def attach_restricted(self, entity_id: str) -> bool:
         return self.turn_number <= self.attach_restrictions.get(entity_id, -1)
 
     def set_attack_flip_check(self, entity_id: str, through_turn: Optional[int] = None,
-                              title: str = ""):
+                              title: str = "", *, from_attack=True):
         """Requires a coin flip before `entity_id` attacks (tails = the attack
         doesn't happen); default lifetime: through the opponent's next turn."""
         self.attack_flip_checks[entity_id] = (
-            self.turn_number + 1 if through_turn is None else through_turn,
+            EffectExpiry(self.turn_number + 1 if through_turn is None else through_turn, from_attack),
             title,
         )
 
@@ -380,6 +390,41 @@ class TurnState:
         if entry is not None and self.turn_number <= entry[0]:
             return entry[1]
         return None
+
+    def remove_attack_effects(self, players, pokemon_ids):
+        """Ranger/Channeler remove ongoing effects, not damage, conditions or history."""
+        def attack(expiry):
+            return getattr(expiry, 'from_attack', False)
+
+        for name in ('retreat_locks', 'attach_restrictions'):
+            entries = getattr(self, name)
+            setattr(self, name, {key: value for key, value in entries.items()
+                                if key not in pokemon_ids or not attack(value)})
+        self.attack_locks = {key: exp for key, exp in self.attack_locks.items()
+                             if key[0] not in pokemon_ids or not attack(exp)}
+        for name, targets, index in (
+            ('attack_flip_checks', pokemon_ids, 0),
+            ('attach_ends_turn_checks', pokemon_ids, 0),
+            ('trainer_flip_checks', players, 0),
+            ('forced_coins_through_turn', players, 1),
+        ):
+            entries = getattr(self, name)
+            setattr(self, name, {key: value for key, value in entries.items()
+                                if key not in targets or not attack(value[index])})
+        self.play_locks = {
+            pid: kept for pid, entries in self.play_locks.items()
+            if (kept := [(pred, exp) for pred, exp in entries
+                         if pid not in players or not attack(exp)])
+        }
+        removed = self.attack_gx_locked_players & set(players)
+        self.gx_locked_players.difference_update(removed)
+        self.attack_gx_locked_players.difference_update(removed)
+        self.damage_modifiers = [mod for mod in self.damage_modifiers
+                                 if not getattr(mod, 'from_attack', False)
+                                 or mod.player_id not in players]
+        self.extra_prize_watchers = [entry for entry in self.extra_prize_watchers
+                                     if not entry.get('from_attack', False)
+                                     or entry['player_id'] not in players]
 
     def may_evolve_target(self, entity_id: str) -> bool:
         """A Pokemon may evolve only if it has been in play since a previous

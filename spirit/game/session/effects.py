@@ -11,7 +11,7 @@ import logging
 import traceback
 import random
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, cast
-from .legal_actions import energy_provided_count
+from .legal_actions import EffectExpiry, energy_provided_count
 from spirit.game.attributes import (
     AbilityTypes,
     AttrID,
@@ -672,6 +672,7 @@ class EffectContext:
 
     def add_turn_damage_modifier(self, mod) -> None:
         """Registers a TurnDamageModifier (expires_after_turn None = this turn)."""
+        mod.from_attack = self.is_attack_effect()
         self.session.turn_state.damage_modifiers.append(mod)
 
     def add_extra_prize_watcher(self, attacker_predicate=None,
@@ -684,6 +685,7 @@ class EffectContext:
             "attacker_predicate": attacker_predicate,
             "target_predicate": target_predicate,
             "prizes": prizes,
+            "from_attack": self.is_attack_effect(),
         })
 
     def add_temporary_passive(self, target, passive,
@@ -718,24 +720,28 @@ class EffectContext:
     def force_coins_through_next_turn(self, player_id: str, heads: bool) -> None:
         """Forces every coin flipped by ``player_id`` on their next turn."""
         self.session.turn_state.forced_coins_through_turn[player_id] = (
-            bool(heads), self.session.turn_state.turn_number + 1
+            bool(heads), EffectExpiry(self.session.turn_state.turn_number + 1, self.is_attack_effect())
         )
 
     def lock_gx_attacks(self, player_id: str) -> None:
         """Permanently prevents ``player_id`` from declaring GX attacks."""
         self.session.turn_state.gx_locked_players.add(player_id)
+        if self.is_attack_effect():
+            self.session.turn_state.attack_gx_locked_players.add(player_id)
 
     def require_trainer_flip(self, player_id: str) -> None:
         """Makes each Trainer that ``player_id`` plays next turn flip a coin."""
         self.session.turn_state.require_trainer_flip(
-            player_id, self.ability.title if self.ability else ""
+            player_id, self.ability.title if self.ability else "",
+            from_attack=self.is_attack_effect(),
         )
 
     def end_turn_if_energy_attached_to(self, target: PokemonEntity) -> None:
         """Marks Lazy Howl's Defending Pokemon attachment-triggered turn end."""
         if target is not None:
             self.session.turn_state.require_attach_ends_turn(
-                target.entity_id, self.ability.title if self.ability else ""
+                target.entity_id, self.ability.title if self.ability else "",
+                from_attack=self.is_attack_effect(),
             )
 
     def set_supporter_limit(self, count: int) -> None:
@@ -761,19 +767,22 @@ class EffectContext:
         """"The Defending Pokemon can't retreat during your opponent's next
         turn" (default); pass legal_actions.LOCK_UNTIL_LEAVES_ACTIVE to hold
         the lock until it leaves the Active spot."""
-        self.session.turn_state.lock_retreat(target.entity_id, through_turn)
+        self.session.turn_state.lock_retreat(target.entity_id, through_turn,
+                                            from_attack=self.is_attack_effect())
 
     def lock_plays(self, player_id: str, predicate: Callable[[CardEntity], bool],
                    through_turn: Optional[int] = None) -> None:
         """"<player> can't play <cards matching predicate>" (default: through
         their next turn)."""
-        self.session.turn_state.lock_plays(player_id, predicate, through_turn)
+        self.session.turn_state.lock_plays(player_id, predicate, through_turn,
+                                          from_attack=self.is_attack_effect())
 
     def restrict_attachments(self, target: PokemonEntity,
                              through_turn: Optional[int] = None) -> None:
         """"Energy can't be attached to the Defending Pokemon" (default:
         through the opponent's next turn); manual attach offers exclude it."""
-        self.session.turn_state.restrict_attachments(target.entity_id, through_turn)
+        self.session.turn_state.restrict_attachments(target.entity_id, through_turn,
+                                                    from_attack=self.is_attack_effect())
 
     def require_attack_flip(self, target: Optional[PokemonEntity],
                             through_turn: Optional[int] = None,
@@ -786,6 +795,7 @@ class EffectContext:
         self.session.turn_state.set_attack_flip_check(
             target.entity_id, through_turn,
             title if title is not None else (self.ability.title if self.ability else ""),
+            from_attack=self.is_attack_effect(),
         )
 
     def ignore_own_target_effects(self, entity: PokemonEntity) -> None:

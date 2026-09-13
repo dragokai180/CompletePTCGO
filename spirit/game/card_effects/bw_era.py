@@ -4468,7 +4468,11 @@ def _attack_clause_allowed(ctx, text, position, heads, coin_count):
         return False
     required = re.search(r"if this pokémon has any (\w+) energy attached to it", clause)
     if required:
-        available = _has_plasma_energy(ctx, ctx.attacker) if required.group(1) == "plasma" else _energy_count(ctx, ctx.attacker, required.group(1))
+        kind = required.group(1)
+        if kind == "special":
+            available = any(is_special_energy(e) for e in ctx.attached_energies(ctx.attacker))
+        else:
+            available = _has_plasma_energy(ctx, ctx.attacker) if kind == "plasma" else _energy_count(ctx, ctx.attacker, kind)
         if not available:
             return False
     if "if there is any stadium card in play" in clause and ctx.stadium_in_play() is None:
@@ -4553,6 +4557,9 @@ async def bw_legacy_attack(ctx):
         return
     from spirit.game.card_effects.hgss_era import resolve_hgss_attack
     if await resolve_hgss_attack(ctx, text, printed):
+        return
+    from spirit.game.card_effects.xy_era import resolve_xy_attack
+    if await resolve_xy_attack(ctx, text, printed):
         return
     # Legacy "base damage plus N more" is the same as modern "+N".
     # Normalize only the arithmetic wording; keep the printed text intact.
@@ -5878,7 +5885,7 @@ async def bw_legacy_attack(ctx):
     if bonus and "has a pokémon tool card attached to it" in text \
             and _has_tool(ctx.attacker):
         amount += bonus
-    if bonus and "has a special energy attached to it" in text \
+    if bonus and re.search(r"has (?:a|any) special energy attached to it", text) \
             and any(is_special_energy(e) for e in ctx.attached_energies(ctx.attacker)):
         amount += bonus
     if bonus and "more cards in your hand than your opponent" in text \

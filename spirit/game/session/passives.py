@@ -45,6 +45,7 @@ class TurnDamageModifier:
     attack_title: Optional[str] = None
     # Arbitrary attacker gate (Ludicolo/Rapidash predicates).
     source_predicate: Optional[Callable[[BoardEntity], bool]] = None
+    from_attack: bool = False
 
 
 @dataclass

@@ -1,6 +1,6 @@
 # XY rules audit
 
-Date: 2026-09-12
+Updated: 2026-09-13
 
 ## Scope and method
 
@@ -39,14 +39,88 @@ and negative outcomes, EX/ex distinction, later arrivals, and Ranger.
 Full suite: 400 tests passed (python -m unittest discover -s tests -q).
 Existing ResourceWarning messages concerning SQLite cleanup were emitted.
 
-## Remaining work
+## Follow-up: skipped fixtures and compound effects
 
-- Build valid fixtures for the 54 skipped execution cases.
-- Continue outcome-level review of every printed effect and reprint;
-  smoke success alone does not establish semantic correctness.
-- Extend attack-effect provenance beyond temporary passives to the other
-  turn-state restriction collections before treating Ranger as exhaustively
-  audited.
-- No client multiplayer or animation validation was performed in this pass.
+The neutral-board callback sweep during the follow-up returned 3,032 passes
+and 56 skips. Stricter legal-target predicates can increase skips without
+introducing a regression. Those skips now have valid, outcome-asserting
+scenarios in test_xy_completion.py, test_archie_maxie.py and
+test_trainer_followup_audit.py; the neutral-board sweep itself is not changed
+to pretend those prerequisites are present.
+
+Covered prerequisite families include public-pile recovery, Blacksmith,
+Tool removal/retrieval, Target Whistle, Revive, Mega Turbo, Mega Catcher,
+Devolution Spray, status healing, Ace Trainer, Delinquent, Rough Seas,
+All-Night Party, Puzzle of Time, Drive Change, Tear Away, Mega Boost,
+Wonder Lock, Burning Road, Victory Kiss, Purifying Fire, Stand In and
+Farewell Letter. Tests include the affected XY printings and positive and
+negative cases rather than merely checking callback completion.
+
+Additional corrections:
+
+- Pokemon Ranger now tracks attack provenance in turn-state restrictions,
+  forced coin checks, damage modifiers, bonus-prize watches and GX locks.
+  It preserves Trainer/Ability effects, damage, Special Conditions, history
+  and spent once-per-game tokens.
+- Item reminder text no longer contaminates recovery predicates.
+  Revitalizer selects Grass Pokemon; Fossil Excavation Kit selects only
+  its three named Fossils.
+- Blacksmith and other public-pile attachment effects can resolve with fewer
+  Energy cards than the printed maximum; this does not relax discard costs.
+- Puzzle of Time distinguishes a single copy (reorder three cards) from a
+  pair (recover two), consumes the second copy, and excludes both played
+  copies from recovery.
+- Trick Shovel selects either nonempty deck, reveals only to the acting
+  player, and allows declining the discard.
+- Hand Control reveals the opponent's hand and permits declining. A selected
+  playable Supporter resolves for its owner, with choices made by the attacker,
+  then goes to its owner's discard; the attacking player does not draw its cards.
+- Mist Purge recognizes Special Energy for both its bonus and team healing.
+- Solar Birth attaches searched Energy to the Pokemon it actually benches.
+- Burning Icicles and Frosty Thunder enforce their additional Energy
+  requirements for Bench damage.
+- Lock-On's additional damage applies after Weakness/Resistance and expires.
+- Vanishing Strike applies its Stadium-dependent bonus and protection bypass.
+- Stardust grants protection only after an actual Special Energy discard.
+- Magical Symphony checks whether a Supporter was played.
+- Link Fusion adds the distinct named Bench bonuses cumulatively.
+- Energy Glide and Quiver Dance perform their secondary effects only after
+  successful attachment.
+- Flare Up requires ten Fire Energy cards in the discard pile.
+- Tidal Storm moves Energy by provided units and damages only uppercase
+  Pokemon-EX on the opposing Bench.
+- Coordinate handles distinct eligible Benched recipients.
+
+The new suite also asserts Metal Rain's repeated target selection,
+Jagged Saber's recipient healing, Dragon Dance's non-stacking lifetime,
+Rare Candy evolution timing, typed Special Energy restrictions, Double Dragon
+Energy cost payment, and Burning Energy's attack-only reattachment.
+
+## Follow-up validation
+
+43 new regression methods in tests/test_xy_completion.py.
+Final full-suite run: 462 tests passed
+(`python -m unittest discover -s tests -q`).
+
+Exact-text instrumentation sweep:
+
+- 1,323 attack families: 1,320 observed; Flare Up and Grass Fire require
+  missing fixture resources, and Mist Purge requires attached Special Energy.
+  Dedicated tests assert their positive and negative outcomes.
+- 70 activated Ability families: 70 observed.
+- 69 Trainer families: 64 observed; Revitalizer, Fossil Excavation Kit and
+  Ace Trainer lack prerequisites on the neutral board; Ranger has no attack
+  restrictions to clear there. Puzzle's single-copy branch intentionally
+  does not recover cards. Dedicated tests cover all five flagged families.
+
+These instrumentation counts are execution evidence, not proof that every
+printed clause or cross-era combination has been validated.
+
+## Verification limits
+
+The skipped-fixture coverage and Ranger turn-state work are addressed.
+An exhaustive outcome matrix for every printed effect/reprint and every
+cross-era interaction is not claimed. Native two-client multiplayer and
+animation validation remain unperformed.
 
 No server restart, commit, or push was performed.
