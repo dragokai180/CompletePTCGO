@@ -1348,15 +1348,24 @@ class EffectContext:
         prompt: str = "Choose a card",
         player_id: Optional[str] = None,
         slot_prompt: str = "",
+        reveal_result: bool = False,
     ) -> List[CardEntity]:
         """Browses the player's deck for matching cards; does NOT move or
         shuffle -- pair with put_in_hand/bench/attach + shuffle_deck.
 
-        The whole deck shows in the browser (a search reveals the deck);
-        only matching cards are selectable and sort to the front."""
+        The chooser sees the whole deck privately; only matches are
+        selectable. A predicate or reveal_result=True permits failing the
+        search. reveal_result describes the later move: it does not reveal
+        anything itself. Pair with put_in_hand(..., reveal=True) as printed."""
         pid = player_id or self.player_id
         deck_cards = list(self.deck(pid))
         matches = [c for c in deck_cards if predicate is None or predicate(c)]
+        # Private searches with a specified criterion (or a revealed result)
+        # may fail even if a matching card exists. Keep this rule here so
+        # bespoke attacks/Abilities and Trainers cannot accidentally force a
+        # selection. Unrestricted, unrevealed searches retain their minimum.
+        if predicate is not None or reveal_result:
+            minimum = 0
         return await self.choose_cards(
             matches, count, minimum=minimum, prompt=prompt, player_id=pid,
             display_cards=deck_cards, slot_prompt=slot_prompt,

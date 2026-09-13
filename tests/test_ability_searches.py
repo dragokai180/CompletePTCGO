@@ -21,9 +21,10 @@ class AbilityDeckSearchTests(unittest.IsolatedAsyncioTestCase):
             ordinary: "Snivy",
         }
 
-        async def search_deck(predicate, count, minimum, prompt):
+        async def search_deck(predicate, count, minimum, prompt, reveal_result=False):
             self.assertEqual(3, count)
             self.assertEqual(0, minimum)
+            self.assertTrue(reveal_result)
             return [card for card in deck if predicate(card)][:count]
 
         ctx = SimpleNamespace(

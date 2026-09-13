@@ -1053,13 +1053,17 @@ async def _generic_search(ctx, text: str) -> bool:
         return False
 
     count = _requested_count(text)
-    minimum = 0 if "up to" in text or "you may" in text else count
     predicate = _search_predicate(text)
+    # A private search for a specified kind may fail even when a matching
+    # card exists. An unrestricted "search for N cards" still requires N.
+    reveals = "reveal" in text or "show it to your opponent" in text
+    minimum = 0 if predicate is not None or reveals or "up to" in text or "you may" in text else count
     picks = await ctx.search_deck(
         predicate,
         count=count,
         minimum=minimum,
         prompt="Choose cards from your deck",
+        reveal_result=reveals,
     )
 
     if "onto your bench" in text or "on your bench" in text:
@@ -1084,7 +1088,7 @@ async def _generic_search(ctx, text: str) -> bool:
         for card in reversed(picks):
             await ctx.put_on_top_of_deck(card)
     else:
-        await ctx.put_in_hand(picks, reveal="reveal" in text)
+        await ctx.put_in_hand(picks, reveal=reveals)
 
     await ctx.shuffle_deck()
     return True
@@ -1224,6 +1228,9 @@ async def _generic_top_deck(ctx, text: str) -> bool:
         # required amount to the actual selectable set.
         maximum = max(1, maximum)
         minimum = min(minimum, len(eligible))
+        if "look at the top" in text and "reveal the top" not in text \
+                and (predicate is not None or "reveal" in text):
+            minimum = 0
         chosen = await ctx.choose_cards(
             eligible,
             maximum,
@@ -2412,7 +2419,8 @@ def standard_trainer_effect(game_text: str):
             selectable = eligible if count > 0 else []
             picks = await ctx.choose_cards(
                 selectable, max(1, min(count, len(eligible))),
-                minimum=0 if "you may" in text else min(count, len(eligible)),
+                minimum=0 if predicate is not None or "reveal" in text or "you may" in text
+                else min(count, len(eligible)),
                 prompt="Choose cards", display_cards=viewed,
             ) if viewed else []
             if picks and "reveal" in text:

@@ -7662,7 +7662,7 @@ async def bw_legacy_attack(ctx):
             else:
                 pred = None
             picks = await ctx.search_deck(pred, count, minimum=min(count, len(ctx.deck())) if pred is None else 0,
-                                          prompt="Choose cards")
+                                          prompt="Choose cards", reveal_result="reveal" in text)
             await ctx.put_in_hand(picks, reveal="reveal" in text)
         await ctx.shuffle_deck()
 
@@ -11906,6 +11906,7 @@ async def bw_legacy_ability(ctx):
         pred = _ability_search_predicate(text)
         picks = await ctx.search_deck(
             pred, count, minimum=min(count, len(ctx.deck())) if pred is None else 0,
+            reveal_result=("reveal" in text or "show it to your opponent" in text),
             prompt=(
                 f"Choose up to {count} cards" if count > 1
                 else "Choose a card"

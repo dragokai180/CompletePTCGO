@@ -118,6 +118,30 @@ printed clause or cross-era combination has been validated.
 
 ## Verification limits
 
+### Reported follow-up: Dive Ball and Water Duplicates
+
+Dive Ball's typed private search may now fail even with an eligible Water
+Pokemon in the deck. Removing the Item reminder had exposed an incorrect
+mandatory-selection rule; typed searches now explicitly use a zero minimum,
+while unrestricted searches for a fixed number of cards retain that minimum.
+
+Water Duplicates now searches for up to three Frogadier and puts them directly
+onto the Bench. The generic interpreter previously read "up" as the name,
+limited the count to one and required a Basic Pokemon. The explicit XY
+resolver accepts the named Stage 1, caps selection by free Bench spaces,
+allows partial/zero selections, shuffles afterward, and uses the existing
+public placement choreography. Eight regressions live in
+tests/test_dive_ball_water_duplicates.py; three failed before the corrections.
+
+The fail-to-find rule is also enforced by EffectContext.search_deck itself:
+filtered private searches and searches marked reveal_result=True have a
+zero minimum, even when a caller supplies a positive minimum. Shared Trainer,
+attack and Ability templates propagate the reveal flag. Private top/bottom
+consultations use the same optional-selection behavior; fixed unrestricted
+unrevealed searches and mandatory hand-discard costs remain unchanged.
+tests/test_private_search_rule.py covers these distinctions, including
+explicitly mandatory selection from publicly revealed cards.
+
 The skipped-fixture coverage and Ranger turn-state work are addressed.
 An exhaustive outcome matrix for every printed effect/reprint and every
 cross-era interaction is not claimed. Native two-client multiplayer and

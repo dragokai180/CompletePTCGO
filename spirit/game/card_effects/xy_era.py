@@ -46,6 +46,22 @@ async def resolve_xy_attack(ctx, text, printed):
         return False
     title = ctx.ability.title
     from spirit.game.card_effects.bw_era import _BWTurnShield, _name, _energy_count, _BWTemporaryCombatRule
+    if title == 'Water Duplicates':
+        from spirit.game.session.effects import is_pokemon_card
+        from spirit.game.session.passives import effective_bench_capacity
+        free = max(0, effective_bench_capacity(ctx.board, ctx.player_id)
+                   - len(ctx.my_bench()))
+        if free:
+            picks = await ctx.search_deck(
+                lambda card: is_pokemon_card(card) and _name(card).casefold() == 'frogadier',
+                min(3, free), minimum=0, prompt='Choose up to 3 Frogadier for your Bench',
+            )
+            # The attack explicitly puts Stage 1 Pokemon into play. It does
+            # not evolve a Froakie or require a Basic Pokemon underneath.
+            for card in picks:
+                await ctx.bench_pokemon(card)
+        await ctx.shuffle_deck()
+        return True
     if title == 'Hand Control':
         from spirit.game.data_utils import def_for
         from spirit.game.session.effects import is_supporter_card, resolve_trainer_effect

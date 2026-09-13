@@ -70,6 +70,7 @@ def search_to_hand(predicate=None, count=1, minimum=0, reveal=True, prompt=""):
         await _deal_printed(ctx)
         picks = await ctx.search_deck(
             predicate, count=count, minimum=minimum,
+            reveal_result=reveal,
             prompt=prompt or "Choose a card to put into your hand.",
         )
         await ctx.put_in_hand(picks, reveal=reveal)
