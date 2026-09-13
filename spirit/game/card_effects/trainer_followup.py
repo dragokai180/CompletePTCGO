@@ -1,10 +1,47 @@
 """Explicit Trainer rules where generic text resolution loses constraints."""
 from spirit.game.attributes import AttrID, SpecialConditions
 from spirit.game.data_utils import Ability, Activations
-from spirit.game.session.effects import is_evolution_pokemon
+from spirit.game.session.effects import is_evolution_pokemon, is_pokemon_card
 from spirit.game.session.passives import (
-    effective_max_hp, effective_pokemon_types, evolution_blocked,
+    effective_max_hp, effective_pokemon_types, evolution_blocked, effective_bench_capacity,
 )
+
+
+def last_card_recovery(pokemon_type):
+    """Archie/Maxie: mandatory typed recovery, then draw; any Stage is legal."""
+    def candidates(board, player_id):
+        discard = board.find_player_area(player_id, 'discard')
+        return [card for card in (discard.children if discard is not None else [])
+                if is_pokemon_card(card)
+                and pokemon_type in (card.get_attribute(AttrID.POKEMON_TYPES) or [])]
+
+    def condition(board, player_id, source=None):
+        hand = board.find_player_area(player_id, 'hand')
+        cards = list(hand.children) if hand is not None else []
+        if source is None:
+            if len(cards) != 1:
+                return False
+        elif any(card is not source for card in cards):
+            return False
+        bench = board.find_player_area(player_id, 'bench')
+        return bool(bench is not None
+                    and len(bench.children) < effective_bench_capacity(board, player_id)
+                    and candidates(board, player_id))
+
+    async def effect(ctx):
+        # The Supporter has already left hand when its effect resolves.
+        if not condition(ctx.board, ctx.player_id, ctx.source):
+            return
+        pool = candidates(ctx.board, ctx.player_id)
+        picks = await ctx.choose_cards(
+            pool, 1, minimum=1, prompt="Choose a Pokémon from your discard pile")
+        if not picks or picks[0] not in pool:
+            return
+        if await ctx.bench_pokemon(picks[0]):
+            await ctx.flush_choreography()
+            await ctx.draw_cards(5)
+
+    return effect, condition
 
 
 def healing_stadium_ability(game_text, amount, types=(), *, all_targets=False,
