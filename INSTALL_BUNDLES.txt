@@ -1,22 +1,73 @@
-INSTALLING THE BUNDLES
-============================
+INSTALLING CARD ARTWORK AND OPTIONAL BUNDLES
+============================================
 
 Either obtain the original bundles of PTCGO and/or use the script to download
 missing card arts.
+
+CompletePTCGO does not distribute card artwork, the original PTCGO client, or
+the original game AssetBundles in the repository. Card artwork can be
+downloaded separately using the command below; the cbrew bundles are optional
+for this download. You still need your own compatible PTCGO client.
 
 Requirements
 ------------
 
 1. A compatible Pokemon TCG Online client (version 2.95.0.5815).
 2. Python and the project dependencies installed as described in README.md.
-3. (optional) A local bundles folder. Depending on your archive, it can contain:
+3. An internet connection for downloading card artwork.
+4. Optional: a local bundles folder. Depending on your archive, it can contain:
    - BW Cache.zip
    - SM Cache.zip
    - PTCGO Exe.zip
    - the era/set artwork ZIP files supplied with the bundles
 
-Installation on Windows PowerShell
-----------------------------------
+OPTION A: Download card artwork WITHOUT the cbrew bundles
+-------------------------------------------------------
+
+Open PowerShell in the repository and activate the installed environment:
+
+   .\venv\Scripts\Activate.ps1
+   python -m spirit.tools.install_recent_card_art
+
+Despite its historical name, this installer covers ALL implemented card
+collections, from HGSS through Mega Evolution, not just recent cards. It
+also downloads the 17 Sword & Shield basic Energy prints and the nine free
+Energy cards. No BW Cache.zip, SM Cache.zip, PTCGO Exe.zip, --cbrew-source,
+PTCGO_ART_SOURCE_DIR or PTCGO_CACHE_DIR is required for this command.
+
+On an empty artwork directory it downloads the full implemented catalog.
+On subsequent runs it downloads only missing files, preserving existing
+artwork, including artwork previously imported from cbrew.
+
+The downloader reads English image URLs from the bundled card catalogs,
+including Pokemon TCG and Scrydex URLs. It tries an alternate source when
+available if the first source fails. Some promos use the English Limitless
+archive; unnumbered Energy scans use PkmnCards. JPEG/WebP scans are decoded
+and saved as real PNG files, not just renamed.
+
+The first download can take a long time and consume substantial disk space
+and bandwidth. Keep the terminal open until it finishes. If interrupted,
+rerun the same command: completed files are kept. If a provider is unavailable
+or all sources for a card fail, the installer lists the missing files/URLs
+and exits with code 2. It does not report a partial download as complete.
+
+Optional selections (omit them to download everything):
+
+   python -m spirit.tools.install_recent_card_art swsh
+   python -m spirit.tools.install_recent_card_art mega
+   python -m spirit.tools.install_recent_card_art BW6 BW11
+   python -m spirit.tools.install_recent_card_art SWSH_Energy
+
+Use --workers 4 to reduce simultaneous downloads on a slow connection.
+Use --overwrite only if you intentionally want to replace existing artwork.
+
+IMPORTANT: This command installs card face images only. It does not install
+the PTCGO client, original menu artwork, native foil masks/textures or original
+Unity AssetBundles. For those original assets, use Option B. Card scans alone
+do not recreate the original foil effects.
+
+OPTION B: Import the original cbrew bundles (Windows PowerShell)
+--------------------------------------------------------------
 
 1. Open PowerShell in the CompletePTCGO repository directory.
 
@@ -67,9 +118,9 @@ Troubleshooting
 
 - "PTCGO asset directory does not exist": verify the path assigned to
   PTCGO_ART_SOURCE_DIR.
-- Missing old card art: import the matching set/cache ZIP first, then run the
-  card-art command above to fill gaps. Some cbrew archives are incomplete.
-- Missing recent card art: run the recent card-art command above.
+- Missing old or recent card art: run the card-art command in Option A.
+  No bundle import is required. A failed source is reported in the terminal;
+  rerun later if an image provider is temporarily unavailable.
 - Missing menus: verify that SM Cache.zip or BW Cache.zip is available and run
   the importer without --cards-only.
 - Never install the generated server certificate into the Windows Trusted Root

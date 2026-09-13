@@ -1,7 +1,10 @@
 import unittest
+import io
 import tempfile
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from pathlib import Path
+from PIL import Image
+import requests
 
 from spirit.tools.install_recent_card_art import (
     RECENT_SETS,
@@ -10,6 +13,8 @@ from spirit.tools.install_recent_card_art import (
     load_image_urls,
     collector_number_from_script,
     image_url,
+    image_candidates,
+    download_one,
     mega_promo_url,
     selected_sets,
     install_native_energy,
@@ -24,9 +29,13 @@ class InstallRecentCardArtTests(unittest.TestCase):
                          [RECENT_SETS["swsh_energy"]])
 
     def test_swsh_energy_imports_all_native_prints_without_network(self):
+        def restore_art(set_code, number, destination, **kwargs):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(b"native fixture")
+            return True
         with tempfile.TemporaryDirectory() as directory:
             with patch("spirit.tools.install_recent_card_art.ASSETS_ROOT", Path(directory)), \
-                 patch("spirit.tools.ptcgo_local_assets.install_card_art", return_value=True) as restore, \
+                 patch("spirit.tools.ptcgo_local_assets.install_card_art", side_effect=restore_art) as restore, \
                  patch("spirit.tools.install_recent_card_art.download_one") as download:
                 run(["SWSH_Energy"], 1, False, "cbrew-fixture")
                 self.assertEqual(restore.call_count, 17)
@@ -50,15 +59,107 @@ class InstallRecentCardArtTests(unittest.TestCase):
                 self.assertEqual(install_native_energy(True), [])
                 self.assertEqual(restore.call_count, 17)
 
-    def test_swsh_energy_missing_cache_is_reported_as_failure(self):
+    def test_swsh_energy_missing_cache_falls_back_to_download(self):
         with tempfile.TemporaryDirectory() as directory:
             with patch("spirit.tools.install_recent_card_art.ASSETS_ROOT", Path(directory)), \
                  patch("spirit.tools.ptcgo_local_assets.install_card_art", return_value=False), \
-                 patch("spirit.tools.install_recent_card_art.download_one") as download:
+                 patch("spirit.tools.install_recent_card_art.download_one",
+                       return_value=(True, "downloaded")) as download:
+                run(["SWSH_Energy"], 1, False, "missing-cache")
+                self.assertEqual(download.call_count, 17)
+
+    def test_swsh_download_needs_no_native_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("spirit.tools.install_recent_card_art.ASSETS_ROOT", Path(directory)), \
+                 patch("spirit.tools.install_recent_card_art.install_native_energy") as native, \
+                 patch("spirit.tools.install_recent_card_art.download_one",
+                       return_value=(True, "downloaded")) as download:
+                run(["swsh_energy"], 1, False)
+                native.assert_not_called()
+                self.assertEqual(download.call_count, 17)
+
+    def test_all_implemented_directories_are_selected_by_default(self):
+        selected = {s.set_code.casefold() for s in selected_sets([])}
+        implemented = {
+            p.name.casefold() for p in SCRIPTS_ROOT.iterdir()
+            if p.is_dir() and any(p.glob("*.py"))
+        }
+        self.assertFalse(implemented - selected)
+
+    def test_every_implemented_card_gets_a_download_task_on_clean_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("spirit.tools.install_recent_card_art.ASSETS_ROOT", Path(directory)):
+                for entry in selected_sets([]):
+                    scripts = [p for p in (SCRIPTS_ROOT / entry.set_code).glob("*.py")
+                               if p.name != "__init__.py"]
+                    tasks = build_tasks(entry)
+                    self.assertEqual(len(tasks), len(scripts), entry.set_code)
+                    self.assertTrue(all(urls for urls, _ in tasks))
+
+    def test_new_promos_have_scrydex_and_limitless_alternatives(self):
+        urls = image_candidates(RECENT_SETS["svp"], "219", {})
+        self.assertIn("https://images.scrydex.com/pokemon/svp-219/large", urls)
+        self.assertTrue(any("/SVP_219_R_EN.png" in url for url in urls))
+
+    def test_scrydex_metadata_and_remapped_print_identity_are_preserved(self):
+        urls = load_image_urls(RECENT_SETS["me3"])
+        self.assertIn("images.scrydex.com", urls["1"])
+        urls = image_candidates(RECENT_SETS["sm115"], "101",
+                               {"101": "https://images.pokemontcg.io/sma/SV1_hires.png"})
+        self.assertIn("https://images.scrydex.com/pokemon/sma-SV1/large", urls)
+        self.assertFalse(any("sm115-101" in url for url in urls))
+
+    def test_black_bolt_duplicate_number_does_not_replace_another_card(self):
+        urls = load_image_urls(RECENT_SETS["zsv10pt5"])
+        self.assertIn("/60_hires.png", urls["60"])
+        self.assertIn("/80_hires.png", urls["80"])
+
+    @staticmethod
+    def image_response(format="PNG"):
+        data = io.BytesIO()
+        Image.new("RGB", (4, 6), "red").save(data, format=format)
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.content = data.getvalue()
+        return response
+
+    def test_http_failure_tries_alternative_and_converts_jpeg(self):
+        failed = MagicMock()
+        failed.__enter__.return_value = failed
+        failed.raise_for_status.side_effect = requests.HTTPError("404")
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "card.png"
+            with patch("spirit.tools.install_recent_card_art.requests.get",
+                       side_effect=[failed, self.image_response("JPEG")]) as get:
+                ok, detail = download_one((("https://example.test/first",
+                                           "https://example.test/second"), destination))
+                self.assertTrue(ok, detail)
+                self.assertEqual(get.call_count, 2)
+                with Image.open(destination) as image:
+                    self.assertEqual(image.format, "PNG")
+                    self.assertEqual(image.size, (4, 6))
+
+    def test_invalid_payload_preserves_existing_file_and_cleans_temporary_files(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.content = b"<html>Not an image</html>"
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "card.png"
+            destination.write_bytes(b"existing")
+            with patch("spirit.tools.install_recent_card_art.requests.get", return_value=response):
+                ok, _ = download_one(("https://example.test/bad", destination))
+            self.assertFalse(ok)
+            self.assertEqual(destination.read_bytes(), b"existing")
+            self.assertEqual(list(Path(directory).iterdir()), [destination])
+
+    def test_download_failures_return_nonzero_exit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("spirit.tools.install_recent_card_art.ASSETS_ROOT", Path(directory)), \
+                 patch("spirit.tools.install_recent_card_art.download_one",
+                       return_value=(False, "network unavailable")):
                 with self.assertRaises(SystemExit) as raised:
-                    run(["SWSH_Energy"], 1, False, "missing-cache")
+                    run(["swsh_energy"], 1, False)
                 self.assertEqual(raised.exception.code, 2)
-                download.assert_not_called()
 
     def test_default_includes_older_sets(self):
         codes = {s.set_code for s in selected_sets([])}

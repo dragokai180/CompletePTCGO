@@ -2,7 +2,7 @@
 
 This installer is intentionally limited to artwork.  It never creates or
 modifies card definitions, so it is safe to run on a clean CompletePTCGO
-checkout after the cbrew bundles have been imported.
+checkout with or without the optional cbrew bundles.
 
 Run from the repository root::
 
@@ -17,8 +17,11 @@ to limit the download to one era::
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
+import re
+import tempfile
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -26,6 +29,7 @@ from pathlib import Path
 from typing import Iterable
 
 import requests
+from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -47,6 +51,7 @@ class RecentSet:
 RECENT_SETS = OrderedDict(
     (entry.data_stem, entry)
     for entry in (
+        RecentSet("bw", "free_energy", "Free_Energy"),
         *(RecentSet("hgss", f"hgss{i}", f"HGSS{i}") for i in range(1, 5)),
         RecentSet("hgss", "hsp", "Promo_HGSS"),
         RecentSet("hgss", "col1", "COL"),
@@ -114,6 +119,28 @@ IMAGE_OVERRIDES = {
     "svp-102": "https://pkmncards.com/wp-content/uploads/svbsp_en_102_std.png",
 }
 
+# Verified English unnumbered Energy scans. These sets have no upstream
+# pokemon-tcg-data catalog; their internal numbers are NOT normal set numbers.
+ENERGY_NAMES = (
+    "grass", "fire", "water", "lightning", "psychic",
+    "fighting", "darkness", "metal", "fairy",
+)
+
+
+def energy_image_urls(set_code: str) -> dict[str, str]:
+    root = "https://pkmncards.com/wp-content/uploads/"
+    if set_code == "SWSH_Energy":
+        return {
+            str(n): root + f"en_US-SWSH_Energy-{n:03d}-{name}_energy."
+            + ("jpg" if n <= 9 else "png")
+            for n, name in enumerate(ENERGY_NAMES + ENERGY_NAMES[:8], 1)
+        }
+    return {
+        str(n): root + f"en_US-{'XY' if name == 'fairy' else 'BW'}_Energy-"
+        + f"{n:03d}-{name}_energy.png"
+        for n, name in enumerate(ENERGY_NAMES, 1)
+    }
+
 
 def normalize_collector_number(value: object) -> str:
     text = str(value or "").strip().lower()
@@ -141,6 +168,8 @@ def mega_promo_url(number: str) -> str:
 
 
 def load_image_urls(card_set: RecentSet) -> dict[str, str]:
+    if card_set.set_code in ("SWSH_Energy", "Free_Energy"):
+        return energy_image_urls(card_set.set_code)
     data_path = DATA_ROOT / f"{card_set.data_stem}.json"
     if not data_path.exists():
         # pokemon-tcg-data does not yet ship a Mega promo catalog.  The promo
@@ -169,6 +198,9 @@ def load_image_urls(card_set: RecentSet) -> dict[str, str]:
     for card in payload:
         number = normalize_collector_number(numbers.get(card.get("id"), card.get("number")))
         card_id = str(card.get("id") or "").lower()
+        if card_set.era in ("sv", "mega") and card_id.startswith(card_set.data_stem + "-"):
+            # Black Bolt #80 incorrectly repeats #60 in upstream metadata.
+            number = normalize_collector_number(card_id[len(card_set.data_stem) + 1:])
         url = IMAGE_OVERRIDES.get(card_id) or (card.get("images") or {}).get("large")
         if number and url:
             result[number] = str(url)
@@ -185,6 +217,22 @@ def image_url(card_set: RecentSet, number: str, known: dict[str, str]) -> str:
         return mega_promo_url(number)
     # This also covers promo prints added after the bundled metadata snapshot.
     return f"https://images.pokemontcg.io/{card_set.data_stem}/{number}_hires.png"
+
+
+def image_candidates(card_set: RecentSet, number: str, known: dict[str, str]) -> tuple[str, ...]:
+    primary = image_url(card_set, number, known)
+    urls = [primary]
+    # Derive alternate identity from the printed URL, not internal numbering:
+    # HGSS/XY promos and Shiny Vault use remapped protocol slots.
+    match = re.fullmatch(r"https://images\.pokemontcg\.io/([^/]+)/(.+)_hires\.png", primary)
+    if match:
+        stem, printed = match.groups()
+        urls.append(f"https://images.scrydex.com/pokemon/{stem}-{printed}/large")
+    if card_set.data_stem == "svp":
+        urls.append(
+            "https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/"
+            f"tpci/SVP/SVP_{int(number):03d}_R_EN.png")
+    return tuple(dict.fromkeys(urls))
 
 
 def selected_sets(values: Iterable[str]) -> list[RecentSet]:
@@ -227,13 +275,13 @@ def build_tasks(
     card_set: RecentSet,
     *,
     overwrite: bool = False,
-) -> list[tuple[str, Path]]:
+) -> list[tuple[tuple[str, ...], Path]]:
     scripts_dir = SCRIPTS_ROOT / card_set.set_code
     if not scripts_dir.exists():
         return []
 
     known = load_image_urls(card_set)
-    tasks: list[tuple[str, Path]] = []
+    tasks: list[tuple[tuple[str, ...], Path]] = []
     for script_path in sorted(scripts_dir.glob("*.py")):
         if script_path.name == "__init__.py":
             continue
@@ -243,29 +291,46 @@ def build_tasks(
         destination = ASSETS_ROOT / card_set.set_code / f"{script_path.stem}.png"
         if destination.exists() and not overwrite:
             continue
-        tasks.append((image_url(card_set, number, known), destination))
+        tasks.append((image_candidates(card_set, number, known), destination))
     return tasks
 
 
-def download_one(task: tuple[str, Path]) -> tuple[bool, str]:
-    url, destination = task
+def download_one(task: tuple[str | tuple[str, ...], Path]) -> tuple[bool, str]:
+    candidates, destination = task
+    urls = (candidates,) if isinstance(candidates, str) else candidates
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_suffix(".png.part")
-    try:
-        response = requests.get(
-            url,
-            timeout=45,
-            headers={"User-Agent": "CompletePTCGO/recent-card-art-installer"},
-        )
-        response.raise_for_status()
-        if not response.content.startswith(b"\x89PNG\r\n\x1a\n"):
-            raise ValueError("response was not a PNG")
-        temporary.write_bytes(response.content)
-        os.replace(temporary, destination)
-        return True, str(destination)
-    except Exception as exc:  # diagnostics belong in command output
-        temporary.unlink(missing_ok=True)
-        return False, f"{url}: {exc}"
+    errors = []
+    for url in urls:
+        temporary = None
+        try:
+            with requests.get(
+                url, timeout=45,
+                headers={"User-Agent": "CompletePTCGO/card-art-installer"},
+            ) as response:
+                response.raise_for_status()
+                payload = response.content
+            # Some English Energy scans are JPEG. Validate/decode instead of
+            # trusting the extension or accepting an HTML error as artwork.
+            with Image.open(io.BytesIO(payload)) as picture:
+                picture.load()
+                if picture.format not in ("PNG", "JPEG", "WEBP"):
+                    raise ValueError("unsupported image format")
+                if picture.format != "PNG":
+                    output = io.BytesIO()
+                    picture.convert("RGBA").save(output, format="PNG")
+                    payload = output.getvalue()
+            fd, name = tempfile.mkstemp(suffix=".part", dir=destination.parent)
+            temporary = Path(name)
+            with os.fdopen(fd, "wb") as output:
+                output.write(payload)
+            os.replace(temporary, destination)
+            return True, str(destination)
+        except Exception as exc:
+            errors.append(f"{url}: {exc}")
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+    return False, f"{destination}: " + "; ".join(errors)
 
 
 def install_native_energy(overwrite: bool, source: str | None = None) -> list[str]:
@@ -298,13 +363,21 @@ def install_native_energy(overwrite: bool, source: str | None = None) -> list[st
 def run(values: Iterable[str], workers: int, overwrite: bool,
         cbrew_source: str | None = None) -> None:
     sets = selected_sets(values)
-    tasks: list[tuple[str, Path]] = []
+    tasks: list[tuple[tuple[str, ...], Path]] = []
     failures: list[str] = []
     for card_set in sets:
-        if card_set.set_code == "SWSH_Energy":
-            failures.extend(install_native_energy(overwrite, cbrew_source))
+        if card_set.set_code == "SWSH_Energy" and cbrew_source:
+            missing = install_native_energy(overwrite, cbrew_source)
+            if missing:
+                print("SWSH_Energy: downloading missing textures from English scans.")
+        try:
+            set_tasks = build_tasks(
+                card_set,
+                overwrite=overwrite and not (card_set.set_code == "SWSH_Energy" and cbrew_source),
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            failures.append(f"{card_set.set_code}: {exc}")
             continue
-        set_tasks = build_tasks(card_set, overwrite=overwrite)
         tasks.extend(set_tasks)
         print(
             f"{card_set.set_code:10} "
@@ -345,7 +418,7 @@ def main() -> None:
     )
     parser.add_argument("--workers", type=int, default=20)
     parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--cbrew-source", help="Local cbrew bundles folder for SWSH basic Energy artwork")
+    parser.add_argument("--cbrew-source", help="Optional native source for SWSH Energy; missing textures are downloaded")
     args = parser.parse_args()
     try:
         run(args.eras_or_sets, args.workers, args.overwrite, args.cbrew_source)
