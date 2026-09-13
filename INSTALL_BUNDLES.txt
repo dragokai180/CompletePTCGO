@@ -1,4 +1,4 @@
-INSTALLING THE CBREW BUNDLES
+INSTALLING THE BUNDLES
 ============================
 
 CompletePTCGO does not distribute card artwork, the original PTCGO client, or
@@ -50,7 +50,8 @@ Installation on Windows PowerShell
 
    This preserves existing images and downloads only missing artwork. It
    includes older sets with incomplete cbrew coverage, such as Dragons Exalted
-   (BW6) and Legendary Treasures' Radiant Collection (BW11).
+   (BW6) and Legendary Treasures' Radiant Collection (BW11), as well the modern
+   sets after ptcgo.
 
 6. Start the server:
 
@@ -67,45 +68,6 @@ The importer writes local files to these directories:
 
 These directories are intentionally excluded from Git. Do not commit their
 contents.
-
-Missing card artwork (old and recent expansions)
------------------------------------------------
-
-The regular launchers (run.bat, run.sh, and start-server.command) do not
-download recent card artwork. The cbrew importer restores only artwork that is
-present in your local cbrew bundles and PTCGO cache archives.
-
-HGSS, Black & White, XY, Sun & Moon, Sword & Shield, Scarlet & Violet, and
-Mega Evolution artwork that is absent
-locally can be downloaded explicitly from the English image URLs in the
-bundled card-data snapshot:
-
-   python -m spirit.tools.install_recent_card_art
-
-This is an opt-in development command and requires an internet connection.
-To download only one era, pass hgss, bw, xy, sm, swsh, sv, or mega.
-Server set codes are also accepted:
-
-   python -m spirit.tools.install_recent_card_art BW6 BW11
-   python -m spirit.tools.install_recent_card_art swsh
-   python -m spirit.tools.install_recent_card_art mega
-
-Sword & Shield basic Energy
---------------------------
-
-The repository includes all 17 SWSH_Energy definitions (the original nine
-types and eight later prints). Both the cbrew importer and the artwork
-installer can restore their original textures from BW Cache.zip / SM Cache.zip.
-The default artwork command and the swsh selection include these cards.
-To repair only this collection:
-
-   python -m spirit.tools.install_recent_card_art SWSH_Energy --cbrew-source "D:\path\to\cbrew bundles"
-
-PTCGO_ART_SOURCE_DIR is also supported. Existing images are preserved unless
---overwrite is specified. These original prints are not replaced with
-different Energy artwork or guessed API URLs. Missing native textures are
-reported as installation failures; provide the complete local caches.
-Restart the server and reconnect the client after adding new card definitions.
 
 Troubleshooting
 ---------------
