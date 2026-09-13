@@ -2,7 +2,7 @@ INSTALLING THE BUNDLES
 ============================
 
 Either obtain the original bundles of PTCGO and/or use the script to download
-card arts.
+missing card arts.
 
 Requirements
 ------------
