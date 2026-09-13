@@ -146,6 +146,13 @@ class ClientHandler:
             metrics.inc("disconnects")
             shutting_down = getattr(self.server, "shutting_down", False)
 
+            # Offline friend presence does not remove entries from chat rosters.
+            # Notify the rooms before slower game/queue cleanup can delay logout.
+            try:
+                await SocialHandler(self).leave_all_rooms(notify=not shutting_down)
+            except Exception:
+                logging.exception("Failed to remove disconnected client from chat rooms")
+
             # Remove from matchmaking queue gracefully
             try:
                 # We assume GameSessionManager singleton is updated later

@@ -26,10 +26,34 @@ class SocialHandler(BaseHandler):
         return client.chat_rooms
 
     def _room_member_clients(self, room_id):
-        return [
-            c for c in self.client.server.clients
-            if getattr(c, "player", None) and room_id in getattr(c, "chat_rooms", ())
-        ]
+        members = {}
+        for c in self.client.server.clients:
+            if (getattr(c, "running", False) and getattr(c, "player", None)
+                    and room_id in getattr(c, "chat_rooms", ())):
+                members[c.player.account_id] = c
+        return list(members.values())
+
+    async def leave_all_rooms(self, notify=True):
+        """Remove socket-owned memberships before awaiting any network writes."""
+        rooms = tuple(self._chat_rooms())
+        self._chat_rooms().clear()
+        if not notify or not self.client.player:
+            return
+        for room_id in rooms:
+            members = self._room_member_clients(room_id)
+            # A replacement connection may already represent the same account.
+            if any(c.player.account_id == self.client.player.account_id for c in members):
+                continue
+            packet = {
+                "messageName": OutboundMsg.NOTIFY_LEAVE.value,
+                "roomID": room_id,
+                "accountID": self.client.player.account_id,
+            }
+            for member in members:
+                try:
+                    await member.send_packet(packet, 0)
+                except Exception:
+                    logging.exception("Failed to notify a chat member of departure")
 
     def _chat_user_info(self, client=None):
         player = (client or self.client).player
@@ -88,9 +112,13 @@ class SocialHandler(BaseHandler):
             "roomID": room_id,
             "userInfo": self._chat_user_info(),
         }
-        for member in self._room_member_clients(room_id):
-            await member.send_packet(notify, 0)
+        members = self._room_member_clients(room_id)
+        already_joined = any(c.player.account_id == self.client.player.account_id for c in members)
+        # Claim membership before the first await: repeated joins are idempotent.
         self._chat_rooms().add(room_id)
+        if not already_joined:
+            for member in members:
+                await member.send_packet(notify, 0)
         # T.B registers the room + selects it; it drops the joiner from members.
         await self.send({
             "messageName": OutboundMsg.CHAT_CONNECTED.value,
