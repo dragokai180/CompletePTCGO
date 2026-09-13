@@ -44,7 +44,9 @@ def _wally_targets(pokemon_in_play):
 
 
 def _wally_condition(board, player_id):
-    return bool(_wally_targets(board.pokemon_in_play(player_id)))
+    deck = board.find_player_area(player_id, "deck")
+    return bool(deck is not None and deck.children
+                and _wally_targets(board.pokemon_in_play(player_id)))
 
 
 async def wally(ctx):

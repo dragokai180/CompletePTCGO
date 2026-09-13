@@ -1,24 +1,22 @@
 from spirit.game.data_utils import SupporterCardDef
 from spirit.game.attributes import AttrID, Rarities
+from spirit.game.card_effects.trainer_followup import evosoda_condition, evosoda_targets
 
 
 def _breeders_nurturing_condition(board, player_id):
-    turn_state = getattr(board, "turn_state", None)
-    return turn_state is not None and turn_state.turn_number > 2
+    return evosoda_condition(board, player_id)
 
 
 async def pokemon_breeders_nurturing(ctx):
     """Choose up to 2 of your Pokemon in play (not put into play this turn);
     for each, search the deck for a card that evolves from it and evolve it."""
-    turn_state = ctx.session.turn_state
-    candidates = [
-        p for p in ctx.my_pokemon_in_play()
-        if turn_state.entered_play_turn.get(p.entity_id) != turn_state.turn_number
-    ]
+    if not evosoda_condition(ctx.board, ctx.player_id):
+        return
+    candidates = evosoda_targets(ctx.board, ctx.player_id)
     if not candidates:
         return
     targets = await ctx.choose_cards(
-        candidates, 2, minimum=0,
+        candidates, min(2, len(candidates)), minimum=0,
         prompt="Choose up to 2 of your Pokémon in play to evolve.",
     )
     if not targets:

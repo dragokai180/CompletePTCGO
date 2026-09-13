@@ -4001,6 +4001,18 @@ def standard_stadium_ability(game_text: str):
         or "once during the turn of the player" in text
     ):
         return None
+    from spirit.game.card_effects.trainer_followup import healing_stadium_ability
+    if "heal 10 damage from each of their pokémon" in text \
+            and "their turn ends" in text:
+        return healing_stadium_ability(game_text, 10, all_targets=True, end_turn=True)
+    if "heal 30 damage from each of his or her water pokémon and lightning pokémon" in text:
+        return healing_stadium_ability(
+            game_text, 30, (PokemonTypes.WATER.value, PokemonTypes.LIGHTNING.value),
+            all_targets=True)
+    if "heal 60 damage and remove all special conditions from 1 of their grass pokémon" in text:
+        return healing_stadium_ability(game_text, 60, (PokemonTypes.GRASS.value,), cure=True)
+    if "active pokémon is asleep" in text and "heal 30 damage" in text:
+        return healing_stadium_ability(game_text, 30, requires_sleep=True)
     return Ability(
         title="Stadium Effect",
         game_text=game_text,
