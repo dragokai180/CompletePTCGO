@@ -38,6 +38,12 @@ Installation on Windows PowerShell
    Use --cards-only to import only card artwork, or --ui-only to import only
    the original menus and interface bundles.
 
+   The default import and --cards-only automatically install and verify all
+   17 Sword & Shield basic Energy textures using this same source folder.
+   No separate Energy command is required. If any texture is unavailable,
+   installation reports each missing print and exits with code 2 rather
+   than silently skipping the collection. --ui-only does not check card art.
+
 5. Fill gaps in the imported artwork (requires an internet connection):
 
    python -m spirit.tools.install_recent_card_art

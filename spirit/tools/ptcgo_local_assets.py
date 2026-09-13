@@ -572,6 +572,7 @@ def main() -> int:
     if args.cards_only and args.ui_only:
         parser.error("--cards-only and --ui-only cannot be combined")
 
+    energy_failures = []
     if not args.ui_only:
         card_totals = import_card_art(source)
         print(
@@ -580,6 +581,14 @@ def main() -> int:
             f"{card_totals['unchanged']} already native, "
             f"{card_totals['unavailable']} without a local match"
         )
+        # The generic cache scan skips sets with no matches. Basic Energy is
+        # required, so explicitly install/verify every print before reporting
+        # success, using the same source selected for this installation.
+        from spirit.tools.install_recent_card_art import install_native_energy
+
+        energy_failures = install_native_energy(False, str(source))
+        for failure in energy_failures:
+            print("[cards] " + failure)
     if not args.cards_only:
         ui_totals = import_ui_bundles(source)
         print(
@@ -590,7 +599,7 @@ def main() -> int:
         )
         created = seed_original_landing_pages(args.replace_landing_pages)
         print(f"[menus] {created} original home landing page(s) created")
-    return 0
+    return 2 if energy_failures else 0
 
 
 if __name__ == "__main__":
