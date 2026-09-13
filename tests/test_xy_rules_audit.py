@@ -2,6 +2,8 @@
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
+import importlib.util
+from pathlib import Path
 from tests import test_hgss_rules as fixtures
 from tests.test_hgss_rules import definition
 from spirit.game.session.effects import EffectContext
@@ -16,6 +18,34 @@ class XyRulesAuditTests(unittest.IsolatedAsyncioTestCase):
     rig = fixtures.HgssRulesTests.rig
     ctx = fixtures.HgssRulesTests.ctx
     add = fixtures.HgssRulesTests.add
+
+    async def test_gale_wings_is_declared_without_loader_repair(self):
+        path = Path(__file__).resolve().parents[1] / (
+            'spirit/game/scripts/cards/XY11/Talonflame_96.py')
+        spec = importlib.util.spec_from_file_location('gale_wings_raw_regression', path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertTrue(module.card.setup_as_active)
+        self.assertIsNone(module.card.abilities[0].effect)
+        self.assertIsNone(module.card.abilities[0].usable_from)
+
+    async def test_gale_wings_allows_opening_active_but_not_bench(self):
+        rig, e = self.rig('BW1.Snivy_1')
+        for zone in ('hand', 'deck'):
+            for card in list(rig.board.find_player_area(P1, zone).children):
+                rig.to_area(card, P1, 'discard')
+        talonflame = self.add(rig, definition('XY11.Talonflame_96'), P1, 'hand')
+        self.assertEqual(rig.board.setup_active_candidates(P1), [talonflame])
+        self.assertTrue(rig.board.player_has_any_basic(P1))
+        self.assertEqual(rig.board.setup_bench_candidates(P1), [])
+        self.assertEqual(rig.board.basic_pokemon_in_hand(P1), [])
+        ability = definition('XY11.Talonflame_96').abilities[0]
+        self.assertIsNone(ability.effect)
+        self.assertIsNone(ability.activation)
+        self.assertIsNone(ability.usable_from)
+        rig.to_area(talonflame, P1, 'deck')
+        self.assertEqual(rig.board.setup_active_candidates(P1), [])
+        self.assertTrue(rig.board.player_has_any_basic(P1))
 
     async def test_regice_shields_only_against_uppercase_EX(self):
         rig, e, ctx = self.ctx('XY7.Regice_24', 'Resistance Blizzard')

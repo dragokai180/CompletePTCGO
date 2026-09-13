@@ -26,12 +26,13 @@ card = PokemonCardDef(
     resistance_amount=20,
     evolves_from='com.direwolfdigital.cake.data.archetypes.pokemon.Fletchinder.Name',
     family_id=661,
+    # Gale Wings is an opening-placement exception, not a hand action.
+    # Declare it directly, including when imported outside the catalog loader.
+    setup_as_active=True,
     abilities=[
         Ability(
             title='Gale Wings',
             game_text='If this Pokémon is in your hand when you are setting up to play, you may put it face down as your Active Pokémon.',
-            effect=standard_ability,
-            usable_from='hand',
         ),
         Attack(
             title='Aero Blitz',
