@@ -334,21 +334,25 @@ def discard_then_draw(discard_count, draw_count, whole_hand=False,
     return effect
 
 
+def draw_until_condition(n):
+    """Require a drawable card and room below the post-play hand limit."""
+    def playable(board, player_id, card=None):
+        hand = board.find_player_area(player_id, "hand")
+        target = n(board, player_id) if callable(n) else n
+        if hand is None or not deck_nonempty(board, player_id):
+            return False
+        # Legacy two-argument checks are made before the Trainer leaves hand.
+        leaving = card is None or any(c is card for c in hand.children)
+        return len(hand.children) - int(leaving) < target
+    return playable
+
+
 def draw_until_effect(n):
     """Draw until the hand holds `n` cards (Dragon's Hoard shape)."""
     async def effect(ctx):
         await _deal_printed(ctx)
         await ctx.draw_until(n)
-    def playable(board, player_id, card=None):
-        hand = board.find_player_area(player_id, "hand")
-        # The Trainer itself still sits in hand during legality calculation;
-        # resolving it removes one card before draw-until is evaluated.
-        return (
-            deck_nonempty(board, player_id)
-            and hand is not None
-            and len(hand.children) <= n
-        )
-    effect.play_condition = playable
+    effect.play_condition = draw_until_condition(n)
     return effect
 
 

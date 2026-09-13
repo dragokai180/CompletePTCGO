@@ -1,3 +1,4 @@
+from spirit.game.card_effects.trainer_draw_permissions import ariana_condition
 from spirit.game.data_utils import SupporterCardDef, def_for
 from spirit.game.attributes import Rarities
 
@@ -26,5 +27,6 @@ card = SupporterCardDef(
     set_code="SV10",
     regulation_mark="I",
     rarity=Rarities.Uncommon,
+    condition=ariana_condition,
     effect=team_rockets_ariana,
 )

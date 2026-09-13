@@ -18,5 +18,5 @@ card = SupporterCardDef(
     collector_number=91,
     set_code="BW2",
     rarity=Rarities.Uncommon,
-    effect=cheren
+    effect=draw_attack(3)
 )

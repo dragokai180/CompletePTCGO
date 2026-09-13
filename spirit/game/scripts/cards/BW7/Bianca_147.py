@@ -18,5 +18,5 @@ card = SupporterCardDef(
     collector_number=147,
     set_code="BW7",
     rarity=Rarities.RareUltra,
-    effect=bianca
+    effect=draw_until_effect(6)
 )

@@ -18,5 +18,5 @@ card = ItemCardDef(
     collector_number=117,
     set_code="BW8",
     rarity=Rarities.Uncommon,
-    effect=bicycle
+    effect=draw_until_effect(4)
 )

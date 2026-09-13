@@ -1,3 +1,4 @@
+from spirit.game.card_effects.trainer_draw_permissions import honey_condition
 from spirit.game.data_utils import SupporterCardDef
 from spirit.game.attributes import Rarities
 from spirit.game.data_utils import is_pokemon_v
@@ -20,5 +21,6 @@ card = SupporterCardDef(
     collector_number=142,
     set_code="SWSH6",
     rarity=Rarities.Uncommon,
+    condition=honey_condition,
     effect=honey,
 )

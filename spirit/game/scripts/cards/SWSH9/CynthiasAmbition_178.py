@@ -1,3 +1,4 @@
+from spirit.game.card_effects.trainer_draw_permissions import cynthias_ambition_condition
 from spirit.game.data_utils import SupporterCardDef
 from spirit.game.attributes import Rarities
 
@@ -18,5 +19,6 @@ card = SupporterCardDef(
     collector_number=178,
     set_code="SWSH9",
     rarity=Rarities.RareRainbow,
+    condition=cynthias_ambition_condition,
     effect=cynthias_ambition
 )
