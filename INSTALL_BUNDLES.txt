@@ -6,8 +6,9 @@ missing card arts.
 
 CompletePTCGO does not distribute card artwork, the original PTCGO client, or
 the original game AssetBundles in the repository. Card artwork can be
-downloaded separately using the command below; the cbrew bundles are optional
-for this download. You still need your own compatible PTCGO client.
+downloaded separately using the command below; the original PTCGO bundles is optional
+if you want original artwork, game images like landing page carrousel and global background and foil masks.
+You still need your own compatible PTCGO client.
 
 Requirements
 ------------
@@ -21,7 +22,7 @@ Requirements
    - PTCGO Exe.zip
    - the era/set artwork ZIP files supplied with the bundles
 
-OPTION A: Download card artwork WITHOUT the cbrew bundles
+OPTION A: Download card artwork WITHOUT original bundles
 -------------------------------------------------------
 
 Open PowerShell in the repository and activate the installed environment:
@@ -66,7 +67,7 @@ the PTCGO client, original menu artwork, native foil masks/textures or original
 Unity AssetBundles. For those original assets, use Option B. Card scans alone
 do not recreate the original foil effects.
 
-OPTION B: Import the original cbrew bundles (Windows PowerShell)
+OPTION B: Import the original bundles (Windows PowerShell)
 --------------------------------------------------------------
 
 1. Open PowerShell in the CompletePTCGO repository directory.
