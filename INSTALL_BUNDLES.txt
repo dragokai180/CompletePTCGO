@@ -1,20 +1,19 @@
 INSTALLING THE BUNDLES
 ============================
 
-CompletePTCGO does not distribute card artwork, the original PTCGO client, or
-the original game AssetBundles. You must provide your own lawful local copy.
-This project refers to that local asset collection as the "cbrew bundles".
+Either obtain the original bundles of PTCGO and/or use the script to download
+missing card arts.
 
 Requirements
 ------------
 
 1. A compatible Pokemon TCG Online client (version 2.95.0.5815).
 2. Python and the project dependencies installed as described in README.md.
-3. A local cbrew bundles folder. Depending on your archive, it can contain:
+3. (optional) A local bundles folder. Depending on your archive, it can contain:
    - BW Cache.zip
    - SM Cache.zip
    - PTCGO Exe.zip
-   - the era/set artwork ZIP files supplied with the cbrew bundles
+   - the era/set artwork ZIP files supplied with the bundles
 
 Installation on Windows PowerShell
 ----------------------------------
@@ -25,8 +24,8 @@ Installation on Windows PowerShell
 
    .\venv\Scripts\Activate.ps1
 
-3. Point CompletePTCGO to your cbrew bundles directory. Replace the example
-   path with the real location on your computer:
+3. Original bundles installation. Point CompletePTCGO to your bundles
+   directory. Replace the example path with the real location on your computer:
 
    $env:PTCGO_ART_SOURCE_DIR = "D:\path\to\cbrew bundles"
    $env:PTCGO_CACHE_DIR = $env:PTCGO_ART_SOURCE_DIR
@@ -38,17 +37,11 @@ Installation on Windows PowerShell
    Use --cards-only to import only card artwork, or --ui-only to import only
    the original menus and interface bundles.
 
-   The default import and --cards-only automatically install and verify all
-   17 Sword & Shield basic Energy textures using this same source folder.
-   No separate Energy command is required. If any texture is unavailable,
-   installation reports each missing print and exits with code 2 rather
-   than silently skipping the collection. --ui-only does not check card art.
-
-5. Fill gaps in the imported artwork (requires an internet connection):
+5. Download card artwork. (requires an internet connection):
 
    python -m spirit.tools.install_recent_card_art
 
-   This preserves existing images and downloads only missing artwork. It
+   This preserves existing images and downloads missing artwork. It
    includes older sets with incomplete cbrew coverage, such as Dragons Exalted
    (BW6) and Legendary Treasures' Radiant Collection (BW11), as well the modern
    sets after ptcgo.
