@@ -1,3 +1,4 @@
+from spirit.game.card_effects.trainers import deck_nonempty
 from spirit.game.data_utils import SupporterCardDef
 from spirit.game.attributes import Rarities
 
@@ -20,5 +21,6 @@ card = SupporterCardDef(
     collector_number=226,
     set_code="SWSH8",
     rarity=Rarities.Uncommon,
+    condition=deck_nonempty,
     effect=bug_catcher
 )

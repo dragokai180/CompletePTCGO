@@ -1,3 +1,4 @@
+from spirit.game.card_effects.support_common import requires_hand
 from spirit.game.data_utils import SupporterCardDef
 from spirit.game.attributes import Rarities
 from spirit.game.card_effects.bw10 import caitlin
@@ -12,5 +13,6 @@ card = SupporterCardDef(
     collector_number=78,
     set_code="BW10",
     rarity=Rarities.Uncommon,
+    condition=requires_hand(),
     effect=caitlin
 )

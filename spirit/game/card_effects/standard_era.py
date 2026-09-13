@@ -318,6 +318,17 @@ def standard_ability_condition(game_text: str):
             bench = board.find_player_area(player_id, "bench")
             if source is None or bench is None or source not in bench.children:
                 return False
+        # A discard payment alone is not a benefit.  Draw-only powers such
+        # as Trade/Power Draw need at least one card left to draw.  Do not
+        # apply this to shuffle-and-draw or effects with another benefit.
+        draw_only = re.search(r"\bdraw (?:\d+|a) cards?\.", text) and not any(
+            word in text for word in (
+                "shuffle", "attach", "damage", "heal", "search", "switch",
+                "play it", "put it", "onto your bench",
+            )
+        )
+        if draw_only and (deck_area is None or not deck_area.children):
+            return False
         from spirit.game.card_effects.hgss_era import hgss_power_condition
         hgss_legal = hgss_power_condition(board, player_id, source, text)
         if hgss_legal is not None:
@@ -1298,6 +1309,25 @@ def standard_trainer_effect(game_text: str):
 
         # Choice and coin cards must resolve one complete printed branch
         # before broad discard/search patterns consume only half of it.
+        if text.startswith("choose 1:") and "put a judge card from your discard pile" in text:
+            judges = [card for card in ctx.discard_pile()
+                      if _card_name(card).casefold() == "judge"]
+            deck = ctx.board.find_player_area(ctx.player_id, "deck")
+            options = []
+            if deck is not None and deck.children:
+                options.append("Draw a card")
+            if judges:
+                options.append("Put a Judge into your hand")
+            if not options:
+                return
+            index = await ctx.choose("Choose an effect", options) if len(options) > 1 else 0
+            if options[index] == "Draw a card":
+                await ctx.draw_cards(1)
+            else:
+                chosen = await _choose_one(ctx, judges, "Choose a Judge")
+                if chosen is not None:
+                    await ctx.put_in_hand([chosen], reveal=True)
+            return
         if text.startswith("choose 1: • put a basic energy card from your discard"):
             energies = [card for card in ctx.discard_pile()
                         if is_basic_energy(card)]
@@ -1490,10 +1520,13 @@ def standard_trainer_effect(game_text: str):
 
         if "custom catcher cards at once" in text:
             copies = [card for card in ctx.hand()
-                      if card.archetype_id == ctx.source.archetype_id]
-            use_pair = bool(copies) and await ctx.ask_yes_no(
+                      if _card_name(card).casefold() == "custom catcher"]
+            can_pair = bool(copies and ctx.opponent_bench())
+            deck = ctx.board.find_player_area(ctx.player_id, "deck")
+            can_draw = bool(deck and deck.children) and len(ctx.hand()) < 3
+            use_pair = can_pair and (not can_draw or await ctx.ask_yes_no(
                 "Play a second Custom Catcher?"
-            )
+            ))
             if use_pair:
                 await ctx.discard_cards([copies[0]])
                 bench = list(ctx.opponent_bench())
@@ -1502,17 +1535,18 @@ def standard_trainer_effect(game_text: str):
                 ) if bench else None
                 if target is not None:
                     await ctx.switch_active(ctx.opponent_id, target)
-            else:
+            elif can_draw:
                 await ctx.draw_until(3)
             return
 
         if "mixed herbs cards at once" in text:
             copies = [card for card in ctx.hand()
-                      if card.archetype_id == ctx.source.archetype_id]
-            use_pair = bool(copies) and await ctx.ask_yes_no(
-                "Play a second Mixed Herbs?"
-            )
+                      if _card_name(card).casefold() == "mixed herbs"]
             active = ctx.my_active()
+            can_single = active is not None and bool(active.get_attribute(AttrID.SPECIAL_CONDITIONS) or [])
+            use_pair = bool(copies) and (not can_single or await ctx.ask_yes_no(
+                "Play a second Mixed Herbs?"
+            ))
             if active is not None:
                 if use_pair:
                     await ctx.discard_cards([copies[0]])
@@ -3037,7 +3071,11 @@ def standard_trainer_effect(game_text: str):
 
         draw_until = re.search(r"draw cards until you have (\d+) cards", text)
         if draw_until:
-            await ctx.draw_until(int(draw_until.group(1)))
+            target = int(draw_until.group(1))
+            first_turn_bonus = re.search(r"if it's your first turn, draw cards until you have (\d+)", text)
+            if first_turn_bonus and ctx.session.turn_state.turn_number in (1, 2):
+                target = int(first_turn_bonus.group(1))
+            await ctx.draw_until(target)
             return
         draw = re.search(r"draw (\d+) cards", text)
         if draw:
@@ -3421,6 +3459,54 @@ def standard_trainer_condition(game_text: str):
         opposing_bench = list(opposing_bench_area.children) \
             if opposing_bench_area else []
 
+        # Alternative effects are OR, not cumulative prerequisites.  In
+        # particular a recovery option must not disable an available draw.
+        if text.startswith("choose 1:") and "put a judge card from your discard pile" in text:
+            return bool(deck) or any(_card_name(entry).casefold() == "judge" for entry in discard)
+
+        if re.fullmatch(r"draw (?:a|\d+) cards?\.", text):
+            return bool(deck)
+        if text.startswith("draw ") and not any(word in text for word in (
+            "damage", "heal", "attach", "switch", "shuffle", "discard",
+            "search", "reveal", "look", "attacks", "during this turn",
+        )) and not deck:
+            return False
+        # "Up to" permits choosing fewer targets, not playing a pure public
+        # recovery with no eligible target at all.  Composite alternatives
+        # are deliberately excluded from this anchored pattern.
+        public_recovery = re.match(
+            r"^(?:put|shuffle) (?:up to )?(?:\d+|an?) "
+            r"(basic energy cards?|energy cards?|pokémon tool cards?|"
+            r"supporter cards?|pokémon) from your discard pile", text,
+        )
+        if public_recovery:
+            predicate = _search_predicate(public_recovery.group(1))
+            if not any(predicate(entry) for entry in discard):
+                return False
+        until = re.match(r"draw cards until you have (\d+) cards in your hand\.", text)
+        if until:
+            limit = int(until.group(1))
+            bonus = re.search(r"if it's your first turn, draw cards until you have (\d+)", text)
+            state = getattr(board, "turn_state", None)
+            if bonus and state is not None and state.turn_number in (1, 2):
+                limit = int(bonus.group(1))
+            if not deck or len(hand) >= limit:
+                return False
+        if "if you can't draw any cards in this way, you can't play this card" in text and not deck:
+            return False
+        if "only if you have 4 or fewer other cards in your hand" in text:
+            if len(hand) > 4 or not deck:
+                return False
+        stage_gate = re.search(r"only if your opponent's active pokémon is a stage ([12]) pokémon", text)
+        if stage_gate:
+            active = board.active_pokemon(opponent_id)
+            if active is None or active.get_attribute(AttrID.STAGE) != int(stage_gate.group(1)):
+                return False
+            if "draw" in text and not deck:
+                return False
+        if "shuffle an electropower card from your discard pile" in text:
+            return any(_card_name(entry).casefold() == "electropower" for entry in discard)
+
         # Searching a non-empty private deck may legally fail even when no
         # matching card is actually present.
         if text.startswith('choose an energy card from your hand') and not any(is_energy_card(c) for c in hand):
@@ -3474,15 +3560,14 @@ def standard_trainer_condition(game_text: str):
             return False
         if "custom catcher cards at once" in text:
             has_second = any(
-                card is not None and entry.archetype_id == card.archetype_id
+                _card_name(entry).casefold() == "custom catcher"
                 for entry in hand
             )
-            if not has_second and len(hand) >= 3:
-                return False
+            return bool(deck and len(hand) < 3) or bool(has_second and opposing_bench)
         if "mixed herbs cards at once" in text:
             active = board.active_pokemon(player_id)
             has_second = any(
-                card is not None and entry.archetype_id == card.archetype_id
+                _card_name(entry).casefold() == "mixed herbs"
                 for entry in hand
             )
             damaged = active is not None and active.get_attribute(

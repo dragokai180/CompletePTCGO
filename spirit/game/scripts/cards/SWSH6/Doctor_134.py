@@ -1,3 +1,4 @@
+from spirit.game.card_effects.trainers import deck_nonempty
 from spirit.game.data_utils import SupporterCardDef
 from spirit.game.attributes import Rarities
 from spirit.game.card_effects.pokemon import is_pokemon_vmax
@@ -21,5 +22,6 @@ card = SupporterCardDef(
     collector_number=134,
     set_code="SWSH6",
     rarity=Rarities.Uncommon,
+    condition=deck_nonempty,
     effect=doctor,
 )

@@ -1,3 +1,5 @@
+from spirit.game.card_effects.support_common import requires_hand
+from spirit.game.card_effects.trainers import deck_nonempty
 from spirit.game.data_utils import SupporterCardDef, has_rule_box
 from spirit.game.attributes import Rarities
 from spirit.game.session.effects import is_pokemon_card
@@ -31,5 +33,6 @@ card = SupporterCardDef(
     set_code="ME5",
     regulation_mark="J",
     rarity=Rarities.Uncommon,
+    condition=lambda board, pid, card: deck_nonempty(board, pid) and requires_hand(_no_rule_box_pokemon)(board, pid, card),
     effect=gwynn,
 )

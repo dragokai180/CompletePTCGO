@@ -714,8 +714,10 @@ def requires_hand(predicate=None, n=1, exclude_self=True):
         matches = [c for c in (hand.children if hand else [])
                    if predicate is None or predicate(c)]
         discount = 0
-        if exclude_self and pokemon is None:
-            if predicate is None or any(is_trainer_card(c) for c in matches):
+        if exclude_self:
+            if pokemon is not None:
+                discount = int(any(c is pokemon for c in matches))
+            elif predicate is None or any(is_trainer_card(c) for c in matches):
                 discount = 1
         return len(matches) - discount >= n
     return check

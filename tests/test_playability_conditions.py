@@ -618,6 +618,8 @@ class PlayabilityConditionTests(unittest.TestCase):
         fire = self.add(self.fire_energy_definition(), "hand")
         grass = self.add(self.grass_energy_definition(), "hand")
 
+        self.assertFalse(ability.condition(self.board, P1, source))
+        self.add(self.grass_energy_definition(), "deck")
         self.assertTrue(ability.condition(self.board, P1, source))
         discard_from_hand = AsyncMock(return_value=[grass])
         draw_cards = AsyncMock()
