@@ -41,7 +41,7 @@ Installation on Windows PowerShell
 
    python -m spirit.tools.install_recent_card_art
 
-   This preserves existing images and downloads only missing artwork. It
+   This preserves existing images and downloads missing artwork. It
    includes older sets with incomplete cbrew coverage, such as Dragons Exalted
    (BW6) and Legendary Treasures' Radiant Collection (BW11), as well the modern
    sets after ptcgo.
