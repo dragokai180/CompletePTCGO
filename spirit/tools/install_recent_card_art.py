@@ -63,6 +63,7 @@ RECENT_SETS = OrderedDict(
         RecentSet("sm", "sm75", "DM"),
         RecentSet("sm", "sm115", "HF"),
         RecentSet("sm", "det1", "GUM"),
+        RecentSet("swsh", "swsh_energy", "SWSH_Energy"),
         RecentSet("swsh", "swsh1", "SWSH1"),
         RecentSet("swsh", "swsh2", "SWSH2"),
         RecentSet("swsh", "swsh3", "SWSH3"),
@@ -267,10 +268,42 @@ def download_one(task: tuple[str, Path]) -> tuple[bool, str]:
         return False, f"{url}: {exc}"
 
 
-def run(values: Iterable[str], workers: int, overwrite: bool) -> None:
+def install_native_energy(overwrite: bool, source: str | None = None) -> list[str]:
+    """Restore both SWSH basic Energy series from cbrew, without guessed URLs."""
+    from spirit.tools.ptcgo_local_assets import install_card_art
+
+    failures = []
+    scripts = sorted((SCRIPTS_ROOT / "SWSH_Energy").glob("*.py"))
+    if len(scripts) != 17:
+        return ["SWSH_Energy: expected 17 card definitions; update the checkout."]
+    restored = 0
+    for script in scripts:
+        destination = ASSETS_ROOT / "SWSH_Energy" / f"{script.stem}.png"
+        if destination.is_file() and not overwrite:
+            continue
+        number = collector_number_from_script(script)
+        if install_card_art("SWSH_Energy", number, destination,
+                            source=source, overwrite=overwrite):
+            restored += 1
+        else:
+            failures.append(
+                f"SWSH_Energy/{script.stem}: original texture unavailable. "
+                "Use --cbrew-source or PTCGO_ART_SOURCE_DIR to select the "
+                "cbrew folder containing BW Cache.zip / SM Cache.zip."
+            )
+    print(f"SWSH_Energy: {restored} original textures restored; {len(failures)} missing.")
+    return failures
+
+
+def run(values: Iterable[str], workers: int, overwrite: bool,
+        cbrew_source: str | None = None) -> None:
     sets = selected_sets(values)
     tasks: list[tuple[str, Path]] = []
+    failures: list[str] = []
     for card_set in sets:
+        if card_set.set_code == "SWSH_Energy":
+            failures.extend(install_native_energy(overwrite, cbrew_source))
+            continue
         set_tasks = build_tasks(card_set, overwrite=overwrite)
         tasks.extend(set_tasks)
         print(
@@ -278,11 +311,10 @@ def run(values: Iterable[str], workers: int, overwrite: bool) -> None:
             f"missing artwork: {len(set_tasks)}"
         )
 
-    if not tasks:
+    if not tasks and not failures:
         print("All selected card artwork is already installed.")
         return
 
-    failures: list[str] = []
     completed = 0
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         futures = [pool.submit(download_one, task) for task in tasks]
@@ -298,7 +330,7 @@ def run(values: Iterable[str], workers: int, overwrite: bool) -> None:
                 )
 
     if failures:
-        print("Artwork download failures:")
+        print("Artwork installation failures:")
         for failure in failures:
             print("  " + failure)
         raise SystemExit(2)
@@ -313,9 +345,10 @@ def main() -> None:
     )
     parser.add_argument("--workers", type=int, default=20)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--cbrew-source", help="Local cbrew bundles folder for SWSH basic Energy artwork")
     args = parser.parse_args()
     try:
-        run(args.eras_or_sets, args.workers, args.overwrite)
+        run(args.eras_or_sets, args.workers, args.overwrite, args.cbrew_source)
     except (FileNotFoundError, ValueError) as exc:
         parser.error(str(exc))
 

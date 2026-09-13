@@ -84,6 +84,23 @@ Server set codes are also accepted:
    python -m spirit.tools.install_recent_card_art swsh
    python -m spirit.tools.install_recent_card_art mega
 
+Sword & Shield basic Energy
+--------------------------
+
+The repository includes all 17 SWSH_Energy definitions (the original nine
+types and eight later prints). Both the cbrew importer and the artwork
+installer can restore their original textures from BW Cache.zip / SM Cache.zip.
+The default artwork command and the swsh selection include these cards.
+To repair only this collection:
+
+   python -m spirit.tools.install_recent_card_art SWSH_Energy --cbrew-source "D:\path\to\cbrew bundles"
+
+PTCGO_ART_SOURCE_DIR is also supported. Existing images are preserved unless
+--overwrite is specified. These original prints are not replaced with
+different Energy artwork or guessed API URLs. Missing native textures are
+reported as installation failures; provide the complete local caches.
+Restart the server and reconnect the client after adding new card definitions.
+
 Troubleshooting
 ---------------
 

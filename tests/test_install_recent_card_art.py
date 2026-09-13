@@ -12,10 +12,54 @@ from spirit.tools.install_recent_card_art import (
     image_url,
     mega_promo_url,
     selected_sets,
+    install_native_energy,
+    run,
 )
 
 
 class InstallRecentCardArtTests(unittest.TestCase):
+    def test_swsh_energy_selected_by_default_and_code(self):
+        self.assertIn("SWSH_Energy", {s.set_code for s in selected_sets([])})
+        self.assertEqual(selected_sets(["SWSH_Energy"]),
+                         [RECENT_SETS["swsh_energy"]])
+
+    def test_swsh_energy_imports_all_native_prints_without_network(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("spirit.tools.install_recent_card_art.ASSETS_ROOT", Path(directory)), \
+                 patch("spirit.tools.ptcgo_local_assets.install_card_art", return_value=True) as restore, \
+                 patch("spirit.tools.install_recent_card_art.download_one") as download:
+                run(["SWSH_Energy"], 1, False, "cbrew-fixture")
+                self.assertEqual(restore.call_count, 17)
+                self.assertEqual({c.args[1] for c in restore.call_args_list},
+                                 {str(n) for n in range(1, 18)})
+                self.assertTrue(all(c.kwargs["source"] == "cbrew-fixture"
+                                    for c in restore.call_args_list))
+                download.assert_not_called()
+
+    def test_swsh_energy_preserves_existing_art(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for script in (SCRIPTS_ROOT / "SWSH_Energy").glob("*.py"):
+                destination = root / "SWSH_Energy" / (script.stem + ".png")
+                destination.parent.mkdir(exist_ok=True)
+                destination.write_bytes(b"original artwork")
+            with patch("spirit.tools.install_recent_card_art.ASSETS_ROOT", root), \
+                 patch("spirit.tools.ptcgo_local_assets.install_card_art", return_value=True) as restore:
+                self.assertEqual(install_native_energy(False), [])
+                restore.assert_not_called()
+                self.assertEqual(install_native_energy(True), [])
+                self.assertEqual(restore.call_count, 17)
+
+    def test_swsh_energy_missing_cache_is_reported_as_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("spirit.tools.install_recent_card_art.ASSETS_ROOT", Path(directory)), \
+                 patch("spirit.tools.ptcgo_local_assets.install_card_art", return_value=False), \
+                 patch("spirit.tools.install_recent_card_art.download_one") as download:
+                with self.assertRaises(SystemExit) as raised:
+                    run(["SWSH_Energy"], 1, False, "missing-cache")
+                self.assertEqual(raised.exception.code, 2)
+                download.assert_not_called()
+
     def test_default_includes_older_sets(self):
         codes = {s.set_code for s in selected_sets([])}
         self.assertTrue({"HGSS1", "BW6", "BW11", "Promo_XY", "HF"} <= codes)
@@ -54,7 +98,7 @@ class InstallRecentCardArtTests(unittest.TestCase):
         self.assertEqual(
             [card_set.set_code for card_set in selected],
             [
-                "SWSH1", "SWSH2", "SWSH3", "SWSH35", "SWSH4",
+                "SWSH_Energy", "SWSH1", "SWSH2", "SWSH3", "SWSH35", "SWSH4",
                 "SWSH45", "SWSH5", "SWSH6", "SWSH7", "CEL25",
                 "SWSH8", "SWSH9", "SWSH10", "PGO", "SWSH11",
                 "SWSH12", "CZ",
