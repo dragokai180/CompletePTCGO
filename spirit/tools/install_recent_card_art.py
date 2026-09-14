@@ -121,6 +121,29 @@ IMAGE_OVERRIDES = {
     "svp-102": "https://pkmncards.com/wp-content/uploads/svbsp_en_102_std.png",
 }
 
+# Unnumbered SUM basic Energy prints use type letters at Limitless. Slots
+# 164..172 are internal catalog numbers, not printed collector numbers.
+SM_BASIC_ENERGY_CODES = dict(zip(map(str, range(164, 173)), "GRWLPFDMY"))
+
+
+def sm_basic_energy_url(card_set: RecentSet, number: str) -> str | None:
+    code = SM_BASIC_ENERGY_CODES.get(number) if card_set.set_code == "SM1" else None
+    if code is None:
+        return None
+    return ("https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/"
+            f"tpci/SUM/SUM_{code}_R_EN.png")
+
+
+def cropped_sm_basic_energy(card_set: RecentSet, number: str, path: Path) -> bool:
+    """Repair the known cropped downloads without replacing native artwork."""
+    if sm_basic_energy_url(card_set, number) is None:
+        return False
+    try:
+        with Image.open(path) as picture:
+            return picture.size == (700, 990)
+    except (OSError, ValueError):
+        return False
+
 # Verified English unnumbered Energy scans. These sets have no upstream
 # pokemon-tcg-data catalog; their internal numbers are NOT normal set numbers.
 ENERGY_NAMES = (
@@ -241,6 +264,9 @@ def load_image_urls(card_set: RecentSet) -> dict[str, str]:
 
 
 def image_url(card_set: RecentSet, number: str, known: dict[str, str]) -> str:
+    energy_url = sm_basic_energy_url(card_set, number)
+    if energy_url:
+        return energy_url
     if number in known:
         return known[number]
     if card_set.data_stem == "mep":
@@ -319,7 +345,8 @@ def build_tasks(
         if number is None:
             continue
         destination = ASSETS_ROOT / card_set.set_code / f"{script_path.stem}.png"
-        if destination.exists() and not overwrite:
+        if (destination.exists() and not overwrite
+                and not cropped_sm_basic_energy(card_set, number, destination)):
             continue
         tasks.append((image_candidates(card_set, number, known), destination))
     return tasks

@@ -23,6 +23,34 @@ from spirit.tools.install_recent_card_art import (
 
 
 class InstallRecentCardArtTests(unittest.TestCase):
+    def test_sm_basic_energies_use_complete_limitless_scans(self):
+        for number, code in zip(range(164, 173), 'GRWLPFDMY'):
+            urls = image_candidates(RECENT_SETS['sm1'], str(number),
+                                    {str(number): 'https://example.com/cropped.png'})
+            self.assertEqual(urls, (
+                'https://limitlesstcg.nyc3.cdn.digitaloceanspaces.com/'
+                f'tpci/SUM/SUM_{code}_R_EN.png',))
+        self.assertEqual(image_url(RECENT_SETS['sm1'], '163', {'163': 'secret'}), 'secret')
+
+    def test_sm_energy_repairs_only_known_cropped_prints(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scripts = root / 'scripts' / 'SM1'
+            assets = root / 'assets' / 'SM1'
+            scripts.mkdir(parents=True)
+            assets.mkdir(parents=True)
+            for name, size in [('GrassEnergy_164', (700, 990)),
+                               ('FireEnergy_165', (736, 1024)),
+                               ('WaterEnergy_166', (1024, 1024)),
+                               ('MetalEnergy_163', (700, 990))]:
+                (scripts / (name + '.py')).touch()
+                Image.new('RGB', size).save(assets / (name + '.png'))
+            with patch('spirit.tools.install_recent_card_art.SCRIPTS_ROOT', root / 'scripts'), \
+                 patch('spirit.tools.install_recent_card_art.ASSETS_ROOT', root / 'assets'), \
+                 patch('spirit.tools.install_recent_card_art.load_image_urls', return_value={}):
+                tasks = build_tasks(RECENT_SETS['sm1'])
+            self.assertEqual([p.name for _, p in tasks], ['GrassEnergy_164.png'])
+
     def test_swsh_energy_selected_by_default_and_code(self):
         self.assertIn("SWSH_Energy", {s.set_code for s in selected_sets([])})
         self.assertEqual(selected_sets(["SWSH_Energy"]),
