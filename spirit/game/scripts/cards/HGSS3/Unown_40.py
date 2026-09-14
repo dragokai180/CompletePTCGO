@@ -29,7 +29,7 @@ card = PokemonCardDef(
             game_text='Once during your turn, when you put Unown from your hand onto your Bench, you may search your deck for a Darkness Energy card, show it to your opponent, and put it into your hand. Shuffle your deck afterward.',
             ability_type=AbilityTypes.POKE_POWER,
             effect=standard_ability,
-            activation=Activations.ONCE_PER_TURN,
+            trigger=Triggers.ON_PLAY,
         ),
         Attack(
             title='Hidden Power',

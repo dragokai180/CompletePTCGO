@@ -272,6 +272,25 @@ def _basic_energy_types(card) -> set[int]:
     } if is_basic_energy(card) else set()
 
 
+def ability_position_allowed(board, player_id, source, game_text: str) -> bool:
+    """Check position prerequisites both in the menu and at resolution time."""
+    clause = _norm(game_text).split("you may", 1)[0]
+    definition = def_for(getattr(source, "archetype_id", None)) if source is not None else None
+    name = (getattr(definition, "display_name", "") or "").casefold()
+    if name:
+        clause = clause.replace(name, "this pokémon")
+    if re.search(r"(?:if|while|as long as) this pokémon is (?:your active pokémon|in the active spot)", clause):
+        if board is None or source is None or board.active_pokemon(player_id) is not source:
+            return False
+    if "if this pokémon is on your bench" in clause:
+        if board is None:
+            return False
+        bench = board.find_player_area(player_id, "bench")
+        if source is None or bench is None or source not in bench.children:
+            return False
+    return True
+
+
 def standard_ability_condition(game_text: str):
     """Public-information legality gate for a shared activated Ability."""
     text = _norm(game_text)
@@ -311,13 +330,8 @@ def standard_ability_condition(game_text: str):
         source_name = card_name(source) if source is not None else ""
         if source_name:
             activation_clause = activation_clause.replace(source_name, "this pokémon")
-        if "if this pokémon is your active pokémon" in activation_clause \
-                and (source is None or board.active_pokemon(player_id) is not source):
+        if not ability_position_allowed(board, player_id, source, text):
             return False
-        if "if this pokémon is on your bench" in activation_clause:
-            bench = board.find_player_area(player_id, "bench")
-            if source is None or bench is None or source not in bench.children:
-                return False
         # A discard payment alone is not a benefit.  Draw-only powers such
         # as Trade/Power Draw need at least one card left to draw.  Do not
         # apply this to shuffle-and-draw or effects with another benefit.
@@ -1058,12 +1072,12 @@ async def _choose_one(ctx, cards, prompt: str, *, optional: bool = False,
     return picks[0] if picks else None
 
 
-async def _generic_search(ctx, text: str) -> bool:
+async def _generic_search(ctx, text: str, *, count_override: int | None = None) -> bool:
     """Resolve the common search families.  Returns whether it handled one."""
     if "search your deck" not in text:
         return False
 
-    count = _requested_count(text)
+    count = _requested_count(text) if count_override is None else count_override
     predicate = _search_predicate(text)
     # A private search for a specified kind may fail even when a matching
     # card exists. An unrestricted "search for N cards" still requires N.
@@ -2036,6 +2050,34 @@ def standard_trainer_effect(game_text: str):
             return
 
         # Coin-gated cards resolve the flip before their ordinary instruction.
+        multi_coin = re.match(
+            r"flip (\d+) coins\. (for each heads,|if both of them are heads,) (.+)", text)
+        if multi_coin:
+            flips = await ctx.flip_coins(int(multi_coin.group(1)), _card_name(ctx.source))
+            count = sum(bool(flip) for flip in flips)
+            if multi_coin.group(2).startswith("if both"):
+                count = 1 if count == int(multi_coin.group(1)) else 0
+            if count == 0:
+                return
+            instruction = multi_coin.group(3)
+            if "search your deck" in instruction:
+                await _generic_search(ctx, instruction, count_override=count)
+                return
+            if instruction.startswith("put an evolution pokémon from your discard pile"):
+                pool = [card for card in ctx.discard_pile() if is_evolution_pokemon(card)]
+                count = min(count, len(pool))
+                picks = await ctx.choose_cards(pool, count, minimum=count,
+                            prompt="Choose Evolution Pokémon") if count else []
+                await ctx.put_in_hand(picks, reveal=True)
+                return
+            if instruction.startswith("shuffle an electropower card from your discard pile"):
+                pool = [card for card in ctx.discard_pile() if _card_name(card).casefold() == "electropower"]
+                count = min(count, len(pool))
+                picks = await ctx.choose_cards(pool, count, minimum=count,
+                            prompt="Choose Electropower cards") if count else []
+                if picks:
+                    await ctx.shuffle_into_deck(picks)
+                return
         heads = None
         if "flip a coin" in text:
             heads = bool((await ctx.flip_coins(1, _card_name(ctx.source)))[0])

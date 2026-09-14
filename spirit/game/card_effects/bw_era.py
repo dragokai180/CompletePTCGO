@@ -9891,6 +9891,11 @@ async def bw_legacy_attack(ctx):
 async def bw_legacy_ability(ctx):
     """Recurring activated/triggered BW Ability text not needing a passive."""
     text = _norm(getattr(ctx.ability, "game_text", ""))
+    from spirit.game.card_effects.standard_era import ability_position_allowed
+    if not ability_position_allowed(getattr(ctx, "board", None),
+                                    getattr(ctx, "player_id", None), ctx.source, text):
+        ctx.suppress_announce = True
+        return
     if re.search(r"this power (?:can't|cannot) be used if .+ is affected by a special condition", text) \
             and ctx.source.get_attribute(AttrID.SPECIAL_CONDITIONS):
         ctx.suppress_announce = True

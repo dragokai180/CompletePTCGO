@@ -31,7 +31,7 @@ card = PokemonCardDef(
             game_text='Once during your turn, when you put Pachirisu from your hand onto your Bench, you may attach up to 2 Lightning Energy cards from your hand to Pachirisu.',
             ability_type=AbilityTypes.POKE_POWER,
             effect=standard_ability,
-            activation=Activations.ONCE_PER_TURN,
+            trigger=Triggers.ON_PLAY,
         ),
         Attack(
             title='Shocking Bolt',

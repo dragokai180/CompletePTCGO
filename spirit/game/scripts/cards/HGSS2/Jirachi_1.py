@@ -29,7 +29,7 @@ card = PokemonCardDef(
             game_text='Once during your turn, when you put Jirachi from your hand onto your Bench, you may flip 3 coins. For each heads, search your discard pile for a Psychic Energy card and attach it to Jirachi.',
             ability_type=AbilityTypes.POKE_POWER,
             effect=standard_ability,
-            activation=Activations.ONCE_PER_TURN,
+            trigger=Triggers.ON_PLAY,
         ),
         Attack(
             title='Time Hollow',

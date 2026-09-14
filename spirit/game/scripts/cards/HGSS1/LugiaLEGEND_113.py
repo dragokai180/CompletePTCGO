@@ -31,7 +31,7 @@ card = PokemonCardDef(
             game_text='Once during your turn, when you put Lugia LEGEND into play, you may look at the top 5 cards of your deck and attach all Energy cards you find there to Lugia LEGEND. Discard the other cards.',
             ability_type=AbilityTypes.POKE_POWER,
             effect=standard_ability,
-            activation=Activations.ONCE_PER_TURN,
+            trigger=Triggers.ON_PLAY,
         ),
         Attack(
             title='Elemental Blast',

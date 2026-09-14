@@ -29,7 +29,7 @@ card = PokemonCardDef(
             game_text='Once during your turn, when you put Unown from your hand onto your Bench, you may return all Energy attached to 1 of your Pokémon to your hand.',
             ability_type=AbilityTypes.POKE_POWER,
             effect=standard_ability,
-            activation=Activations.ONCE_PER_TURN,
+            trigger=Triggers.ON_PLAY,
         ),
         Attack(
             title='Hidden Power',

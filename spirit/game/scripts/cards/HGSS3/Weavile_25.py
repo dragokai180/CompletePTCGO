@@ -32,7 +32,7 @@ card = PokemonCardDef(
             game_text="Once during your turn, when you play Weavile from your hand to evolve 1 of your Pokémon, you may look at your opponent's hand. Choose a card from your opponent's hand and discard it.",
             ability_type=AbilityTypes.POKE_POWER,
             effect=standard_ability,
-            activation=Activations.ONCE_PER_TURN,
+            trigger=Triggers.ON_EVOLVE,
         ),
         Attack(
             title='Feint Attack',
