@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, AttrID
 from spirit.game.card_effects.attacks_common import damage_per
@@ -21,7 +22,7 @@ def _basic_energy_types_count(ctx):
     types = set()
     for e in ctx.attached_energies(ctx.attacker):
         if is_basic_energy_card(e):
-            for t in (e.get_attribute(AttrID.POKEMON_TYPES) or []):
+            for t in (energy_card_types(e) or []):
                 types.add(t)
     return len(types)
 

@@ -2,14 +2,11 @@ from spirit.game.data_utils import PokemonCardDef, Attack, subtypes_for
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 
 
+from spirit.game.card_effects.attacks_common import previous_attack_matches
+
+
 def _other_rapid_strike_attacked_last_turn(ctx):
-    for pokemon in ctx.my_pokemon_in_play():
-        if pokemon is ctx.attacker:
-            continue
-        if "Rapid Strike" in subtypes_for(pokemon.archetype_id) and \
-                ctx.attack_used_last_turn(entity=pokemon):
-            return True
-    return False
+    return previous_attack_matches(ctx.board, ctx.player_id, subtype="Rapid Strike", exclude=ctx.attacker)
 
 
 async def cross_fist(ctx):

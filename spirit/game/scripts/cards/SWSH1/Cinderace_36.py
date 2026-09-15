@@ -12,7 +12,7 @@ async def bright_flame(ctx):
     await ctx.deal_damage()
     heads = (await ctx.flip_coins(1, "Bright Flame"))[0]
     if not heads:
-        await ctx.discard_energy_from(ctx.attacker, 2)
+        await ctx.discard_energy_units_from(ctx.attacker, 2, partial=True)
 
 
 card = PokemonCardDef(

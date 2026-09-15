@@ -16,6 +16,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.GRASS,
     is_special=True,
+    outside_play_types=[],
     passive=AromaticGrassPassive(),
     on_attach_anywhere=cure_all_on_attach,
 )

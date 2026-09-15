@@ -9,8 +9,8 @@ async def smashing_edge(ctx):
     await ctx.deal_damage()
     heads = (await ctx.flip_coins(1, "Smashing Edge"))[0]
     if not heads:
-        await ctx.discard_energy_from(
-            ctx.attacker, 2, prompt="Discard 2 Energy from this Pokémon")
+        await ctx.discard_energy_units_from(
+            ctx.attacker, 2, partial=True, prompt="Discard 2 Energy from this Pokémon")
 
 
 card = PokemonCardDef(

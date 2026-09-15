@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import AttrID, PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.attacks_common import count_energy
@@ -8,7 +9,7 @@ _ENERGY_ON_SELF = count_energy("self")
 
 
 def is_fire_energy_card(card):
-    return is_energy_card(card) and PokemonTypes.FIRE.value in (card.get_attribute(AttrID.POKEMON_TYPES) or [])
+    return is_energy_card(card) and PokemonTypes.FIRE.value in (energy_card_types(card) or [])
 
 
 async def exciting_flame(ctx):

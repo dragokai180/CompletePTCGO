@@ -8,8 +8,8 @@ async def electron_crush(ctx):
     """100 damage; you may discard 3 Lightning Energy from this Pokémon for +120."""
     amount = 100
     if await ctx.ask_yes_no("Discard 3 Lightning Energy from this Pokémon?"):
-        discarded = await ctx.discard_energy_from(
-            ctx.attacker, 3, predicate=is_lightning_energy,
+        discarded = await ctx.discard_energy_units_from(
+            ctx.attacker, 3, predicate=is_lightning_energy, partial=True,
             prompt="Discard 3 Lightning Energy",
         )
         if discarded:

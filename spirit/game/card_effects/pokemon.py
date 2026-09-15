@@ -12,7 +12,6 @@ from spirit.game.data_utils import (
     ABILITIES_BY_ID, Ability, Attack, ability_id_for, def_for, has_rule_box,
     is_pokemon_v, subtypes_for,
 )
-from spirit.game.session.constants import BENCH_CAPACITY
 from spirit.game.card_effects.passives_common import prevent_damage_when
 from spirit.game.session.effects import (
     full_stack,
@@ -62,7 +61,7 @@ async def aero_dive(ctx):
 def summoning_star_condition(board, player_id, pokemon):
     """Offerable only with a valid discard target and a free bench slot."""
     bench = board.find_player_area(player_id, "bench")
-    if not bench or len(bench.children) >= BENCH_CAPACITY:
+    if bench is None or len(bench.children) >= effective_bench_capacity(board, player_id):
         return False
     discard = board.find_player_area(player_id, "discard")
     return bool(discard) and any(
@@ -74,7 +73,7 @@ async def summoning_star(ctx):
     """VSTAR Power: up to 2 Colorless Pokemon without a Rule Box from the
     discard pile onto the Bench."""
     candidates = [c for c in ctx.discard_pile() if is_colorless_no_rule_box(c)]
-    count = min(2, BENCH_CAPACITY - len(ctx.my_bench()))
+    count = min(2, effective_bench_capacity(ctx.board, ctx.player_id) - len(ctx.my_bench()))
     if not candidates or count <= 0:
         return
     # The discard pile is public: once used, the pick may not choose zero.
@@ -549,6 +548,10 @@ def energy_provides_type(card, type_value) -> bool:
     # Rainbow's alternatives only exist in play. Printed outside-play
     # Colorless clauses also govern typed searches and acceleration powers.
     definition = def_for(getattr(card, 'archetype_id', None))
+    outside_types = getattr(definition, 'outside_play_types', None)
+    if outside_types is not None \
+            and card._containing_area_name() not in ('activePokemonArea', 'bench'):
+        return type_value in [getattr(kind, 'value', kind) for kind in outside_types]
     text = str(getattr(getattr(definition, 'passive', None), 'text', '')).casefold()
     if 'while not in play' in text and 'counts as colorless energy' in text \
             and card._containing_area_name() not in ('activePokemonArea', 'bench'):
@@ -558,6 +561,16 @@ def energy_provides_type(card, type_value) -> bool:
         if type_value in option:
             return True
     return type_value in (card.get_attribute(AttrID.POKEMON_TYPES) or [])
+
+
+def energy_card_types(card):
+    """Printed Energy types in the card's current zone, not Pokemon types.
+
+    This is for typed searches and basic-Energy diversity. Attached Energy
+    units and field modifiers must use energy_provided_options instead.
+    """
+    return [ptype.value for ptype in PokemonTypes
+            if energy_provides_type(card, ptype.value)]
 
 
 def is_lightning_energy(card) -> bool:
@@ -875,7 +888,7 @@ async def dragon_energy(ctx):
 
 async def regi_gate(ctx):
     """Search your deck for a Basic Pokemon, put it onto your Bench, shuffle."""
-    if BENCH_CAPACITY - len(ctx.my_bench()) > 0:
+    if effective_bench_capacity(ctx.board, ctx.player_id) - len(ctx.my_bench()) > 0:
         picks = await ctx.search_deck(
             is_basic_pokemon, count=1, minimum=0,
             prompt="Choose a Basic Pokémon to put onto your Bench.",

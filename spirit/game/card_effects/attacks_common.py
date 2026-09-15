@@ -30,6 +30,31 @@ _ENERGY_SCOPES = ("self", "attacker", "defender", "opponent_active", "my_active"
 # Shared internals
 # ----------------------------------------------------------------------
 
+def previous_attack_matches(board, player_id, *, title=None, name=None,
+                            subtype=None, entity=None, exclude=None) -> bool:
+    """Match the player's previous turn, including Pokemon now out of play.
+
+    The immediately preceding turn ledger is deliberately left unchanged:
+    retaliation triggers use that other, shorter window.
+    """
+    state = getattr(board, "turn_state", None)
+    records = getattr(state, "attacks_prev_turn_by_player", {}).get(player_id, [])
+    for used_id, archetype, used_title in records:
+        if title is not None and used_title != title:
+            continue
+        if entity is not None and used_id != getattr(entity, "entity_id", entity):
+            continue
+        if exclude is not None and used_id == getattr(exclude, "entity_id", exclude):
+            continue
+        definition = def_for(archetype)
+        if name is not None and getattr(definition, "display_name", None) != name:
+            continue
+        if subtype is not None and subtype not in subtypes_for(archetype):
+            continue
+        return True
+    return False
+
+
 def _printed(ctx) -> int:
     return getattr(ctx.ability, "damage", 0) or 0
 

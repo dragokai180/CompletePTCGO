@@ -3,14 +3,11 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, Special
 from spirit.game.card_effects.attacks_common import condition_attack
 
 
+from spirit.game.card_effects.attacks_common import previous_attack_matches
+
+
 def _togedemaru_toge_dash_condition(board, player_id, pokemon):
-    for p in board.pokemon_in_play(player_id):
-        card_def = def_for(p.archetype_id)
-        if card_def and card_def.display_name == "Togedemaru":
-            for used_id, _archetype, used_title in board.turn_state.attacks_used_last_turn:
-                if used_id == p.entity_id and used_title == "Toge Dash":
-                    return True
-    return False
+    return previous_attack_matches(board, player_id, name="Togedemaru", title="Toge Dash")
 
 card = PokemonCardDef(
     guid="39aa098f-3cab-5aeb-a8e0-99750798b010",

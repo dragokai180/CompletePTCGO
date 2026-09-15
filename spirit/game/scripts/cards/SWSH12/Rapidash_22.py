@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, AttrID
 from spirit.game.card_effects.support_common import requires_hand
@@ -21,7 +22,7 @@ async def heat_boost(ctx):
     ctx.add_turn_damage_modifier(TurnDamageModifier(
         30, ctx.player_id,
         source_predicate=lambda p: PokemonTypes.FIRE.value in (
-            p.get_attribute(AttrID.POKEMON_TYPES) or []),
+            energy_card_types(p) or []),
     ))
 
 

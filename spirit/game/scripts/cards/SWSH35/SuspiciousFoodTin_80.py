@@ -1,6 +1,7 @@
 from spirit.game.data_utils import ItemCardDef
 from spirit.game.attributes import Rarities, PokemonTypes
-from spirit.game.card_effects.support_common import requires_in_play
+from spirit.game.attributes import AttrID
+from spirit.game.session.passives import effective_max_hp, healing_blocked
 from spirit.game.card_effects.pokemon import energy_provides_type
 from spirit.game.models.board import BoardState
 
@@ -12,10 +13,21 @@ def _has_psychic_energy(pokemon):
     )
 
 
+def _food_tin_targets(board, player_id):
+    return [p for p in board.pokemon_in_play(player_id)
+            if _has_psychic_energy(p)
+            and p.get_attribute(AttrID.HP, 0) < effective_max_hp(board, p)
+            and not healing_blocked(board, p)]
+
+
+def _food_tin_playable(board, player_id):
+    return bool(_food_tin_targets(board, player_id))
+
+
 async def suspicious_food_tin(ctx):
     """Heal 80 from 1 of your Pokemon with a Psychic Energy attached; if you
     healed any damage, discard a Psychic Energy from it."""
-    candidates = [p for p in ctx.my_pokemon_in_play() if _has_psychic_energy(p)]
+    candidates = _food_tin_targets(ctx.board, ctx.player_id)
     if not candidates:
         return
     target = await ctx.choose_pokemon(
@@ -43,5 +55,5 @@ card = ItemCardDef(
     set_code="SWSH35",
     rarity=Rarities.RareSecret,
     effect=suspicious_food_tin,
-    condition=requires_in_play(_has_psychic_energy),
+    condition=_food_tin_playable,
 )

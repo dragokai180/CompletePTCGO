@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import SupporterCardDef
 from spirit.game.attributes import PokemonTypes, Rarities, AttrID
 from spirit.game.card_effects.support_common import recover_from_discard, requires_discard, is_energy
@@ -5,7 +6,7 @@ from spirit.game.session.effects import is_water_pokemon
 
 
 def is_water_energy_card(card) -> bool:
-    types = card.get_attribute(AttrID.POKEMON_TYPES) or []
+    types = energy_card_types(card) or []
     return is_energy(card) and PokemonTypes.WATER.value in types
 
 

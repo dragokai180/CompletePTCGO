@@ -44,7 +44,7 @@ card = PokemonCardDef(
             game_text="During your opponent's next turn, their Pokémon can't attack. (This includes Pokémon that come into play on that turn.) (You can't use more than 1 GX attack in a game.)",
             cost={PokemonTypes.COLORLESS: 1},
             effect=standard_attack,
-            locks_next_turn=True,
+            locks_next_turn=False,
             gx=True,
         ),
     ],

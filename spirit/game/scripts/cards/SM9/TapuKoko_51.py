@@ -17,9 +17,9 @@ whole stack: _move_to_public_pile asks discard_area_name per card, so the
 attachments land in the discard and this card, being a Prism Star, lands in
 the Lost Zone. The card's two sentences fall out of one rule.
 
-The condition demands everything the effect needs -- this Pokemon benched,
-two Benched Pokemon to choose, and two [L] Energy in the discard -- so the
-Ability is never offered as a play that cannot be completed.
+The attachment instruction resolves as far as possible: one available
+Energy or just one Benched Pokemon does not prevent activation. No Energy
+in the public discard pile means there is no effect to activate.
 
 Tapu Koko itself is a legal choice for one of the two: it is a Benched
 Pokemon, the text does not exclude it, and the Energy simply leaves with it.
@@ -41,21 +41,36 @@ def _dance_condition(board, player_id, pokemon=None) -> bool:
     benched = list(bench.children) if bench else []
     if pokemon is not None and pokemon not in benched:
         return False
-    return len(benched) >= 2 and len(_lightning_in_discard(board, player_id)) >= 2
+    return bool(benched and _lightning_in_discard(board, player_id))
 
 
 async def dance_of_the_ancients(ctx):
     """Two [L] out of the discard onto two Benched Pokemon; this card leaves."""
     koko = ctx.source
+    bench = ctx.my_bench()
+    count = min(2, len(bench))
     targets = await ctx.choose_cards(
-        ctx.my_bench(), 2, minimum=2,
-        prompt="Choose 2 of your Benched Pokémon to attach a {L} Energy to.",
-    )
-    if len(targets) < 2:
+        bench, count, minimum=count,
+        prompt="Choose Benched Pokémon to attach a {L} Energy to.",
+    ) if count else []
+    if not targets:
         return
     energies = _lightning_in_discard(ctx.board, ctx.player_id)
-    for target, energy in zip(targets, energies):
+    count = min(len(targets), len(energies))
+    picked = await ctx.choose_cards(
+        energies, count, minimum=count,
+        prompt="Choose Lightning Energy cards from your discard pile",
+    ) if count else []
+    if not picked:
+        return
+    remaining = list(targets)
+    for energy in picked:
+        target = remaining[0] if len(remaining) == 1 else await ctx.choose_pokemon(
+            remaining, "Choose a Pokémon to receive this Lightning Energy")
+        if target not in remaining:
+            return
         await ctx.attach_energy(energy, target)
+        remaining.remove(target)
     # One call: the attachments go to the discard, this card to the Lost Zone.
     await ctx.discard_cards(full_stack(koko))
 

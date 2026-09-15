@@ -1,10 +1,11 @@
 from spirit.game.data_utils import ItemCardDef, subtypes_for
 from spirit.game.attributes import Rarities
+from spirit.game.session.effects import is_energy_card
 from spirit.game.card_effects.support_common import recover_from_discard, requires_discard
 
 
 def _is_single_strike_energy(card):
-    return "Single Strike" in subtypes_for(card.archetype_id)
+    return is_energy_card(card) and "Single Strike" in subtypes_for(card.archetype_id)
 
 
 card = ItemCardDef(

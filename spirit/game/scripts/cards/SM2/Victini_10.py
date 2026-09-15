@@ -27,8 +27,7 @@ card = PokemonCardDef(
         Ability(
             title='Victory Star',
             game_text="Once during your turn, after you flip any coins for an attack, you may ignore all results of those coin flips and begin flipping those coins again. You can't use more than 1 Victory Star Ability each turn.",
-            effect=standard_ability,
-            activation=Activations.ONCE_PER_TURN,
+            passive=standard_passive("Once during your turn, after you flip any coins for an attack, you may ignore all results of those coin flips and begin flipping those coins again. You can't use more than 1 Victory Star Ability each turn."),
         ),
         Attack(
             title='V-Flame',

@@ -6,7 +6,7 @@ from spirit.game.card_effects.attacks_common import defender_is_vmax
 async def draconic_impulse(ctx):
     if defender_is_vmax(ctx):
         await ctx.deal_damage(320)
-        await ctx.discard_energy_from(ctx.attacker, 3)
+        await ctx.discard_energy_units_from(ctx.attacker, 3, partial=True)
     else:
         await ctx.deal_damage(160)
 

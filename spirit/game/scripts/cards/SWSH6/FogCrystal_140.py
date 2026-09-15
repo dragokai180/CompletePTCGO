@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import ItemCardDef
 from spirit.game.attributes import Rarities, AttrID, PokemonTypes
 from spirit.game.session.effects import is_basic_pokemon
@@ -6,7 +7,8 @@ from spirit.game.card_effects.support_common import search_to_hand
 
 
 def _psychic_energy_or_basic(card):
-    types = card.get_attribute(AttrID.POKEMON_TYPES) or []
+    types = (energy_card_types(card) if is_basic_energy_card(card)
+             else card.get_attribute(AttrID.POKEMON_TYPES) or [])
     if PokemonTypes.PSYCHIC.value not in types:
         return False
     return is_basic_energy_card(card) or is_basic_pokemon(card)

@@ -197,6 +197,11 @@ def has_vmax_in_play(board, player_id) -> bool:
     return bool(_my_vmax_pokemon(board, player_id))
 
 
+def rose_playable(board, player_id) -> bool:
+    return has_vmax_in_play(board, player_id) and any(
+        is_basic_energy_card(c) for c in _discard(board, player_id))
+
+
 def has_two_metal_energy_in_hand(board, player_id) -> bool:
     hand = board.find_player_area(player_id, "hand")
     return bool(hand) and sum(1 for c in hand.children if is_metal_energy_card(c)) >= 2
@@ -796,7 +801,7 @@ async def fan_of_waves(ctx):
 async def star_alchemy(ctx):
     """Search your deck for a card and put it into your hand (VSTAR Power)."""
     picks = await ctx.search_deck(
-        None, count=1, minimum=0, prompt="Choose a card to put into your hand.",
+        None, count=1, minimum=1, prompt="Choose a card to put into your hand.",
     )
     # No "reveal it" clause on this card's text (unlike Ultra/Quick Ball).
     await ctx.put_in_hand(picks, reveal=False)
@@ -1394,11 +1399,25 @@ async def emergency_jelly(ctx):
     pokemon = ctx.source
     hp = pokemon.get_attribute(AttrID.HP, 0)
     max_hp = ctx.max_hp(pokemon)
-    if hp <= 30 and hp < max_hp:
-        await ctx.heal(120, target=pokemon)
-        tool = next((t for t, p in ctx.tools_in_play() if p is pokemon), None)
-        if tool is not None:
+    if 0 < hp <= 30 and hp < max_hp:
+        healed = await ctx.heal(120, target=pokemon)
+        tool = next((t for t, p in ctx.tools_in_play() if p is pokemon
+                     and getattr(def_for(t.archetype_id), 'display_name', None) == 'Emergency Jelly'), None)
+        if tool is not None and healed:
             await ctx.discard_cards([tool])
+
+
+class EmergencyJellyPassive(Passive):
+    """A mandatory end-of-either-turn Tool effect, before Pokemon Checkup."""
+
+    async def on_end_turn(self, ctx, carrier):
+        pokemon = carrier_pokemon(carrier)
+        if pokemon is None:
+            return
+        hp = pokemon.get_attribute(AttrID.HP, 0)
+        if 0 < hp <= 30 and hp < ctx.max_hp(pokemon):
+            if await ctx.heal(120, target=pokemon):
+                await ctx.discard_cards([carrier])
 
 
 # --- Furisode Girl (SWSH12) ---------------------------------------------------

@@ -31,7 +31,7 @@ card = PokemonCardDef(
             cost={PokemonTypes.COLORLESS: 1},
             damage=30,
             effect=standard_attack,
-            locks_next_turn=True,
+            locks_next_turn=False,
         ),
         Attack(
             title='Swallow Up',

@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import AttrID, PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.trainers import is_basic_energy_card
@@ -14,7 +15,7 @@ class ChromashiftPassive(Passive):
         for child in carrier.children:
             if not is_basic_energy_card(child):
                 continue
-            for t in child.get_attribute(AttrID.POKEMON_TYPES) or []:
+            for t in energy_card_types(child) or []:
                 if t not in energy_types:
                     energy_types.append(t)
         return energy_types or types

@@ -174,7 +174,8 @@ class PlayabilityConditionTests(unittest.TestCase):
         belt = self.add(belt_def, "hand")
         self.board.attach_card(belt.entity_id, basic.entity_id)
         self.assertEqual(effective_max_hp(self.board, basic), 220)
-        self.assertEqual(compute_damage(self.board, basic, target, 20).amount, 30)
+        # Volcanion-EX is Fire/Water: (20 + 10) * 2 weakness - 20 resistance.
+        self.assertEqual(compute_damage(self.board, basic, target, 20).amount, 40)
 
         stage_one = self.add(self.definition("BW1", 3), "bench")
         self.board.attach_card(belt.entity_id, stage_one.entity_id)

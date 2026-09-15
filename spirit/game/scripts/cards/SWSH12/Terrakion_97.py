@@ -3,12 +3,11 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.passives_common import protect_next_turn
 
 
+from spirit.game.card_effects.attacks_common import previous_attack_matches
+
+
 def _cavern_tackle_condition(board, player_id, pokemon):
-    for p in board.pokemon_in_play(player_id):
-        for used_id, _archetype, used_title in board.turn_state.attacks_used_last_turn:
-            if used_id == p.entity_id and used_title == "Cavern Tackle":
-                return False
-    return True
+    return not previous_attack_matches(board, player_id, title="Cavern Tackle")
 
 
 card = PokemonCardDef(

@@ -1,11 +1,12 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, AttrID, CardType
 
-LUNATONE_NAME = "com.direwolfdigital.cake.data.archetypes.pokemon.Lunatone.Name"
+LUNATONE_NAME = "Lunatone"
 
 
 def _is_psychic_energy_card(card):
-    types = card.get_attribute(AttrID.POKEMON_TYPES) or []
+    types = energy_card_types(card) or []
     return card.get_attribute(AttrID.CARD_TYPE) == CardType.ENERGY.value \
         and PokemonTypes.PSYCHIC.value in types
 

@@ -18,6 +18,7 @@ card = PokemonCardDef(
     retreat_cost=2,
     weakness_type=PokemonTypes.FIGHTING,
     resistance_type=PokemonTypes.PSYCHIC,
+    resistance_amount=20,
     abilities=[
         Attack(
             title="Gentle Slap",

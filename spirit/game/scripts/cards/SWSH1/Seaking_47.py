@@ -10,8 +10,8 @@ async def ripping_horn(ctx):
     target = ctx.opponent_active()
     if target is None or ctx.effects_blocked(target):
         return
-    await ctx.discard_energy_from(
-        target, heads,
+    await ctx.discard_energy_units_from(
+        target, heads, partial=True,
         prompt="Choose Energy to discard from the Defending Pokémon")
 
 card = PokemonCardDef(

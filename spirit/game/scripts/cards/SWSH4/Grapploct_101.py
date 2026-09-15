@@ -10,8 +10,11 @@ async def full_nelson(ctx):
         ctx.lock_retreat(defender)
 
 
+from spirit.game.card_effects.attacks_common import previous_attack_matches
+
+
 def _used_full_nelson_last_turn(ctx):
-    return ctx.attack_used_last_turn(title="Full Nelson", entity=ctx.attacker)
+    return previous_attack_matches(ctx.board, ctx.player_id, entity=ctx.attacker, title="Full Nelson")
 
 
 card = PokemonCardDef(

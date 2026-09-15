@@ -38,7 +38,7 @@ card = PokemonCardDef(
             game_text="At the end of your opponent's next turn, the Defending Pokémon will be Knocked Out. If this Pokémon has at least 1 extra Psychic Energy attached to it (in addition to this attack's cost), discard all Energy from your opponent's Active Pokémon. (You can't use more than 1 GX attack in a game.)",
             cost={PokemonTypes.PSYCHIC: 1, PokemonTypes.COLORLESS: 1},
             effect=standard_attack,
-            locks_next_turn=True,
+            locks_next_turn=False,
             gx=True,
         ),
     ],

@@ -49,6 +49,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
+    outside_play_types=[],
     attach_to=is_rapid_strike,
     discard_if_invalid=True,
     provides=RAPID_STRIKE_PROVIDES,

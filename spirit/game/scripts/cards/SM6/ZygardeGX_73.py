@@ -42,7 +42,7 @@ card = PokemonCardDef(
             cost={PokemonTypes.FIGHTING: 2, PokemonTypes.COLORLESS: 2},
             damage=150,
             effect=standard_attack,
-            locks_next_turn=True,
+            locks_next_turn=False,
             gx=True,
         ),
     ],

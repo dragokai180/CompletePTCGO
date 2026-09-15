@@ -11,7 +11,8 @@ card = PokemonToolCardDef(
             "(You can't use more than 1 VSTAR Power in a game.)",
             activation=Activations.ONCE_PER_TURN,
             vstar=True,
-            condition=lambda board, player_id, pokemon: is_pokemon_v(pokemon.archetype_id),
+            condition=lambda board, player_id, pokemon: is_pokemon_v(pokemon.archetype_id)
+            and bool(board.find_player_area(player_id, "deck").children),
             effect=star_alchemy,
         ),
     ],

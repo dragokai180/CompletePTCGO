@@ -1,10 +1,11 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, AttrID, CardType
 from spirit.game.card_effects.support_common import attach_from_discard
 
 
 def _is_fire_energy_card(card):
-    types = card.get_attribute(AttrID.POKEMON_TYPES) or []
+    types = energy_card_types(card) or []
     return card.get_attribute(AttrID.CARD_TYPE) == CardType.ENERGY.value \
         and PokemonTypes.FIRE.value in types
 

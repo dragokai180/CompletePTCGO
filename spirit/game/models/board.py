@@ -535,6 +535,13 @@ class BoardState:
         """
         return bool(self.basic_pokemon_in_hand(player_id))
 
+    def _setup_card_allowed(self, card, player_id: str) -> bool:
+        from spirit.game.data_utils import def_for
+        if not getattr(def_for(card.archetype_id), "setup_second_player_only", False):
+            return True
+        first = getattr(self, "setup_first_player_id", None)
+        return first is not None and first != player_id
+
     def setup_active_candidates(self, player_id: str) -> List['PokemonEntity']:
         """Cards playable as the opening Active: Basics first, then hand
         Pokemon whose def sets setup_as_active (Luxray CZ's Explosiveness).
@@ -544,7 +551,8 @@ class BoardState:
         hand_area = self.find_player_area(player_id, "hand")
         for c in (hand_area.children if hand_area else []):
             if isinstance(c, PokemonEntity) and c not in candidates \
-                    and getattr(def_for(c.archetype_id), "setup_as_active", False):
+                    and getattr(def_for(c.archetype_id), "setup_as_active", False) \
+                    and self._setup_card_allowed(c, player_id):
                 candidates.append(c)
         return candidates
 
@@ -561,7 +569,8 @@ class BoardState:
         hand_area = self.find_player_area(player_id, "hand")
         for card in (hand_area.children if hand_area else []):
             if isinstance(card, PokemonEntity) and card not in candidates \
-                    and getattr(def_for(card.archetype_id), "setup_as_bench", False):
+                    and getattr(def_for(card.archetype_id), "setup_as_bench", False) \
+                    and self._setup_card_allowed(card, player_id):
                 candidates.append(card)
         return candidates
 
@@ -578,7 +587,8 @@ class BoardState:
                 if self._is_basic_pokemon(c):
                     return True
                 if isinstance(c, PokemonEntity) \
-                        and getattr(def_for(c.archetype_id), "setup_as_active", False):
+                        and getattr(def_for(c.archetype_id), "setup_as_active", False) \
+                        and self._setup_card_allowed(c, player_id):
                     return True
         return False
 

@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, unimplemented
 from spirit.game.attributes import AttrID, CardType, PokemonTypes, PokemonStage, Rarities
 from spirit.game.session.effects import is_special_energy
@@ -10,7 +11,7 @@ async def rainbow_flavor(ctx):
         for energy in ctx.attached_energies(pokemon):
             if energy.get_attribute(AttrID.CARD_TYPE) == CardType.ENERGY.value \
                     and not is_special_energy(energy):
-                types.update(energy.get_attribute(AttrID.POKEMON_TYPES) or [])
+                types.update(energy_card_types(energy) or [])
     await ctx.deal_damage(10 + 40 * len(types))
 
 card = PokemonCardDef(

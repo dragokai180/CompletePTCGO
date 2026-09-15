@@ -3,11 +3,11 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, Special
 from spirit.game.card_effects.attacks_common import condition_attack
 
 
+from spirit.game.card_effects.attacks_common import previous_attack_matches
+
+
 def _used_spore_ball_last_turn(board, player_id, pokemon):
-    for used_id, _archetype, used_title in board.turn_state.attacks_used_last_turn:
-        if used_id == pokemon.entity_id and used_title == "Spore Ball":
-            return True
-    return False
+    return previous_attack_matches(board, player_id, entity=pokemon, title="Spore Ball")
 
 
 card = PokemonCardDef(

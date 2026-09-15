@@ -6,7 +6,7 @@ from spirit.game.card_effects.trainers import is_basic_energy_card
 
 async def _raihan_search(ctx, picks):
     found = await ctx.search_deck(
-        count=1, minimum=0,
+        count=1, minimum=1,
         prompt="Search your deck for a card and put it into your hand.",
     )
     await ctx.put_in_hand(found, reveal=False)
@@ -14,7 +14,9 @@ async def _raihan_search(ctx, picks):
 
 
 def _raihan_condition(board, player_id):
-    return bool(board.turn_state.pokemon_lost_last_turn(player_id))
+    return bool(board.turn_state.pokemon_lost_last_turn(player_id)) and any(
+        is_basic_energy_card(c)
+        for c in board.find_player_area(player_id, "discard").children)
 
 
 card = SupporterCardDef(

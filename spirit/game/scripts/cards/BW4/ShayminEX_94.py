@@ -20,6 +20,7 @@ card = PokemonCardDef(
     retreat_cost=1,
     weakness_type=PokemonTypes.FIRE,
     resistance_type=PokemonTypes.FIGHTING,
+    resistance_amount=20,
     abilities=[
         Attack(
             title="Synthesis",

@@ -22,7 +22,7 @@ from spirit.game.models.board import (
 
 WEAKNESS_MULTIPLIER = 2
 # Fallback only: a card's own RESISTANCE_AMOUNT wins when it has one.
-# Every printing in the pool today is -30, but SM-era cards print -20.
+# Older cards with -20 and modern cards with -30 retain their printed value.
 RESISTANCE_REDUCTION = 30
 
 # Areas whose top-level cards keep a temporary passive alive.
@@ -294,6 +294,16 @@ class Passive:
     ) -> Optional[str]:
         """Replacement destination for the knocked-out Pokemon's attachments."""
         return None
+
+    def prevents_prizes_for_knockout(
+        self, pokemon: PokemonEntity, ctx: Any, carrier: BoardEntity
+    ) -> bool:
+        """An absolute prohibition, not a numerical Prize reduction.
+
+        Evaluated before modifiers and before the stack moves. A prohibited
+        knockout cannot grant bonus Prizes from attacks or other effects.
+        """
+        return False
 
     def modify_prizes_for_knockout(
         self, pokemon: PokemonEntity, ctx: Any, count: int, carrier: BoardEntity
@@ -916,8 +926,15 @@ def effective_attack_cost(
     board: BoardState, pokemon: PokemonEntity, cost: Dict[str, int]
 ) -> Dict[str, int]:
     """An attack's cost after cost-modifying passives (e.g. Excited Heart)."""
+    seen_keys = set()
     for passive, carrier in active_passives(board):
-        cost = passive.modify_attack_cost(dict(cost), pokemon, carrier, board)
+        key = passive.stacking_key
+        if key is not None and key in seen_keys:
+            continue
+        modified = passive.modify_attack_cost(dict(cost), pokemon, carrier, board)
+        if key is not None and modified != cost:
+            seen_keys.add(key)
+        cost = modified
     return cost
 
 

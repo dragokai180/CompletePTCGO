@@ -39,7 +39,7 @@ card = PokemonCardDef(
             game_text="Your opponent can't play any cards from their hand during their next turn. If this Pokémon has at least 1 extra Psychic Energy attached to it (in addition to this attack's cost), each player draws cards until they have 7 cards in their hand. (You can't use more than 1 GX attack in a game.)",
             cost={PokemonTypes.PSYCHIC: 1},
             effect=standard_attack,
-            locks_next_turn=True,
+            locks_next_turn=False,
             gx=True,
         ),
     ],

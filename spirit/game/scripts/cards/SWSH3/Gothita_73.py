@@ -7,6 +7,8 @@ async def fortunate_eye(ctx):
     any order."""
     top = ctx.deck_top(5, ctx.opponent_id)
     if len(top) <= 1:
+        if top:
+            await ctx.reveal_cards(top, to_player=ctx.player_id)
         return
     picked_ids = await ctx.session.prompt_card_chooser(
         ctx.player_id, ctx.source.entity_id, top, len(top), minimum=len(top),

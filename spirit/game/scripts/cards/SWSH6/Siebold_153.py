@@ -1,5 +1,6 @@
 from spirit.game.data_utils import SupporterCardDef, subtypes_for
-from spirit.game.attributes import Rarities
+from spirit.game.attributes import Rarities, AttrID
+from spirit.game.session.passives import effective_max_hp
 from spirit.game.card_effects.support_common import requires_in_play
 
 
@@ -7,9 +8,14 @@ def _is_rapid_strike(pokemon):
     return "Rapid Strike" in subtypes_for(pokemon.archetype_id)
 
 
+def _siebold_targets(board, player_id):
+    return [p for p in board.pokemon_in_play(player_id) if _is_rapid_strike(p)
+            and p.get_attribute(AttrID.HP, 0) < effective_max_hp(board, p)]
+
+
 async def siebold(ctx):
     """Choose up to 2 of your Rapid Strike Pokémon and heal 60 damage from each."""
-    candidates = [p for p in ctx.my_pokemon_in_play() if _is_rapid_strike(p)]
+    candidates = _siebold_targets(ctx.board, ctx.player_id)
     if not candidates:
         return
     picks = await ctx.choose_cards(
@@ -30,6 +36,6 @@ card = SupporterCardDef(
     collector_number=153,
     set_code="SWSH6",
     rarity=Rarities.Uncommon,
-    condition=requires_in_play(_is_rapid_strike),
+    condition=lambda board, player_id: bool(_siebold_targets(board, player_id)),
     effect=siebold
 )

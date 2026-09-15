@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, AttrID
 from spirit.game.card_effects.trainers import is_basic_energy_card
@@ -12,7 +13,7 @@ async def azure_pulse(ctx):
 
 
 def _is_basic_type(card, type_value):
-    types = card.get_attribute(AttrID.POKEMON_TYPES) or []
+    types = energy_card_types(card) or []
     return is_basic_energy_card(card) and type_value in types
 
 

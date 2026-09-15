@@ -1,4 +1,4 @@
-from spirit.game.card_effects.trainers import rose, has_vmax_in_play
+from spirit.game.card_effects.trainers import rose, rose_playable
 from spirit.game.data_utils import SupporterCardDef
 from spirit.game.attributes import Rarities
 
@@ -13,5 +13,5 @@ card = SupporterCardDef(
     set_code="SWSH3",
     rarity=Rarities.RareRainbow,
     effect=rose,
-    condition=has_vmax_in_play
+    condition=rose_playable
 )

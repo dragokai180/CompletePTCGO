@@ -134,6 +134,8 @@ class TurnState:
     vstar_used: Set[str] = field(default_factory=set)
     # Players who already used their once-per-game GX attack.
     gx_used: Set[str] = field(default_factory=set)
+    # Bonnie permits only the named Pokemon to reuse GX, for this turn.
+    gx_repeat_names_this_turn: Dict[str, Set[str]] = field(default_factory=dict)
     # Players forbidden from declaring GX attacks for the rest of the game
     # (Clear Vision-GX). This is distinct from spending one's own GX token.
     gx_locked_players: Set[str] = field(default_factory=set)
@@ -212,9 +214,11 @@ class TurnState:
     # Entities whose attacks ignore effects on the opponent's Active THIS turn
     # (Phoebe); cleared every begin_turn.
     ignore_target_effects_entities: Set[str] = field(default_factory=set)
+    ignore_target_effects_subtypes: Dict[str, Set[str]] = field(default_factory=dict)
     # player_id -> attack titles that player declared on THEIR previous turn
     # ("If 1 of your Pokemon used Yoga Loop during your last turn...").
     attack_titles_prev_turn_by_player: Dict[str, List[str]] = field(default_factory=dict)
+    attacks_prev_turn_by_player: Dict[str, List[Tuple[str, str, str]]] = field(default_factory=dict)
     # This-turn bonus-prize watches (Sky Seal Stone's Star Order):
     # {player_id, attacker_predicate, target_predicate, prizes}; consulted by
     # resolve_knockouts on attack-damage KOs, cleared every begin_turn.
@@ -234,6 +238,11 @@ class TurnState:
         """
         return (self.kos_suffered_last_turn or {}).get(player_id, [])
 
+    def can_repeat_gx(self, player_id: str, pokemon) -> bool:
+        definition = def_for(getattr(pokemon, "archetype_id", ""))
+        name = (getattr(definition, "display_name", "") or "").casefold()
+        return name in self.gx_repeat_names_this_turn.get(player_id, set())
+
     def begin_turn(self, player_id: str, board: Optional[Any] = None):
         """Advances to the next turn, resets the once-per-turn flags, rotates
         the two-turn history, and prunes expired turn-scoped effects.
@@ -246,6 +255,7 @@ class TurnState:
         """
         extra_turn = bool(self.active_player_id) and self.active_player_id == player_id
         if self.active_player_id:
+            self.attacks_prev_turn_by_player[self.active_player_id] = list(self.attacks_used)
             self.attack_titles_prev_turn_by_player[self.active_player_id] = [
                 title for _, _, title in self.attacks_used
             ]
@@ -262,6 +272,7 @@ class TurnState:
         self.retreated = False
         self.used_abilities = set()
         self.used_named_abilities = set()
+        self.gx_repeat_names_this_turn.clear()
         self.damage_modifiers = [
             m for m in self.damage_modifiers
             if getattr(m, "expires_after_turn", None) is not None
@@ -315,6 +326,7 @@ class TurnState:
             if entry[0] >= self.turn_number
         }
         self.ignore_target_effects_entities = set()
+        self.ignore_target_effects_subtypes = {}
         self.extra_prize_watchers = []
         self.auto_select_attack_entity_id = None
         if board is not None:
@@ -663,8 +675,7 @@ def compute_legal_actions(
                 continue
             definition = def_for(card.archetype_id)
             condition = getattr(definition, "condition", None)
-            if condition is not None \
-                    and not trainer_condition_met(condition, board, player_id, card):
+            if not trainer_condition_met(condition, board, player_id, card):
                 continue
             if trainer_type == TrainerType.ITEM.value:
                 entries.append(_target_map_entry(
@@ -727,6 +738,28 @@ def compute_legal_actions(
     return entries
 
 
+def ability_condition_met(ability, board, player_id, source) -> bool:
+    """Menu and execution share printed prerequisites, even without a callback."""
+    from spirit.game.card_effects.standard_era import (
+        ability_position_allowed, standard_ability, standard_ability_condition,
+    )
+    from spirit.game.data_utils import unimplemented
+
+    if ability.effect is None or ability.effect is unimplemented:
+        return False
+    from spirit.game.session.activation_permissions import public_activation_allowed
+    if not public_activation_allowed(ability, board, player_id, source):
+        return False
+    if not ability_position_allowed(board, player_id, source, ability.game_text):
+        return False
+    condition = ability.condition
+    # A late import/reprint must not turn a missing generated callback into
+    # unconditional permission. Bespoke effect conditions remain authoritative.
+    if condition is None and ability.effect is standard_ability:
+        condition = standard_ability_condition(ability.game_text)
+    return condition is None or bool(condition(board, player_id, source))
+
+
 def _ability_entries(
     board: BoardState,
     state: TurnState,
@@ -764,7 +797,7 @@ def _ability_entries(
             if ability.shared_once_per_turn \
                     and ability.shared_once_per_turn in state.used_named_abilities:
                 continue
-            if ability.condition and not ability.condition(board, player_id, pokemon):
+            if not ability_condition_met(ability, board, player_id, pokemon):
                 continue
             # The actionID must be the PIE_ABILITIES abilityID so the pulled-
             # back panel can resolve the ability's text.
@@ -816,7 +849,7 @@ def _out_of_zone_ability_entries(
                 if ability.shared_once_per_turn \
                         and ability.shared_once_per_turn in state.used_named_abilities:
                     continue
-                if ability.condition and not ability.condition(board, player_id, card):
+                if not ability_condition_met(ability, board, player_id, card):
                     continue
                 # Hand: AbilitySelection opens the ability panel so Pitch can
                 # coexist with a Basic's drag-to-bench play, and the second
@@ -851,7 +884,7 @@ def _stadium_ability_entries(
             continue
         if (stadium.entity_id, ability.ability_id) in state.used_abilities:
             continue
-        if ability.condition and not ability.condition(board, player_id, stadium):
+        if not ability_condition_met(ability, board, player_id, stadium):
             continue
         entries.append(_target_map_entry(
             game_id, stadium.entity_id, ability.ability_id, ACTION_USE_ABILITY,
@@ -938,6 +971,11 @@ def _retreat_entry(
 def trainer_condition_met(condition, board: BoardState, player_id: str, card) -> bool:
     """condition(board, player_id[, card]) -- 3-arg variants get the specific
     hand copy (Nugget's turn-draw provenance is per-card)."""
+    from spirit.game.session.trainer_resource_permissions import public_trainer_allowed
+    if not public_trainer_allowed(board, player_id, card):
+        return False
+    if condition is None:
+        return True
     code = getattr(condition, "__code__", None)
     if code is not None and code.co_argcount >= 3:
         return bool(condition(board, player_id, card))
@@ -1032,7 +1070,8 @@ def _attack_entries(
                 and player_id in state.vstar_used:
             continue
         if definition is not None and definition.gx \
-                and player_id in state.gx_used:
+                and player_id in state.gx_used \
+                and not state.can_repeat_gx(player_id, active):
             continue
         if definition is not None and definition.gx \
                 and player_id in state.gx_locked_players:

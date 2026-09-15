@@ -15,8 +15,8 @@ async def fantina(ctx):
         120, protects="team",
         attacker_pred=lambda a: is_pokemon_v(a.archetype_id),
     )
-    for pokemon in ctx.my_pokemon_in_play():
-        ctx.add_passive_through_opponents_turn(pokemon, shield)
+    ctx.add_temporary_player_passive(
+        ctx.player_id, shield, ctx.session.turn_state.turn_number + 1)
 
 
 card = SupporterCardDef(

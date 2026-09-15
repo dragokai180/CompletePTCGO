@@ -1,12 +1,13 @@
 from spirit.game.data_utils import ItemCardDef
 from spirit.game.attributes import Rarities
+from spirit.game.card_effects.support_common import deck_nonempty
 
 
 async def camping_gear(ctx):
     """Search your deck for a card and put it into your hand, then shuffle.
     End the turn."""
     picks = await ctx.search_deck(
-        count=1, minimum=0, prompt="Choose a card to put into your hand.",
+        count=1, minimum=1, prompt="Choose a card to put into your hand.",
     )
     await ctx.put_in_hand(picks, reveal=False)
     await ctx.shuffle_deck()
@@ -23,5 +24,6 @@ card = ItemCardDef(
     collector_number=122,
     set_code="SWSH5",
     rarity=Rarities.Uncommon,
+    condition=deck_nonempty,
     effect=camping_gear
 )

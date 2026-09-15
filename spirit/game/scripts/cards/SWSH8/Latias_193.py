@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, AttrID
 from spirit.game.card_effects.trainers import is_basic_energy_card
@@ -9,7 +10,7 @@ def _psychic_energy_in_hand(ctx):
     return [
         c for c in ctx.hand()
         if is_basic_energy_card(c)
-        and PokemonTypes.PSYCHIC.value in (c.get_attribute(AttrID.POKEMON_TYPES) or [])
+        and PokemonTypes.PSYCHIC.value in (energy_card_types(c) or [])
     ]
 
 
@@ -24,7 +25,7 @@ def _red_assist_condition(board, player_id, pokemon):
     hand = board.find_player_area(player_id, "hand")
     if not hand or not any(
         is_basic_energy_card(c)
-        and PokemonTypes.PSYCHIC.value in (c.get_attribute(AttrID.POKEMON_TYPES) or [])
+        and PokemonTypes.PSYCHIC.value in (energy_card_types(c) or [])
         for c in hand.children
     ):
         return False

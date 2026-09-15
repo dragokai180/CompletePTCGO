@@ -21,7 +21,9 @@ def _flannery_condition(board, player_id):
     if _opponent_special_energies(board, player_id):
         return True
     stadium_area = board.find_global_area("activeStadium")
-    return bool(stadium_area and stadium_area.children)
+    from spirit.game.session.passives import trainer_targeting_blocked
+    return bool(stadium_area) and any(
+        not trainer_targeting_blocked(board, c) for c in stadium_area.children)
 
 
 async def flannery(ctx):

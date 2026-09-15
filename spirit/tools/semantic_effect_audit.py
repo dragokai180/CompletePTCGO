@@ -419,6 +419,12 @@ def _semantic_scenario(kind: str, text: str, forced_coin=None):
 
     def setup(rig, entities, runner_key):
         board = rig.board
+        if "play rock-paper-scissors" in text:
+            # Both headless players otherwise choose Rock forever. Exercise
+            # the effect with a decisive result rather than an endless tie.
+            async def rps_choice(player_id, prompt, buttons, *args, **kwargs):
+                return 1 if player_id == P1 else 0
+            rig.session.prompt_player_choice = rps_choice
         if forced_coin is not None:
             # Run the same exact-text family under both possible first flip
             # results.  This exposes missing tails riders without relying on

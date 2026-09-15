@@ -8,7 +8,7 @@ async def body_splash(ctx):
     coins = await ctx.flip_coins(3, ctx.ability.title)
     tails = coins.count(False)
     if tails:
-        await ctx.discard_energy_from(ctx.attacker, tails, prompt="Discard Energy from Magcargo")
+        await ctx.discard_energy_units_from(ctx.attacker, tails, partial=True, prompt="Discard Energy from Magcargo")
 
 card = PokemonCardDef(
     guid="ba513087-fc63-5bc6-a6f4-c90f0722ad20",

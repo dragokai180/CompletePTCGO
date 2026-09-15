@@ -18,6 +18,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
+    outside_play_types=[],
     provides=ALL_TYPES_ONE_AT_A_TIME,
     attach_condition=another_card_in_hand,
     attach_cost=aurora_attach_cost

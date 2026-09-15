@@ -12,7 +12,7 @@ async def _arc_phone(ctx):
         return
     card = top[0]
     prize_area = ctx.board.find_player_area(ctx.player_id, "prizePile")
-    prizes = list(prize_area.children) if prize_area else []
+    prizes = [c for c in prize_area.children if not getattr(c, 'publicly_revealed', False)] if prize_area else []
     if not prizes:
         await ctx.present_card_choice(card, "Top card of your deck", ["OK"])
         return

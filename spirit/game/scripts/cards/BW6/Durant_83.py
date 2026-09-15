@@ -34,6 +34,7 @@ card = PokemonCardDef(
     retreat_cost=1,
     weakness_type=PokemonTypes.FIRE,
     resistance_type=PokemonTypes.PSYCHIC,
+    resistance_amount=20,
     abilities=[
         Attack(
             title="Pull Out",

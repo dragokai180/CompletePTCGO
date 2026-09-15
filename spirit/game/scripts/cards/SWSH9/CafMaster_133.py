@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import ABILITIES_BY_ID, SupporterCardDef
 from spirit.game.attributes import Rarities, AttrID
 from spirit.game.card_effects.trainers import is_basic_energy_card
@@ -31,7 +32,7 @@ async def cafe_master(ctx):
         snapshot = list(used_types)
 
         def _pred(card, _used=snapshot):
-            types = card.get_attribute(AttrID.POKEMON_TYPES) or []
+            types = energy_card_types(card) or []
             return is_basic_energy_card(card) and bool(types) and types[0] not in _used
 
         picks = await ctx.search_deck(
@@ -41,7 +42,7 @@ async def cafe_master(ctx):
         if picks:
             energy = picks[0]
             await ctx.attach_energy(energy, target)
-            types = energy.get_attribute(AttrID.POKEMON_TYPES) or []
+            types = energy_card_types(energy) or []
             if types:
                 used_types.append(types[0])
     await ctx.shuffle_deck()

@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import ItemCardDef
 from spirit.game.attributes import Rarities, PokemonTypes, AttrID
 from spirit.game.card_effects.support_common import attach_from_discard
@@ -6,7 +7,7 @@ from spirit.game.card_effects.passives_common import is_in_active_spot
 
 
 def _is_basic_darkness_energy(card):
-    types = card.get_attribute(AttrID.POKEMON_TYPES) or []
+    types = energy_card_types(card) or []
     return is_basic_energy_card(card) and PokemonTypes.DARKNESS.value in types
 
 

@@ -33,7 +33,7 @@ card = PokemonCardDef(
             cost={PokemonTypes.PSYCHIC: 1},
             damage=20,
             effect=standard_attack,
-            locks_next_turn=True,
+            locks_next_turn=False,
         ),
     ],
 )

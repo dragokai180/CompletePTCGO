@@ -8,7 +8,9 @@ def _prizes_remaining(board, player_id):
 
 
 def _kinda_lazy_condition(board, player_id, pokemon):
-    return _prizes_remaining(board, player_id) not in (2, 4, 6)
+    from spirit.game.session.legal_actions import ability_locked
+    return ability_locked(board, pokemon, card.abilities[0]) or (
+        _prizes_remaining(board, player_id) not in (2, 4, 6))
 
 
 card = PokemonCardDef(

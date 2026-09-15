@@ -42,6 +42,7 @@ from spirit.game.session.effects import (
     is_pokemon_card,
     is_pokemon_tool,
     is_special_energy,
+    is_stadium_card,
     is_supporter_card,
     is_trainer_card,
     split_pokemon_stack,
@@ -55,6 +56,11 @@ from spirit.game.session.effects import (
 standard_attack = bw_legacy_attack
 standard_ability = bw_legacy_ability
 standard_passive = bw_legacy_passive
+
+
+class _DevolutionEvolutionLock(Passive):
+    def blocks_evolution(self, player_id, target, carrier):
+        return target is carrier
 
 
 def normalize_standard_card_definition(definition) -> None:
@@ -86,7 +92,9 @@ def normalize_standard_card_definition(definition) -> None:
             "if this pokémon is asleep, flip 2 coins instead of 1",
             "after you flip any coins for an attack",
         ))
-        if continuous:
+        # An on-entry effect can establish stronger Poison for later Checkup.
+        # That reminder does not turn Hazardous Evolution into a global aura.
+        if continuous and standard_trigger(text) not in (Triggers.ON_PLAY, Triggers.ON_EVOLVE):
             ability.effect = None
             ability.trigger = None
             ability.activation = None
@@ -151,6 +159,8 @@ def normalize_standard_card_definition(definition) -> None:
             if "when you are setting up to play" in text \
                     and "as your active pokémon" in text:
                 definition.setup_as_active = True
+                definition.setup_as_bench = "or on your bench" in text
+                definition.setup_second_player_only = "if you go second" in text
 
 
 def steam_up_condition(board, player_id, pokemon=None) -> bool:
@@ -332,6 +342,9 @@ def standard_ability_condition(game_text: str):
             activation_clause = activation_clause.replace(source_name, "this pokémon")
         if not ability_position_allowed(board, player_id, source, text):
             return False
+        if "you win this game" in text and not alternate_win_condition_met(
+                board, player_id, text):
+            return False
         # A discard payment alone is not a benefit.  Draw-only powers such
         # as Trade/Power Draw need at least one card left to draw.  Do not
         # apply this to shuffle-and-draw or effects with another benefit.
@@ -394,8 +407,11 @@ def standard_ability_condition(game_text: str):
             return False
 
         draw_until = re.search(r"draw cards until you have (\d+) cards", text)
-        if draw_until and (len(hand) >= int(draw_until.group(1)) or deck_area is None or not deck_area.children):
-            return False
+        if draw_until:
+            cost = _ability_hand_discard_cost(text)
+            paid = (len(hand) if cost[0] is None else cost[0]) if cost else 0
+            if len(hand) - paid >= int(draw_until.group(1)) or deck_area is None or not deck_area.children:
+                return False
         if "draw a card" in text and "discard" not in text and (deck_area is None or not deck_area.children):
             return False
 
@@ -601,6 +617,25 @@ def standard_ability_condition(game_text: str):
 
     condition.__name__ = "standard_ability_text_condition"
     return condition
+
+
+def alternate_win_condition_met(board, player_id, game_text: str) -> bool:
+    """Unown's public thresholds are costs to activate, not just effect checks."""
+    text = _norm(game_text)
+    if "35 or more cards in your hand" in text:
+        hand = board.find_player_area(player_id, "hand")
+        return hand is not None and len(hand.children) >= 35
+    if "66 or more damage counters" in text:
+        bench = board.find_player_area(player_id, "bench")
+        return bench is not None and sum(
+            max(0, effective_max_hp(board, pokemon) - pokemon.get_attribute(AttrID.HP, 0)) // 10
+            for pokemon in bench.children
+        ) >= 66
+    if "12 or more supporter cards in the lost zone" in text:
+        opponent = _opponent_id(board, player_id)
+        lost = board.find_player_area(opponent, "lostZone") if opponent else None
+        return lost is not None and sum(is_supporter_card(card) for card in lost.children) >= 12
+    return False
 
 
 def royal_flash_condition(board, player_id, source=None) -> bool:
@@ -983,6 +1018,22 @@ def _type_predicate(word: str):
 
 def _search_predicate(text: str):
     """Best recurring deck-search predicate from English printed text."""
+    recovery = re.search(r"(?:put|shuffle) ((?:up to )?(?:\d+|an?) .+?) from your discard pile", text)
+    if recovery:
+        # A recovery restriction starts at the instruction, not its earlier
+        # cost (e.g. Molayne discards Metal but recovers a Trainer).
+        text = recovery.group(1)
+    from spirit.game.card_effects.search_descriptors import specific_search_predicate
+    specific = specific_search_predicate(text)
+    if specific is not None:
+        return specific
+    # A typed discard cost is not a restriction on the subsequent search
+    # (Crasher Wake / Adaman). Recovery descriptors have no such prefix.
+    if "search your deck for " in text:
+        text = text.split("search your deck for ", 1)[1].split(".", 1)[0]
+    if "tag team cards" in text:
+        # TAG TEAM includes Supporters, not only Pokemon-GX.
+        return lambda card: "tag team" in _card_subtypes(card)
     # Test compound/typed phrases before their broad components.  In
     # particular, Electric Generator says both "Basic Lightning Energy" and
     # "Lightning Pokémon"; the old broad "basic energy" branch therefore
@@ -1078,7 +1129,14 @@ async def _generic_search(ctx, text: str, *, count_override: int | None = None) 
         return False
 
     count = _requested_count(text) if count_override is None else count_override
-    predicate = _search_predicate(text)
+    # Friend Ball uses types visible on the opposing field, not every Pokemon.
+    if "with the same type as 1 of your opponent's pokémon in play" in text:
+        types = {kind for pokemon in ctx.opponent_pokemon_in_play()
+                 for kind in effective_pokemon_types(ctx.board, pokemon)}
+        predicate = lambda card: is_pokemon_card(card) and bool(
+            types.intersection(card.get_attribute(AttrID.POKEMON_TYPES) or []))
+    else:
+        predicate = _search_predicate(text)
     # A private search for a specified kind may fail even when a matching
     # card exists. An unrestricted "search for N cards" still requires N.
     reveals = "reveal" in text or "show it to your opponent" in text
@@ -1289,6 +1347,20 @@ async def _generic_top_deck(ctx, text: str) -> bool:
     return True
 
 
+def _faba_targets(board, player_id):
+    """Opponent's attachments and any Trainer-targetable Stadium."""
+    from spirit.game.card_effects.trainers import _tools_and_stadium
+    opponent_id = _opponent_id(board, player_id)
+    targets = [card for card in _tools_and_stadium(board)
+               if is_stadium_card(card)
+               or card.parent.owning_player_id == opponent_id]
+    if opponent_id:
+        for pokemon in board.pokemon_in_play(opponent_id):
+            targets.extend(card for card in board.attached_energies(pokemon)
+                           if is_special_energy(card))
+    return targets
+
+
 def standard_trainer_effect(game_text: str):
     """Create a playable fallback for a non-passive Trainer's printed text.
 
@@ -1301,6 +1373,70 @@ def standard_trainer_effect(game_text: str):
     async def effect(ctx):
         text = normalized
         paid_hand_discard = False
+        from spirit.game.card_effects.sm_searches import resolve_sm_search
+        if await resolve_sm_search(ctx):
+            return
+        if "your zygarde-gx can use its gx attack" in text:
+            # Discarding is not an "if you do" cost. A protected Prism Star
+            # stays in play, but the independent GX permission still applies.
+            if ctx.stadium_in_play() is not None:
+                await ctx.discard_stadium()
+                ctx.session.turn_state.gx_repeat_names_this_turn.setdefault(
+                    ctx.player_id, set()).add("zygarde-gx")
+            return
+        if "heal 120 damage from the pokémon you moved to your bench" in text:
+            outgoing = ctx.my_active()
+            if outgoing is None or not ctx.my_bench():
+                return
+            paid = []
+            hand = [c for c in ctx.hand() if c is not ctx.source]
+            if len(hand) >= 2 and outgoing.get_attribute(AttrID.HP, 0) < ctx.max_hp(outgoing) \
+                    and await ctx.ask_yes_no("Discard 2 cards to heal the switched Pokémon?"):
+                paid = await ctx.choose_cards(hand, 2, minimum=2,
+                                               prompt="Choose 2 cards to discard")
+                await ctx.discard_cards(paid)
+            target = await ctx.choose_pokemon(ctx.my_bench(), "Choose your new Active Pokémon")
+            if target is not None:
+                await ctx.switch_active(ctx.player_id, target)
+                if len(paid) == 2:
+                    await ctx.heal(120, outgoing)
+            return
+        if "you may also search for a pokémon tool card and a special energy card" in text:
+            hand = [c for c in ctx.hand() if c is not ctx.source]
+            paid = []
+            if len(hand) >= 2 and await ctx.ask_yes_no(
+                    "Discard 2 cards to also search for a Pokémon Tool and Special Energy?"):
+                paid = await ctx.choose_cards(hand, 2, minimum=2,
+                                               prompt="Choose 2 cards to discard")
+                await ctx.discard_cards(paid)
+            groups = [(is_stadium_card, 1, "Stadium")]
+            if len(paid) == 2:
+                groups.extend([(is_pokemon_tool, 1, "Pokémon Tool"),
+                               (is_special_energy, 1, "Special Energy")])
+            selections = await ctx.search_deck_groups(groups, prompt="Choose cards to reveal")
+            await ctx.put_in_hand([c for group in selections for c in group], reveal=True)
+            await ctx.shuffle_deck()
+            return
+        if "you can't choose cynthia & caitlin" in text:
+            # Pay the optional cost before recovery, so the newly discarded
+            # card cannot be selected and the recovered card cannot pay it.
+            candidates = [c for c in ctx.discard_pile()
+                          if is_supporter_card(c)
+                          and _card_name(c).casefold() != "cynthia & caitlin"]
+            hand = [c for c in ctx.hand() if c is not ctx.source]
+            paid = []
+            if hand and ctx.deck() and await ctx.ask_yes_no(
+                    "Discard a card to draw 3 cards?"):
+                paid = await ctx.choose_cards(hand, 1, minimum=1,
+                                               prompt="Choose a card to discard")
+                await ctx.discard_cards(paid)
+            chosen = await _choose_one(ctx, candidates, "Choose a Supporter") \
+                if candidates else None
+            if chosen is not None:
+                await ctx.put_in_hand([chosen], reveal=True)
+            if paid:
+                await ctx.draw_cards(3)
+            return
         if text.startswith('you may play 2 puzzle of time cards at once'):
             copies = [card for card in ctx.hand() if card is not ctx.source
                       and _card_name(card).casefold() == 'puzzle of time']
@@ -1697,11 +1833,17 @@ def standard_trainer_effect(game_text: str):
         # Multi-step Supporters whose optional second paragraph cannot be
         # inferred from one generic draw/discard regex.
         if text.startswith("discard 3 cards from the top of each player's deck"):
+            hand = [c for c in ctx.hand() if c is not ctx.source]
+            paid = []
+            if len(hand) >= 3 and max(len(ctx.my_bench()), len(ctx.opponent_bench())) > 3 \
+                    and await ctx.ask_yes_no(
+                    "Discard 3 cards to reduce both Benches to 3 Pokémon?"):
+                paid = await ctx.choose_cards(hand, 3, minimum=3,
+                                               prompt="Choose 3 cards to discard")
+                await ctx.discard_cards(paid)
             await ctx.discard_cards(ctx.deck_top(3, ctx.opponent_id))
             await ctx.discard_cards(ctx.deck_top(3, ctx.player_id))
-            if len(ctx.hand()) >= 3 and await ctx.ask_yes_no(
-                    "Discard 3 cards to reduce both Benches to 3 Pokémon?"):
-                paid = await ctx.discard_from_hand(3, prompt="Choose 3 cards to discard")
+            if paid:
                 if len(paid) == 3:
                     for pid in (ctx.opponent_id, ctx.player_id):
                         bench = (ctx.opponent_bench() if pid == ctx.opponent_id
@@ -1729,9 +1871,7 @@ def standard_trainer_effect(game_text: str):
             return
 
         if "damage from your ultra beasts' attacks isn't affected" in text:
-            for pokemon in ctx.my_pokemon_in_play():
-                if "ultra beast" in _card_subtypes(pokemon):
-                    ctx.ignore_own_target_effects(pokemon)
+            ctx.ignore_own_target_effects(subtype="Ultra Beast")
             return
 
         if "all of your pokémon take 30 less damage" in text:
@@ -1866,7 +2006,7 @@ def standard_trainer_effect(game_text: str):
                 await ctx.reveal_cards(prizes, to_player=ctx.player_id)
             ultra_beasts = [card for card in prizes
                             if is_pokemon_card(card)
-                            and "Ultra Beast" in _card_subtypes(card)]
+                            and "ultra beast" in _card_subtypes(card)]
             chosen = await _choose_one(
                 ctx, ultra_beasts, "Choose an Ultra Beast", optional=True,
             ) if ultra_beasts else None
@@ -1969,16 +2109,7 @@ def standard_trainer_effect(game_text: str):
             if paid is None:
                 return
             await ctx.discard_cards([paid])
-            candidates = [card for card, pokemon in ctx.tools_in_play()
-                          if pokemon.owning_player_id == ctx.opponent_id]
-            candidates.extend(
-                energy for pokemon in ctx.opponent_pokemon_in_play()
-                for energy in ctx.attached_energies(pokemon)
-                if is_special_energy(energy)
-            )
-            stadium = ctx.stadium_in_play()
-            if stadium is not None:
-                candidates.append(stadium)
+            candidates = _faba_targets(ctx.board, ctx.player_id)
             chosen = await _choose_one(ctx, candidates, "Choose a card to discard") \
                 if candidates else None
             if chosen is not None:
@@ -2008,7 +2139,7 @@ def standard_trainer_effect(game_text: str):
                 ctx.player_id,
                 _TemporaryDamageRule(
                     ctx.player_id, prevent=True,
-                    target_predicate=lambda pokemon: "Ultra Beast" in _card_subtypes(pokemon),
+                    target_predicate=lambda pokemon: "ultra beast" in _card_subtypes(pokemon),
                 ),
                 ctx.session.turn_state.turn_number + 1,
             )
@@ -2294,12 +2425,22 @@ def standard_trainer_effect(game_text: str):
             if target is not None:
                 steps = max(1, sum(is_evolution_pokemon(card)
                                    for card in full_stack(target)))
+                stack = full_stack(target)
+                area = target.parent
+                if "any number of evolution cards" in text and steps > 1:
+                    steps = 1 + await ctx.choose("How many Evolution cards to remove?",
+                                                [str(n) for n in range(1, steps + 1)])
                 await ctx.devolve_pokemon(
                     target, steps=steps,
                     destination="deck" if "shuffling" in text else "hand",
                 )
                 if "shuffling" in text:
                     await ctx.shuffle_deck()
+                if "can't evolve this turn" in text:
+                    remaining = next((c for c in stack if c.parent is area), None)
+                    if remaining is not None:
+                        ctx.add_temporary_passive(remaining, _DevolutionEvolutionLock(),
+                                                 ctx.session.turn_state.turn_number)
             return
 
         # Multi-coin healing such as Moomoo Milk.  Each heads is a distinct
@@ -2431,16 +2572,19 @@ def standard_trainer_effect(game_text: str):
             return
 
         if text.startswith("choose a pokémon tool or special energy card attached"):
-            candidates = [tool for tool, _ in ctx.tools_in_play()]
-            for pid in ctx.board.player_ids:
-                for pokemon in ctx.board.pokemon_in_play(pid):
-                    candidates.extend(
-                        energy for energy in ctx.attached_energies(pokemon)
-                        if is_special_energy(energy)
-                    )
-            chosen = await _choose_one(ctx, candidates, "Choose a card to discard")
+            lost_zone = "lost zone" in text
+            candidates = _faba_targets(ctx.board, ctx.player_id) if lost_zone else [
+                card for pid in ctx.board.player_ids
+                for pokemon in ctx.board.pokemon_in_play(pid)
+                for card in pokemon.children
+                if is_pokemon_tool(card) or is_special_energy(card)]
+            chosen = await _choose_one(ctx, candidates,
+                "Choose a card to put in the Lost Zone" if lost_zone else "Choose a card to discard")
             if chosen is not None:
-                await ctx.discard_cards([chosen])
+                if lost_zone:
+                    await ctx.move_to_lost_zone([chosen])
+                else:
+                    await ctx.discard_cards([chosen])
             return
 
         if text.startswith("put 1 pokémon into your hand. (discard all cards attached"):
@@ -2584,8 +2728,13 @@ def standard_trainer_effect(game_text: str):
             await ctx.draw_cards(count, player_id=ctx.opponent_id)
             return
         if "each player shuffles their hand and puts it on the bottom" in text:
+            moved = 0
             for pid in ctx.board.player_ids:
-                await ctx.hand_to_bottom_of_deck(pid)
+                moved += await ctx.hand_to_bottom_of_deck(pid)
+            # Iono checks both hands collectively, after resolving movement.
+            # An empty hand still draws if the other player returned cards.
+            if "if either player put any cards" in text and not moved:
+                return
             for pid in ctx.board.player_ids:
                 prizes = ctx.board.find_player_area(pid, "prizePile")
                 await ctx.draw_cards(len(prizes.children) if prizes else 0, player_id=pid)
@@ -2691,6 +2840,16 @@ def standard_trainer_effect(game_text: str):
 
         # Public discard -> deck/hand families whose wording begins with
         # "search your discard pile" or "shuffle N in any combination".
+        if text.startswith("shuffle a pokémon and a pokémon tool card from your discard pile"):
+            picks = []
+            for predicate, label in ((is_pokemon_card, "Pokémon"), (is_pokemon_tool, "Pokémon Tool")):
+                pool = [card for card in ctx.discard_pile() if predicate(card)]
+                chosen = await _choose_one(ctx, pool, f"Choose a {label}") if pool else None
+                if chosen is not None:
+                    picks.append(chosen)
+            if picks:
+                await ctx.shuffle_into_deck(picks)
+            return
         if "discard pile" in text and "shuffle" in text \
                 and "into your deck" in text:
             count = _requested_count(text, default=1)
@@ -2925,6 +3084,7 @@ def standard_trainer_effect(game_text: str):
                        if "tag team" in _card_subtypes(pokemon)]
             await ctx.move_energy_freely(
                 sources, ctx.my_pokemon_in_play(), max_count=2,
+                single_source=True, single_destination=True,
                 prompt="Choose Energy to move",
             )
             return
@@ -3344,7 +3504,7 @@ def standard_trainer_effect(game_text: str):
         # Energy and damage movement keeps the physical selected card/counters
         # on the board, rather than resolving through copy dialogs.
         if (
-            re.search(r"move (?:a|an|up to \d+|any number of) .*energy", text)
+            re.search(r"move (?:a|an|(?:up to )?\d+|any (?:number|amount) of) .*energy", text)
             and (
                 "attached" in text
                 or "from 1 of your pokémon" in text
@@ -3354,11 +3514,17 @@ def standard_trainer_effect(game_text: str):
         ):
             sources = ctx.my_pokemon_in_play()
             targets = ctx.my_pokemon_in_play()
-            maximum = re.search(r"move up to (\d+) energy", text)
+            maximum = re.search(r"move (?:up to )?(\d+)\b", text)
+            unlimited = re.search(r"move any (?:number|amount) of\b", text)
+            # Missing a numeric digit does not mean unlimited: "a/an Energy"
+            # is exactly one physical card (not its provided Energy units).
+            limit = int(maximum.group(1)) if maximum else None if unlimited else 1
             await ctx.move_energy_freely(
                 sources, targets,
                 predicate=is_basic_energy if "basic energy" in text else None,
-                max_count=int(maximum.group(1)) if maximum else None,
+                max_count=limit,
+                single_source=bool(re.search(r"(?:from|attached(?: to)?) 1 of", text)),
+                single_destination=True,
                 prompt="Choose Energy to move",
             )
         moved_damage = re.search(
@@ -3479,12 +3645,23 @@ def standard_trainer_condition(game_text: str):
         return list(area.children) if area is not None else []
 
     def condition(board, player_id: str, card=None):
+        if card is not None:
+            from spirit.game.card_effects.sm_searches import search_permission
+            permission = search_permission(board, player_id, _card_name(card))
+            if permission is not None:
+                return permission
         hand = [entry for entry in cards(board, player_id, "hand") if entry is not card]
         deck = cards(board, player_id, "deck")
         discard = cards(board, player_id, "discard")
         opponent_id = _opponent_id(board, player_id)
         opponent_discard = cards(board, opponent_id, "discard") if opponent_id else []
         opponent_hand = cards(board, opponent_id, "hand") if opponent_id else []
+        if text.startswith("choose a pokémon tool or special energy card attached") and "lost zone" in text:
+            return bool(_faba_targets(board, player_id))
+        if "you can't choose cynthia & caitlin" in text:
+            return any(is_supporter_card(c)
+                       and _card_name(c).casefold() != "cynthia & caitlin"
+                       for c in discard) or bool(hand and deck)
         if "look at the top card of either player's deck" in text:
             return bool(deck or (opponent_id and cards(board, opponent_id, "deck")))
         if text.startswith('you may play 2 puzzle of time cards at once'):
@@ -3500,6 +3677,12 @@ def standard_trainer_condition(game_text: str):
         own_bench = list(own_bench_area.children) if own_bench_area else []
         opposing_bench = list(opposing_bench_area.children) \
             if opposing_bench_area else []
+
+        if "heal 120 damage from the pokémon you moved to your bench" in text:
+            return bool(own_bench and board.active_pokemon(player_id))
+        if text.startswith("discard 3 cards from the top of each player's deck"):
+            return bool(deck or cards(board, opponent_id, "deck")) or (
+                len(hand) >= 3 and max(len(own_bench), len(opposing_bench)) > 3)
 
         # Alternative effects are OR, not cumulative prerequisites.  In
         # particular a recovery option must not disable an available draw.
@@ -3518,12 +3701,11 @@ def standard_trainer_condition(game_text: str):
         # are deliberately excluded from this anchored pattern.
         public_recovery = re.match(
             r"^(?:put|shuffle) (?:up to )?(?:\d+|an?) "
-            r"(basic energy cards?|energy cards?|pokémon tool cards?|"
-            r"supporter cards?|pokémon) from your discard pile", text,
+            r"(.+?) from your discard pile", text,
         )
         if public_recovery:
             predicate = _search_predicate(public_recovery.group(1))
-            if not any(predicate(entry) for entry in discard):
+            if not any(predicate(entry) if predicate is not None else True for entry in discard):
                 return False
         until = re.match(r"draw cards until you have (\d+) cards in your hand\.", text)
         if until:
@@ -3712,9 +3894,6 @@ def standard_trainer_condition(game_text: str):
         ):
             return False
 
-        if "damage from your ultra beasts' attacks isn't affected" in text \
-                and not any("ultra beast" in _card_subtypes(p) for p in own_in_play):
-            return False
 
         if text.startswith("draw cards until you have the same number") \
                 and len(hand) >= len(opponent_hand):
@@ -3824,12 +4003,7 @@ def standard_trainer_condition(game_text: str):
                 and _pokemon_has_type(board, entry, PokemonTypes.DARKNESS)
                 for entry in hand
             )
-            stadium = board.find_global_area("activeStadium")
-            has_target = bool(stadium and stadium.children) or any(
-                is_pokemon_tool(entry) or is_special_energy(entry)
-                for pokemon in opposing_in_play
-                for entry in full_stack(pokemon)[1:]
-            )
+            has_target = bool(_faba_targets(board, player_id))
             if not has_cost or not has_target:
                 return False
 
@@ -3858,7 +4032,8 @@ def standard_trainer_condition(game_text: str):
                     or not board.attached_energies(active):
                 return False
 
-        if "any of your pokémon were knocked out during your opponent's last turn" in text:
+        if "any of your pokémon were knocked out during your opponent's last turn" in text \
+                or "1 of your pokémon was knocked out during your opponent's last turn" in text:
             state = getattr(board, "turn_state", None)
             if state is None or not state.pokemon_lost_last_turn(player_id):
                 return False
@@ -3957,8 +4132,7 @@ def standard_trainer_condition(game_text: str):
                 return False
 
         if text.startswith("discard any stadium card in play") and "if you do" in text:
-            stadium = board.find_global_area("activeStadium")
-            if stadium is None or not stadium.children:
+            if not any(is_stadium_card(c) for c in _faba_targets(board, player_id)):
                 return False
 
         if text.startswith("discard an energy attached to your opponent's active"):
@@ -3996,6 +4170,14 @@ def standard_trainer_condition(game_text: str):
             bench = board.find_player_area(player_id, "bench")
             if not any(board.attached_energies(pokemon)
                        for pokemon in (bench.children if bench else [])):
+                return False
+
+        if "move up to 2 energy from 1 of your tag team pokémon" in text:
+            if len(own_in_play) < 2 or not any(
+                "tag team" in _card_subtypes(pokemon)
+                and board.attached_energies(pokemon)
+                for pokemon in own_in_play
+            ):
                 return False
 
         if "move a special energy from 1 of your opponent's pokémon" in text:
@@ -4168,11 +4350,12 @@ def standard_stadium_ability(game_text: str):
         return healing_stadium_ability(game_text, 60, (PokemonTypes.GRASS.value,), cure=True)
     if "active pokémon is asleep" in text and "heal 30 damage" in text:
         return healing_stadium_ability(game_text, 30, requires_sleep=True)
+    from spirit.game.card_effects.sm_stadiums import stadium_effect_for_text
     return Ability(
         title="Stadium Effect",
         game_text=game_text,
         activation=Activations.ONCE_PER_TURN,
-        effect=standard_ability,
+        effect=stadium_effect_for_text(game_text) or standard_ability,
     )
 
 

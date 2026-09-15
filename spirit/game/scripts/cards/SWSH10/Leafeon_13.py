@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, AttrID
 from spirit.game.card_effects.trainers import is_basic_energy_card
@@ -12,7 +13,7 @@ async def energy_garden(ctx):
     for card in deck_cards:
         if not is_basic_energy_card(card):
             continue
-        types = card.get_attribute(AttrID.POKEMON_TYPES) or []
+        types = energy_card_types(card) or []
         if not types or types[0] in seen_types:
             continue
         seen_types.append(types[0])

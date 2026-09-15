@@ -221,6 +221,7 @@ def reprint(
             rarity=new_rarity,
             energy_type=energy_type,
             is_special=bool(_attr_value(base, AttrID.IS_SPECIAL_ENERGY, False)),
+            outside_play_types=getattr(base, "outside_play_types", None),
             provides=provides,
             attach_to=getattr(base, "attach_to", None),
             discard_if_invalid=getattr(base, "discard_if_invalid", False),
@@ -1157,6 +1158,7 @@ class EnergyCardDef(CardDefinition):
         attributes: Optional[dict] = None,
         regulation_mark: Optional[str] = None,
         foil: Optional[Foil] = None,
+        outside_play_types: Optional[List[PokemonTypes]] = None,
     ):
         super().__init__(
             guid, key, name, collector_number, set_code, rarity,
@@ -1165,6 +1167,9 @@ class EnergyCardDef(CardDefinition):
             foil=foil,
         )
         self.energy_type = energy_type
+        # None preserves the printed default; [] means no provided type until
+        # attached (e.g. Hiding Darkness, Wash Water and Aurora Energy).
+        self.outside_play_types = outside_play_types
         self.attach_to = attach_to
         self.discard_if_invalid = discard_if_invalid
         self.attach_condition = attach_condition

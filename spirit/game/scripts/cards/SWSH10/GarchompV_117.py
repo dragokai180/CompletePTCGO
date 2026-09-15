@@ -4,7 +4,7 @@ from spirit.game.card_effects.attacks_common import snipe_attack
 
 
 async def sonic_strike(ctx):
-    await ctx.discard_energy_from(ctx.attacker, 3, prompt="Choose 3 Energy to discard")
+    await ctx.discard_energy_units_from(ctx.attacker, 3, partial=True, prompt="Choose 3 Energy to discard")
     await snipe_attack(220, pool="any", count=1)(ctx)
 
 

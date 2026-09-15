@@ -296,6 +296,11 @@ class EffectContext:
         shuffle_into_deck, discard_cards/move_to_lost_zone (per card)."""
         if not self.is_trainer_effect:
             return False
+        if not isinstance(player_or_entity, str) and (
+                is_item_card(self.source) or is_supporter_card(self.source)):
+            from spirit.game.session.passives import trainer_targeting_blocked
+            if trainer_targeting_blocked(self.board, player_or_entity):
+                return True
         pid = player_or_entity if isinstance(player_or_entity, str) \
             else getattr(player_or_entity, "owning_player_id", None)
         if pid is None:
@@ -398,10 +403,14 @@ class EffectContext:
         if is_attack is None:
             is_attack = self.is_attack_effect()
         # Turn-scoped Max Miracle flag on the attacker (Phoebe).
-        if not ignore_target_effects and self.attacker is not None \
-                and self.attacker.entity_id in \
-                self.session.turn_state.ignore_target_effects_entities:
-            ignore_target_effects = True
+        if not ignore_target_effects and is_attack and self.attacker is not None \
+                and target is self.opponent_active():
+            turn = self.session.turn_state
+            subtypes = {str(s).casefold() for s in
+                        (getattr(def_for(self.attacker.archetype_id), 'subtypes', []) or [])}
+            ignore_target_effects = (
+                self.attacker.entity_id in turn.ignore_target_effects_entities
+                or bool(subtypes & turn.ignore_target_effects_subtypes.get(self.player_id, set())))
         if not ignore_target_effects and self.is_attack_effect() \
                 and attack_ignores_defender_effects(self.board, self.attacker):
             ignore_target_effects = True
@@ -798,10 +807,15 @@ class EffectContext:
             from_attack=self.is_attack_effect(),
         )
 
-    def ignore_own_target_effects(self, entity: PokemonEntity) -> None:
+    def ignore_own_target_effects(self, entity: Optional[PokemonEntity] = None,
+                                  *, subtype: Optional[str] = None) -> None:
         """"During this turn, <entity>'s attacks aren't affected by effects on
         the opponent's Active" (Phoebe); cleared at begin_turn."""
-        self.session.turn_state.ignore_target_effects_entities.add(entity.entity_id)
+        if subtype:
+            self.session.turn_state.ignore_target_effects_subtypes.setdefault(
+                self.player_id, set()).add(subtype.casefold())
+        elif entity is not None:
+            self.session.turn_state.ignore_target_effects_entities.add(entity.entity_id)
 
     def take_extra_turn(self) -> None:
         """"Take another turn after this one. (Skip Pokemon Checkup.)"
@@ -949,7 +963,8 @@ class EffectContext:
         # runs for a COPIED attack), so it has to be checked/recorded here
         # too -- otherwise Regidrago VSTAR's Apex Dragon (or any other
         # attack-copying effect) can replay a GX attack freely.
-        if getattr(ability, "gx", False) and self.player_id in self.session.turn_state.gx_used:
+        if getattr(ability, "gx", False) and self.player_id in self.session.turn_state.gx_used \
+                and not self.session.turn_state.can_repeat_gx(self.player_id, self.attacker):
             logging.info(
                 f"[Effects {self.game_id}] Copied GX attack '{ability.title}' "
                 f"blocked: player {self.player_id} already used a GX attack "
@@ -1731,11 +1746,19 @@ class EffectContext:
         await self._move_to_public_pile(cards, "lostZone")
 
     async def _move_to_public_pile(self, cards: List[CardEntity], area_name: str):
+        # Resolve simultaneous discard replacements while the entire stack is
+        # still in play. Moving its Pokemon first must not turn off Recycle
+        # Energy/U-Turn Board before their own destinations are determined.
+        cards = list(cards)
+        replacements = {
+            card.entity_id: passive_discard_destination(self.board, card)
+            for card in cards
+        } if area_name == "discard" else {}
         for card in cards:
             owner = card.owning_player_id or self.player_id
             # Prism Star: a discard becomes a Lost Zone move.
             if area_name == "discard":
-                target_area = passive_discard_destination(self.board, card) \
+                target_area = replacements.get(card.entity_id) \
                     or discard_area_name(card.archetype_id)
             else:
                 target_area = area_name
@@ -2132,6 +2155,11 @@ class EffectContext:
         position = self.board.free_bench_slot(owner)
         if not self.board.move_card(card.entity_id, bench.entity_id):
             return False
+        # A recovered card starts a new life in play, never with stale damage
+        # or restrictions from its previous appearance (Echoing Horn, etc.).
+        self.session.clear_pokemon_effects(card)
+        self.session.reset_pokemon_damage(card)
+        self.session.reset_ability_usage(card)
         self.session.turn_state.mark_entered_play(card.entity_id)
         # Entering play from any zone is public knowledge.
         self._queue_intro_and_move(card, bench.entity_id, position)
@@ -2333,17 +2361,24 @@ class EffectContext:
         predicate: Optional[Callable[[CardEntity], bool]] = None,
         max_count: Optional[int] = None,
         prompt: str = "Choose an Energy to move",
+        *,
+        single_source: bool = False,
+        single_destination: bool = False,
     ) -> List[Tuple[CardEntity, PokemonEntity]]:
         """"Move any amount of Energy ... in any way you like": repeats
         [pick an attached energy pip, minimum 0 = stop] -> [pick its
         destination] until the player declines or the pool is exhausted.
-        Each energy moves at most once. Returns the (energy, dest) moves."""
+        Each energy moves at most once. Single-source/destination effects
+        bind subsequent moves to the first successful transfer's Pokemon.
+        Returns the (energy, dest) moves."""
         moved: List[Tuple[CardEntity, PokemonEntity]] = []
         source_list = list(sources)
+        dest_list = list(dest_candidates)
         while max_count is None or len(moved) < max_count:
             moved_ids = {e.entity_id for e, _ in moved}
             pool = [e for p in source_list for e in self.attached_energies(p)
-                    if e.entity_id not in moved_ids
+                    if any(d is not p for d in dest_list)
+                    and e.entity_id not in moved_ids
                     and (predicate is None or predicate(e))]
             if not pool:
                 break
@@ -2352,7 +2387,7 @@ class EffectContext:
                 break
             energy = picked[0]
             holder = carrier_pokemon(energy)
-            dests = [d for d in dest_candidates if d is not holder]
+            dests = [d for d in dest_list if d is not holder]
             if not dests:
                 break
             dest = await self.choose_pokemon(
@@ -2360,6 +2395,10 @@ class EffectContext:
             if dest is None or not await self.move_energy(energy, dest):
                 break
             moved.append((energy, dest))
+            if single_source:
+                source_list = [holder]
+            if single_destination:
+                dest_list = [dest]
         return moved
 
     async def switch_active(self, player_id: str, new_active: PokemonEntity) -> bool:
@@ -2508,17 +2547,9 @@ class EffectContext:
         stadiums = list(area.children) if area else []
         first = None
         for stadium in stadiums:
-            owner_id = stadium.owning_player_id or self.player_id
-            discard = self.board.find_player_area(owner_id, "discard")
-            if not discard:
-                continue
-            position = len(discard.children)
-            if not self.board.move_card(stadium.entity_id, discard.entity_id):
-                continue
-            self._queue(self.session._entity_moved_msg(
-                stadium.entity_id, discard.entity_id, position
-            ))
-            if first is None:
+            await self.discard_cards([stadium])
+            # Respect Trainer immunity and Prism Star's Lost Zone replacement.
+            if first is None and stadium.parent is not area:
                 first = stadium
         return first
 
@@ -2577,13 +2608,22 @@ class EffectContext:
     def bracket_runs_for(
         self, viewer_id: str, default: str = GameSequence.GROUPED_MOVE.value
     ) -> List[Tuple[str, List[Dict[str, Any]]]]:
-        """The viewer's messages grouped into consecutive same-bracket runs."""
+        """Group messages without merging distinct native hand animations."""
         runs: List[Tuple[str, List[Dict[str, Any]]]] = []
         for vid, msg, bracket in self._messages:
             if vid is not None and vid != viewer_id:
                 continue
             name = bracket or default
-            if runs and runs[-1][0] == name:
+            # One HandShuffledAndMovedToDeck operation belongs to one hand.
+            # Iono invokes it twice consecutively; merging the runs makes the
+            # client process two hands/decks as a single animation and can
+            # prevent the following Draw sequences from being displayed.
+            starts_hand_shuffle = (
+                name == GameSequence.HAND_SHUFFLED_AND_MOVED_TO_DECK.value
+                and isinstance(msg, dict)
+                and msg.get('name') == OutboundMsg.SHUFFLED.value
+            )
+            if runs and runs[-1][0] == name and not starts_hand_shuffle:
                 runs[-1][1].append(msg)
             else:
                 runs.append((name, [msg]))

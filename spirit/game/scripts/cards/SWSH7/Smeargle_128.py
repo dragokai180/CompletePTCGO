@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import AttrID, PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.trainers import is_basic_energy_card
@@ -16,7 +17,7 @@ async def live_painting(ctx):
     await ctx.reveal_cards(picks)
     types = set()
     for card in picks:
-        types.update(card.get_attribute(AttrID.POKEMON_TYPES) or [])
+        types.update(energy_card_types(card) or [])
     amount = 30 * len(types)
     if amount > 0:
         await ctx.deal_damage(amount)

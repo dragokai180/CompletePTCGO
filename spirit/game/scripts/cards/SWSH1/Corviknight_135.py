@@ -6,10 +6,10 @@ from spirit.game.card_effects.passives_common import apply_protection
 async def iron_wings(ctx):
     await ctx.deal_damage()
     energies = ctx.attached_energies(ctx.attacker)
-    if len(energies) >= 2 and await ctx.ask_yes_no(
+    if energies and await ctx.ask_yes_no(
         "Discard 2 Energy from this Pokémon?"
     ):
-        picks = await ctx.discard_energy_from(ctx.attacker, 2)
+        picks = await ctx.discard_energy_units_from(ctx.attacker, 2, partial=True)
         if picks:
             await apply_protection(ctx, reduce=100)
 

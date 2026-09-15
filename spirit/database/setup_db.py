@@ -3,6 +3,7 @@ import sys
 import uuid
 import hashlib
 import sqlite3
+import secrets
 
 # Ensure Python can find the 'spirit' module
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -53,28 +54,31 @@ def setup_database():
         except Exception as e:
             print(f" - Warning: Auto-migration of decks table failed: {e}")
 
-    # Insert test user 'brandon'
-    test_username = "brandon"
-    test_password = "password" # Simple default password for testing
+    # Seed a local administrator without a shared, hard-coded password.
+    admin_username = os.environ.get("SPIRIT_INITIAL_ADMIN_USER", "GhostCursesYou")
     
     new_account_id = None
     with db_session() as session:
-        acc = session.query(Account).filter_by(username=test_username).first()
+        acc = session.query(Account).filter_by(username=admin_username).first()
         if not acc:
+            admin_password = os.environ.get("SPIRIT_INITIAL_ADMIN_PASSWORD") \
+                or secrets.token_urlsafe(24)
             acc_id = str(uuid.uuid4())
-            pwd_hash = hash_password(test_password)
+            pwd_hash = hash_password(admin_password)
             new_acc = Account(
                 account_id=acc_id,
-                username=test_username,
+                username=admin_username,
                 password_hash=pwd_hash,
-                screen_name=test_username,
+                screen_name=admin_username,
                 is_admin=True
             )
             session.add(new_acc)
             new_account_id = acc_id
-            print(f" - Seeded test account: '{test_username}' with password '{test_password}' (admin).")
+            print(f" - Created administrator: '{admin_username}'.")
+            if not os.environ.get("SPIRIT_INITIAL_ADMIN_PASSWORD"):
+                print(f" - Initial password (save it now): {admin_password}")
         else:
-            print(f" - Test account '{test_username}' already exists.")
+            print(f" - Account '{admin_username}' already exists; credentials and permissions unchanged.")
 
     if new_account_id:
         try:

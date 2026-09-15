@@ -5,7 +5,7 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, Special
 async def hail_prison(ctx):
     """160 damage, discard 2 Energy from this Pokémon, opponent's Active is now Paralyzed."""
     await ctx.deal_damage()
-    await ctx.discard_energy_from(ctx.attacker, 2)
+    await ctx.discard_energy_units_from(ctx.attacker, 2, partial=True)
     await ctx.apply_special_condition(ctx.defender, SpecialConditions.PARALYZED)
 
 

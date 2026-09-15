@@ -34,7 +34,7 @@ card = PokemonCardDef(
             cost={PokemonTypes.COLORLESS: 1},
             damage=10,
             effect=standard_attack,
-            locks_next_turn=True,
+            locks_next_turn=False,
         ),
     ],
 )

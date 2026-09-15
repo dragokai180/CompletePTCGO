@@ -7,7 +7,7 @@ async def _farewell_bell(ctx):
     if not ctx.ko_from_attack or not is_pokemon_vmax(ctx.source.archetype_id):
         return
     picks = await ctx.search_deck(
-        count=1, minimum=0, prompt="Choose a card to put into your hand."
+        count=1, minimum=1, prompt="Choose a card to put into your hand."
     )
     await ctx.put_in_hand(picks, reveal=False)
     await ctx.shuffle_deck()

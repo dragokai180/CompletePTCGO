@@ -13,8 +13,8 @@ async def field_trap(ctx):
     target = ctx.opponent_active()
     if target is None or ctx.effects_blocked(target):
         return
-    await ctx.discard_energy_from(
-        target, 2, prompt="Choose 2 Energy to discard from the Defending Pokémon"
+    await ctx.discard_energy_units_from(
+        target, 2, partial=True, prompt="Choose 2 Energy to discard from the Defending Pokémon"
     )
 
 

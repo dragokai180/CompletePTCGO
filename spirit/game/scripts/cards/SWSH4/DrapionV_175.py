@@ -3,7 +3,7 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, Special
 
 
 async def hazardous_claws(ctx):
-    await ctx.discard_energy_from(ctx.attacker, 2)
+    await ctx.discard_energy_units_from(ctx.attacker, 2, partial=True)
     await ctx.deal_damage()
     await ctx.apply_special_condition(ctx.defender, SpecialConditions.PARALYZED)
     await ctx.apply_special_condition(ctx.defender, SpecialConditions.POISONED)

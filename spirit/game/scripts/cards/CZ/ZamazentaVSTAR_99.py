@@ -8,8 +8,8 @@ async def shield_star(ctx):
     """VSTAR Power: during opponent's next turn, your Pokemon take 100 less
     damage from their attacks (after W/R); covers Pokemon played later too."""
     shield = takes_less_passive(100, protects="team")
-    for pokemon in ctx.my_pokemon_in_play():
-        ctx.add_passive_through_opponents_turn(pokemon, shield)
+    ctx.add_temporary_player_passive(
+        ctx.player_id, shield, ctx.session.turn_state.turn_number + 1)
 
 
 async def giga_impact(ctx):

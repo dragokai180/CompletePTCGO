@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import SupporterCardDef
 from spirit.game.attributes import Rarities, PokemonTypes, AttrID
 from spirit.game.card_effects.trainers import is_basic_energy_card
@@ -16,7 +17,7 @@ async def candela(ctx):
     energies = [
         c for c in ctx.discard_pile()
         if is_basic_energy_card(c)
-        and PokemonTypes.FIRE.value in (c.get_attribute(AttrID.POKEMON_TYPES) or [])
+        and PokemonTypes.FIRE.value in (energy_card_types(c) or [])
     ]
     if not bench or not energies:
         return

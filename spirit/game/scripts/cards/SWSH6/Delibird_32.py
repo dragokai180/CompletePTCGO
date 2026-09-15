@@ -17,7 +17,7 @@ async def package_delivery(ctx):
 
     ctx.deferred_actions.append(_promote)
     picks = await ctx.search_deck(
-        None, count=1, minimum=0,
+        None, count=1, minimum=1,
         prompt="Choose a card to put into your hand.",
     )
     await ctx.put_in_hand(picks, reveal=False)

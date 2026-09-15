@@ -1,10 +1,11 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, subtypes_for
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.attacks_common import damage_per, count_discard
+from spirit.game.session.effects import is_pokemon_card
 
 
 def _is_single_strike(card) -> bool:
-    return "Single Strike" in subtypes_for(card.archetype_id)
+    return is_pokemon_card(card) and "Single Strike" in subtypes_for(card.archetype_id)
 
 
 card = PokemonCardDef(

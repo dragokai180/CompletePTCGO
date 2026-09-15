@@ -19,6 +19,7 @@ card = PokemonCardDef(
     retreat_cost=2,
     weakness_type=PokemonTypes.LIGHTNING,
     resistance_type=PokemonTypes.FIGHTING,
+    resistance_amount=20,
     abilities=[
         Attack(
             title="Random Spark",

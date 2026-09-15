@@ -14,5 +14,6 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.WATER,
     is_special=True,
+    outside_play_types=[],
     passive=WashWaterPassive(),
 )

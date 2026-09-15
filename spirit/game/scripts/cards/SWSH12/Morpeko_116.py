@@ -3,14 +3,11 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.attacks_common import damage_all_opponents
 
 
+from spirit.game.card_effects.attacks_common import previous_attack_matches
+
+
 def _dedenne_dede_short_condition(board, player_id, pokemon):
-    for p in board.pokemon_in_play(player_id):
-        card_def = def_for(p.archetype_id)
-        if card_def and card_def.display_name == "Dedenne":
-            for used_id, _archetype, used_title in board.turn_state.attacks_used_last_turn:
-                if used_id == p.entity_id and used_title == "Dede-Short":
-                    return True
-    return False
+    return previous_attack_matches(board, player_id, name="Dedenne", title="Dede-Short")
 
 
 card = PokemonCardDef(

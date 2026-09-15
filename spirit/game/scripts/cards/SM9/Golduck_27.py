@@ -31,7 +31,7 @@ card = PokemonCardDef(
             cost={PokemonTypes.WATER: 1},
             damage=20,
             effect=standard_attack,
-            locks_next_turn=True,
+            locks_next_turn=False,
         ),
         Attack(
             title='Swim',

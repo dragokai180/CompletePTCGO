@@ -138,6 +138,7 @@ from .legal_actions import (
     ACTION_USE_ATTACK,
     ACTION_USE_TRAINER,
     TurnState,
+    ability_condition_met,
     compute_legal_actions,
     copy_attack_choice_node,
     energy_provided_count,
@@ -2302,7 +2303,11 @@ class GameSession:
         # Prize counts/destinations evaluate BEFORE any stack moves so the
         # KO'd Pokemon's own passives and Special Conditions still count.
         passive_pairs = active_passives(self.board_state)
+        from spirit.game.session.passives import effective_pokemon_types
+        knockout_types = {pokemon.entity_id: list(effective_pokemon_types(self.board_state, pokemon))
+                          for pokemon in ctx.knockouts}
         prize_plans: List[Tuple[str, int, str]] = []
+        prize_bonus_eligible = set()
         ally_triggers: List[Tuple[PokemonEntity, str, Ability, PokemonEntity, bool]] = []
         passive_ko_hooks: List[Tuple[Any, BoardEntity, PokemonEntity, str,
                                      bool, bool, List[BoardEntity]]] = []
@@ -2310,7 +2315,14 @@ class GameSession:
             owner_id = pokemon.owning_player_id
             if owner_id is None:
                 continue
-            count = prize_value(pokemon.archetype_id)
+            prizes_prevented = any(
+                passive.prevents_prizes_for_knockout(pokemon, ctx, carrier)
+                for passive, carrier in passive_pairs
+            )
+            # "Can't take any" wins over every bonus, but only for this KO.
+            # Skip numerical modifiers too: some consume once-per-game effects.
+            prize_passives = [] if prizes_prevented else passive_pairs
+            count = 0 if prizes_prevented else prize_value(pokemon.archetype_id)
             was_active = self.board_state.active_pokemon(owner_id) is pokemon
             from_attack = _damage_ko(pokemon) \
                 and ctx.attacker.owning_player_id != owner_id
@@ -2320,10 +2332,10 @@ class GameSession:
                     passive, carrier, pokemon, owner_id, was_active,
                     from_attack, stack_snapshot,
                 ))
-            for passive, carrier in passive_pairs:
+            for passive, carrier in prize_passives:
                 count = passive.modify_prizes_for_knockout(pokemon, ctx, count, carrier)
             extra_seen = set()
-            for passive, carrier in passive_pairs:
+            for passive, carrier in prize_passives:
                 key = getattr(passive, "stacking_key", None)
                 seen_key = (key, carrier.owning_player_id) if key is not None else None
                 if seen_key is not None and seen_key in extra_seen:
@@ -2336,7 +2348,10 @@ class GameSession:
             # This-turn bonus-prize watchers (Star Order): attack-damage KOs
             # only, evaluated pre-move so Active-spot predicates still hold.
             taker_id = self._opponent_id(owner_id)
-            if _damage_ko(pokemon) and ctx.attacker.owning_player_id == taker_id:
+            if not prizes_prevented:
+                prize_bonus_eligible.add(taker_id)
+            if not prizes_prevented and _damage_ko(pokemon) \
+                    and ctx.attacker.owning_player_id == taker_id:
                 for watcher in self.turn_state.extra_prize_watchers:
                     if watcher["player_id"] != taker_id:
                         continue
@@ -2393,7 +2408,7 @@ class GameSession:
                 continue
             was_active = self.board_state.active_pokemon(owner_id) is pokemon
             # Lost City-style passives (Lost Zone) redirect the KO'd Pokemon
-            # stack; energy/tools always fall to the discard pile.
+            # stack; attachments use their own leave-play replacements.
             dest_name = next(
                 (d for p, c in passive_pairs
                  for d in [p.knockout_destination_for(pokemon, ctx, c)] if d),
@@ -2416,10 +2431,12 @@ class GameSession:
                     else attachment_dest
                 # Prism Star: anything in the stack that would hit a discard
                 # pile goes to the Lost Zone instead, the Pokemon included.
-                if area is discard or dest_name == "discard":
-                    if discard_area_name(entity.archetype_id) == "lostZone":
-                        area = self.board_state.find_player_area(
-                            owner_id, "lostZone") or area
+                if area is discard:
+                    replacement = next(
+                        (destination for passive, carrier in passive_pairs
+                         for destination in [passive.discard_destination(entity, carrier)]
+                         if destination), discard_area_name(entity.archetype_id))
+                    area = self.board_state.find_player_area(owner_id, replacement) or area
                 position = len(area.children)
                 if self.board_state.move_card(entity.entity_id, area.entity_id):
                     moves.append(self._entity_moved_msg(
@@ -2493,7 +2510,7 @@ class GameSession:
                 prize_awards[(taker_id, mode)] = (
                     prize_awards.get((taker_id, mode), 0) + count
                 )
-        if ctx.extra_prizes and any(t == ctx.player_id for t, _, _ in prize_plans):
+        if ctx.extra_prizes and ctx.player_id in prize_bonus_eligible:
             prize_awards[(ctx.player_id, "hand")] = (
                 prize_awards.get((ctx.player_id, "hand"), 0) + ctx.extra_prizes
             )
@@ -2510,6 +2527,7 @@ class GameSession:
             hook_ctx.knocked_out_pokemon = pokemon
             hook_ctx.knocked_out_stack = stack
             hook_ctx.knocked_out_attachments = stack[1:]
+            hook_ctx.knocked_out_types = knockout_types[pokemon.entity_id]
             hook_ctx.was_active_at_ko = was_active
             hook_ctx.ko_from_attack = from_attack
             hook_ctx.ko_attacker = ctx.attacker if from_attack else None
@@ -3120,6 +3138,29 @@ class GameSession:
         self._sudden_death = True
         self.game_phase = GamePhase.INIT
 
+    async def _settle_empty_active_spots(self):
+        """Finish replacement choices after a complete effect, never mid-move.
+
+        Returning/shuffling a Pokemon is not a Knock Out. It therefore does
+        not enter the KO promotion queue, but must still replace an empty
+        Active before normal actions resume. Existing deferred promotions
+        are harmless: an already-filled spot needs no second choice.
+        """
+        if all(self.board_state.active_pokemon(pid) is not None
+               for pid in self.players):
+            return
+        await self._resolve_simultaneous_win_conditions()
+        # Match simultaneous replacement order: non-turn player first.
+        current = self.turn_state.active_player_id
+        order = sorted(self.players, key=lambda pid: pid == current)
+        for pid in order:
+            if self.board_state.active_pokemon(pid) is None \
+                    and not await self._promote_new_active(pid):
+                await self.end_game(
+                    self._opponent_id(pid),
+                    f"{self.players[pid].screen_name} has no Pokémon left",
+                )
+
     async def _promote_new_active(self, player_id: str) -> bool:
         """The player promotes a benched Pokemon into the empty Active spot.
         Returns False when the bench is empty (a loss condition)."""
@@ -3656,6 +3697,7 @@ class GameSession:
         intros would apply only after the deal, dealing the hand face-down).
         """
         self.game_phase = GamePhase.DEAL_HANDS
+        self.board_state.setup_first_player_id = self.first_player_id
 
         # 1. Shuffle each deck and animate it (turn order = first player first).
         for player_id in self._turn_order():
@@ -3979,6 +4021,9 @@ class GameSession:
 
         for _ in range(MAX_ACTIONS_PER_TURN):
             await self._wait_for_connection_resume()
+            # Safety net for any effect that vacated an Active without a KO.
+            # Do not offer cards/abilities until replacement is complete.
+            await self._run_state_unit(self._settle_empty_active_spots())
             await self._run_state_unit(self._refresh_dynamic_attacks(active_id))
             target_map = compute_legal_actions(
                 self.board_state, self.turn_state, active_id, self.game_id
@@ -4249,7 +4294,7 @@ class GameSession:
         return ends_turn
 
     async def _fire_triggered_abilities(self, player_id: str, card, trigger: str,
-                                        ctx_setup=None) -> bool:
+                                        ctx_setup=None, *, from_hand=None) -> bool:
         """Runs a card's abilities matching `trigger` (on-play, on-evolve,
         on-knocked-out, between-turns, turn-drawn, taken-as-prize); scans the
         entity's PIE_ABILITIES plus the definition's declared abilities
@@ -4274,6 +4319,8 @@ class GameSession:
                 abilities.append(ability)
         for ability in abilities:
             if ability.has_trigger(trigger):
+                if from_hand is False and "from your hand" in (ability.game_text or "").casefold():
+                    continue
                 # "1 per turn" abilities shared by name across copies (Dark Asset).
                 if ability.shared_once_per_turn \
                         and ability.shared_once_per_turn in self.turn_state.used_named_abilities:
@@ -5002,6 +5049,8 @@ class GameSession:
                 f"{card.entity_id} has no registered definition; ignoring."
             )
             return False
+        if not ability_condition_met(ability, self.board_state, player_id, card):
+            return False
         if ability.activation != Activations.UNLIMITED:
             self.turn_state.used_abilities.add((card.entity_id, action_id))
         if ability.shared_once_per_turn:
@@ -5017,13 +5066,7 @@ class GameSession:
         # Big Jump and other self-removal Abilities are not Knock Outs. Fill
         # their empty Active spot after all movement/KO choreography, before
         # offering the player any more actions.
-        for pid in self.players:
-            if self.board_state.active_pokemon(pid) is None \
-                    and not await self._promote_new_active(pid):
-                await self.end_game(
-                    self._opponent_id(pid),
-                    f"{self.players[pid].screen_name} has no Pokémon left",
-                )
+        await self._settle_empty_active_spots()
         return ctx is not None and ctx.ends_turn
 
     async def _execute_evolve(self, player_id, card, entry, target_ids):
@@ -5069,6 +5112,7 @@ class GameSession:
         attrs applied before the Evolve bracket on both viewers).
         """
         card = evolution_card
+        played_from_hand = card.parent is self.board_state.find_player_area(player_id, "hand")
         area = target.parent if target is not None else None
         if not target or not area:
             return False
@@ -5108,6 +5152,10 @@ class GameSession:
         position = len(card.children)
         self.board_state.attach_card(target.entity_id, card.entity_id)
         moves.append(self._entity_moved_msg(target.entity_id, card.entity_id, position))
+        # Evolution keeps the same Pokemon for Harmonics' second attachment.
+        # The legal-action layer still rechecks whether an allowance exists.
+        if self.turn_state.bonus_energy_target_id == target.entity_id:
+            self.turn_state.bonus_energy_target_id = card.entity_id
 
         # The counters now live on the evolution; clear the tucked-under
         # pre-evolution's HP so its stale damage isn't re-rendered on inspect.
@@ -5172,17 +5220,18 @@ class GameSession:
 
         # Wyndon Stadium: heal a Pokemon just evolved from hand (deck-sourced
         # evolutions ride from_zone_intro and are not "played from hand").
-        if not from_zone_intro:
+        if played_from_hand:
             heal = evolve_heal_amount(self.board_state, card, target, player_id)
             if heal > 0:
                 heal_ctx = EffectContext(self, player_id, card, None)
                 if await heal_ctx.heal(heal, target=card):
                     await self._flush_effect_runs(heal_ctx)
 
-        await self._fire_triggered_abilities(player_id, card, Triggers.ON_EVOLVE)
+        await self._fire_triggered_abilities(
+            player_id, card, Triggers.ON_EVOLVE, from_hand=played_from_hand)
         # Hand-played evolutions also fire the owner's OTHER Pokemon (Eevee's
         # Resonant Evolution); deck-sourced ones aren't "played from hand".
-        if not from_zone_intro:
+        if played_from_hand:
             await self._fire_ally_evolved_triggers(player_id, card, target)
         # Rebroadcast printed + tool-granted abilities so the client panel
         # isn't left on the pre-evolution's attacks (Trade the turn you evolve).
@@ -5448,6 +5497,11 @@ class GameSession:
     async def _execute_play_trainer(self, player_id, card) -> bool:
         """Plays an Item/Supporter: revealed onto activeTrainer, effect resolves,
         then discarded. Returns True when the effect ended the turn (Rotom Bike)."""
+        from spirit.game.session.legal_actions import trainer_condition_met
+        definition = def_for(card.archetype_id)
+        if not trainer_condition_met(getattr(definition, 'condition', None),
+                                     self.board_state, player_id, card):
+            return False
         trainer_area = self.board_state.find_global_area("activeTrainer")
         discard_area = self.board_state.find_player_area(player_id, "discard")
         if not trainer_area or not discard_area:
@@ -5528,6 +5582,9 @@ class GameSession:
                 await hook()
             # The effect may have removed a Stadium / toggled capacity passives.
             await self.enforce_bench_capacity()
+        # Super Scoop Up, AZ, Penny, Cassius, etc. can remove an Active
+        # without a KO or a card-specific deferred promotion hook.
+        await self._settle_empty_active_spots()
         return ctx is not None and ctx.ends_turn
 
     def _record_trainer_played(self, card):

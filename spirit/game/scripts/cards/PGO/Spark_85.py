@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import SupporterCardDef
 from spirit.game.attributes import Rarities, PokemonTypes, AttrID
 from spirit.game.card_effects.trainers import is_basic_energy_card
@@ -6,7 +7,7 @@ from spirit.game.card_effects.trainers import is_basic_energy_card
 def _is_lightning_energy_card(card):
     if not is_basic_energy_card(card):
         return False
-    types = card.get_attribute(AttrID.POKEMON_TYPES) or []
+    types = energy_card_types(card) or []
     return PokemonTypes.LIGHTNING.value in types
 
 

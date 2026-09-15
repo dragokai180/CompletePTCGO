@@ -14,5 +14,6 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.LIGHTNING,
     is_special=True,
+    outside_play_types=[],
     on_attach=speed_lightning_on_attach
 )

@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import AttrID, PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.trainers import is_basic_energy_card
@@ -11,7 +12,7 @@ async def amazing_burst(ctx):
     )
     types = set()
     for card in picks:
-        for t in (card.get_attribute(AttrID.POKEMON_TYPES) or []):
+        for t in (energy_card_types(card) or []):
             types.add(t)
     await ctx.deal_damage(80 * len(types))
 

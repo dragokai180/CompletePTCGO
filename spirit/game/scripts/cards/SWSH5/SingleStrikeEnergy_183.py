@@ -16,6 +16,7 @@ card = EnergyCardDef(
     rarity=Rarities.RareSecret,
     energy_type=PokemonTypes.FIGHTING,
     is_special=True,
+    outside_play_types=[],
     provides=[[PokemonTypes.FIGHTING], [PokemonTypes.DARKNESS]],
     attach_to=is_single_strike,
     discard_if_invalid=True,

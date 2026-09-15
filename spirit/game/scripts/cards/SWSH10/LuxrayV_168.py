@@ -21,7 +21,7 @@ async def fang_snipe(ctx):
 async def radiating_pulse(ctx):
     """Discard 2 Energy from this Pokémon. 120 damage. Opponent's Active is
     now Paralyzed."""
-    await ctx.discard_energy_from(ctx.attacker, 2)
+    await ctx.discard_energy_units_from(ctx.attacker, 2, partial=True)
     await ctx.deal_damage()
     await ctx.apply_special_condition(ctx.defender, SpecialConditions.PARALYZED)
 

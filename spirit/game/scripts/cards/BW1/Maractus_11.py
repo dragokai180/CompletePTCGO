@@ -19,6 +19,7 @@ card = PokemonCardDef(
     retreat_cost=2,
     weakness_type=PokemonTypes.FIRE,
     resistance_type=PokemonTypes.WATER,
+    resistance_amount=20,
     abilities=[
         Attack(
             title="Mega Drain",

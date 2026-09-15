@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, unimplemented, Triggers
 from spirit.game.card_effects.pokemon import top_entry
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, AttrID
@@ -8,7 +9,7 @@ from spirit.game.card_effects.support_common import attach_from_discard
 def _is_fire_energy(card):
     # "a Fire Energy card" = a BASIC Fire Energy (Welder precedent) -- Heat
     # Fire Energy carries POKEMON_TYPES=[Fire] but is Special.
-    types = card.get_attribute(AttrID.POKEMON_TYPES) or []
+    types = energy_card_types(card) or []
     return is_basic_energy_card(card) and PokemonTypes.FIRE.value in types
 
 

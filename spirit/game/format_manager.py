@@ -1,7 +1,9 @@
 import json
 import logging
 import os
+import re
 import time
+import unicodedata
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from spirit.game.attributes import AttrID, CardType, DeckFormat
@@ -13,7 +15,10 @@ FORMATS_PATH = os.path.abspath(os.path.join(
     os.path.dirname(__file__), '..', 'database', 'json_data', 'formats.json'
 ))
 
-LEGACY_SETS = {"BW1"}
+LEGACY_SETS = {
+    "Free_Energy", "Promo_HGSS", "HGSS1", "HGSS2", "HGSS3", "HGSS4", "COL",
+    *(f"BW{i}" for i in range(1, 12)), "DV", "PROMO_BW", "BW_Energy",
+}
 CURRENT_STANDARD_SETS = {
     "Free_Energy", "SV05", "SV06", "SV065", "SV07", "SV08", "SV085",
     "SV09", "SV10", "RSV10PT5", "ZSV10PT5", "SVP", "ME1", "ME2",
@@ -26,6 +31,59 @@ def is_basic_energy_card(card) -> bool:
     if ct != CardType.ENERGY.value:
         return False
     return not card.get_attribute_value(AttrID.IS_SPECIAL_ENERGY)
+
+
+def _reprint_text(value) -> str:
+    """Normalize typography and old reminder wording, not gameplay clauses."""
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(c for c in text if not unicodedata.combining(c)).casefold()
+    text = text.replace("’", "'").replace("×", "x")
+    text = text.replace("(before your attack)", "")
+    # Named Energy types in old text already mean Basic Energy cards.
+    text = re.sub(
+        r"\bbasic (grass|fire|water|lightning|psychic|fighting|darkness|metal|fairy) energy",
+        r"\1 energy", text,
+    )
+    return " ".join(text.split()).replace(" ,", ",")
+
+
+def _legacy_reprint_key(card):
+    """Printing-independent identity; same-name Pokemon are NOT reprints."""
+    from spirit.game.data_utils import def_for
+
+    definition = def_for(card.guid)
+    name = getattr(definition, "display_name", None)
+    if not name:
+        return None
+    card_type = card.get_attribute_value(AttrID.CARD_TYPE)
+    key = (card_type, _reprint_text(name))
+    # Trainers and Energy use their current errata, like Standard reprints.
+    # Keep Trainer categories distinct (e.g. Item vs Supporter).
+    if card_type == CardType.TRAINER.value:
+        return key + (card.get_attribute_value(AttrID.TRAINER_TYPE),)
+    if card_type == CardType.ENERGY.value:
+        return key + (bool(card.get_attribute_value(AttrID.IS_SPECIAL_ENERGY)),)
+    if card_type != CardType.POKEMON.value:
+        return None
+
+    stats = tuple(card.get_attribute_value(attr) for attr in (
+        AttrID.HP, AttrID.STAGE, AttrID.POKEMON_TYPES, AttrID.RETREAT_COST,
+        AttrID.WEAKNESS_TYPES, AttrID.WEAKNESS_OPERATOR, AttrID.WEAKNESS_AMOUNT,
+        AttrID.RESISTANCE_TYPES, AttrID.RESISTANCE_OPERATOR, AttrID.RESISTANCE_AMOUNT,
+        AttrID.EVOLUTION_LOGIC_FROM,
+    ))
+    abilities = []
+    for ability in getattr(definition, "abilities", ()):
+        data = ability.to_dict()
+        data.pop("abilityID", None)  # Different for every printing.
+        data["title"] = _reprint_text(ability.title)
+        data["gameText"] = _reprint_text(ability.game_text)
+        abilities.append(data)
+    # JSON canonicalization handles list/dict-valued wire attributes too.
+    return key + (json.dumps(
+        [stats, sorted(definition.subtypes or []), abilities],
+        sort_keys=True, ensure_ascii=True,
+    ),)
 
 
 def _default_formats() -> List[GameFormat]:
@@ -83,11 +141,13 @@ class FormatManager:
         self._initialized = True
         self.formats: List[GameFormat] = []
         self._by_guid: Dict[str, GameFormat] = {}
-        self._ref_cache: Dict[str, Tuple[Set[str], Set[str]]] = {}
+        self._ref_cache: Dict[tuple, Tuple[Set[str], Set[str]]] = {}
         self._ref_cache_stamp = -1
+        self._legacy_reprint_cache = None
         self.load_formats()
 
     def load_formats(self):
+        self._legacy_reprint_cache = None
         self._ref_cache.clear()
         self._ref_cache_stamp = -1
         if os.path.exists(FORMATS_PATH):
@@ -152,16 +212,42 @@ class FormatManager:
 
     def _resolved_refs(self, fmt: GameFormat) -> Tuple[Set[str], Set[str]]:
         # "SET/num" refs need the card scripts; re-resolve if the loader reloaded.
-        if self._ref_cache_stamp != len(card_loader.cards):
+        stamp = (id(card_loader.cards), len(card_loader.cards))
+        if self._ref_cache_stamp != stamp:
             self._ref_cache.clear()
-            self._ref_cache_stamp = len(card_loader.cards)
-        cached = self._ref_cache.get(fmt.guid)
+            self._ref_cache_stamp = stamp
+        key = (fmt.guid, tuple(fmt.banned_cards), tuple(fmt.extra_legal_cards))
+        cached = self._ref_cache.get(key)
         if cached is None:
             banned = {g for g in map(self._resolve_card_ref, fmt.banned_cards) if g}
             extra = {g for g in map(self._resolve_card_ref, fmt.extra_legal_cards) if g}
             cached = (banned, extra)
-            self._ref_cache[fmt.guid] = cached
+            self._ref_cache[key] = cached
         return cached
+
+    def _legacy_reprints(self, fmt: GameFormat):
+        """Index once per catalog/configuration, not once per displayed card."""
+        stamp = (
+            id(card_loader.cards), len(card_loader.cards), tuple(fmt.sets), fmt.all_sets,
+            tuple(fmt.banned_cards), tuple(fmt.extra_legal_cards),
+            tuple(sorted(fmt.legal_from.items())),
+        )
+        cached = self._legacy_reprint_cache
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+        banned, extra = self._resolved_refs(fmt)
+        index = {}
+        for source in card_loader.cards:
+            guid = source.guid.lower()
+            set_code = source.get_attribute_value(AttrID.SET_KEY) or source.key
+            if guid in banned or not (fmt.allows_set(set_code) or guid in extra):
+                continue
+            key = _legacy_reprint_key(source)
+            if key is not None:
+                start = fmt.legal_from.get(set_code, 0)
+                index[key] = min(index.get(key, start), start)
+        self._legacy_reprint_cache = (stamp, index)
+        return index
 
     def is_card_eventually_legal(self, format_guid: str, card) -> bool:
         """Legality ignoring any legalFrom time gate (the formatLegality bool slot)."""
@@ -178,7 +264,10 @@ class FormatManager:
             return True
         set_code = card.get_attribute_value(AttrID.SET_KEY) or card.key
         if not fmt.regulation_marks:
-            return fmt.allows_set(set_code)
+            return fmt.allows_set(set_code) or (
+                fmt.guid == DeckFormat.LEGACY.value
+                and _legacy_reprint_key(card) in self._legacy_reprints(fmt)
+            )
 
         # The loader's wire Card does not carry server-only regulation data;
         # definitions are registered globally by data_utils.
@@ -217,4 +306,8 @@ class FormatManager:
         if fmt is None:
             return 0
         set_code = card.get_attribute_value(AttrID.SET_KEY) or card.key
-        return fmt.legal_from.get(set_code, 0)
+        start = fmt.legal_from.get(set_code, 0)
+        if fmt.guid == DeckFormat.LEGACY.value and not fmt.allows_set(set_code):
+            source_start = self._legacy_reprints(fmt).get(_legacy_reprint_key(card), 0)
+            return max(start, source_start)
+        return start

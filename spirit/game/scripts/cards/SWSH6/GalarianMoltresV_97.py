@@ -1,3 +1,4 @@
+from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import AttrID, PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.attacks_common import recoil_attack
@@ -6,7 +7,7 @@ from spirit.game.card_effects.support_common import attach_from_discard, require
 
 
 def is_darkness_energy_card(card):
-    return is_energy_card(card) and PokemonTypes.DARKNESS.value in (card.get_attribute(AttrID.POKEMON_TYPES) or [])
+    return is_energy_card(card) and PokemonTypes.DARKNESS.value in (energy_card_types(card) or [])
 
 
 card = PokemonCardDef(

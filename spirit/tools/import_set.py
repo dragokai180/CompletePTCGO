@@ -227,6 +227,10 @@ card = PokemonCardDef(
             resist_type = TYPE_MAP.get(resistances[0].get("type"))
             if resist_type:
                 content += f"    resistance_type={resist_type},\n"
+                # Preserve the printed value; omitting it silently applies
+                # PokemonCardDef's modern -30 default to older -20 cards.
+                resist_amount = abs(int(str(resistances[0]['value']).replace('−', '-')))
+                content += f"    resistance_amount={resist_amount},\n"
 
         if evolves_from:
             evolves_from = fix_text(evolves_from)

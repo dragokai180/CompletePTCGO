@@ -11,6 +11,8 @@ async def future_sight(ctx):
     target_pid = ctx.player_id if choice == 0 else ctx.opponent_id
     top = ctx.deck_top(4, target_pid)
     if len(top) <= 1:
+        if top:
+            await ctx.reveal_cards(top, to_player=ctx.player_id)
         return
     order = await ctx.choose_cards(
         top, len(top), minimum=len(top), ordered=True, player_id=ctx.player_id,

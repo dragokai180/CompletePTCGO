@@ -13,6 +13,7 @@ async def _sordward_shielbert(ctx):
     )
     if not picks:
         return
+    await ctx.reveal_cards(picks)
     if await ctx.ask_yes_no(
         "Your opponent chose a Trainer card from their discard pile. May they put it into their hand?",
         player_id=ctx.opponent_id,

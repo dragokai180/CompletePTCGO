@@ -8,7 +8,7 @@ async def burning_licks(ctx):
     heads = await ctx.flip_coins(2, "Burning Licks")
     count = sum(heads)
     if count and not ctx.effects_blocked(ctx.defender):
-        await ctx.discard_energy_from(ctx.defender, count)
+        await ctx.discard_energy_units_from(ctx.defender, count, partial=True)
 
 
 card = PokemonCardDef(

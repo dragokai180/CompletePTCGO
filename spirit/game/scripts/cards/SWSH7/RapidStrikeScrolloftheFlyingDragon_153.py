@@ -8,7 +8,7 @@ def _is_rapid_strike(board, player_id, pokemon):
 
 async def _meteor(ctx):
     """Discard 2 Energy from this Pokemon. 90 damage to 1 of your opponent's Pokemon (no W/R on Bench)."""
-    await ctx.discard_energy_from(ctx.attacker, 2, prompt="Discard 2 Energy from this Pok\u00e9mon")
+    await ctx.discard_energy_units_from(ctx.attacker, 2, partial=True, prompt="Discard 2 Energy from this Pok\u00e9mon")
     targets = ctx.opponent_pokemon_in_play()
     if not targets:
         return

@@ -1,11 +1,13 @@
-from spirit.game.data_utils import ItemCardDef
+from spirit.game.data_utils import ItemCardDef, def_for
 from spirit.game.attributes import Rarities, AttrID
 from spirit.game.session.effects import is_pokemon_card
 from spirit.game.card_effects.support_common import recover_from_discard, requires_discard
 
 
 def _low_hp_pokemon(card):
-    return is_pokemon_card(card) and (card.get_attribute(AttrID.HP, 999) or 0) <= 90
+    definition = def_for(card.archetype_id)
+    return is_pokemon_card(card) and definition.extra_attributes.get(
+        str(AttrID.HP.value), {}).get("value", 999) <= 90
 
 
 card = ItemCardDef(

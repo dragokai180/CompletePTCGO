@@ -18,6 +18,7 @@ card = PokemonCardDef(
     retreat_cost=4,
     weakness_type=PokemonTypes.WATER,
     resistance_type=PokemonTypes.LIGHTNING,
+    resistance_amount=20,
     abilities=[
         Attack(
             title="Sand Jet",
