@@ -440,6 +440,13 @@ async def resolve_hgss_power(ctx, text):
     if title in hand_acceleration:
         from spirit.game.session.passives import effective_pokemon_types
         kind = hand_acceleration[title].value
+        if title == 'Rain Dance':
+            await ctx.attach_from_hand_freely(
+                lambda card: energy_provides_type(card, kind),
+                lambda: [p for p in ctx.my_pokemon_in_play()
+                         if kind in effective_pokemon_types(ctx.board, p)],
+                'Choose a Water Energy to attach, or Done')
+            return True
         pool = [c for c in ctx.hand() if energy_provides_type(c, kind)]
         count = 2 if title == 'Self-Generation' else 1
         chosen = await ctx.choose_cards(pool, count, minimum=0 if count == 2 else None,

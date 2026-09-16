@@ -83,6 +83,7 @@ from spirit.network.message_names import OutboundMsg
 from spirit.game.game_sequence_packets import NestedSequence
 from spirit.game.attributes import (
     AttrID,
+    CardType,
     CLIENT_SPECIAL_CONDITION_NAMES,
     GameSequence,
     PlayerAttrID,
@@ -126,6 +127,7 @@ from .passives import (
     retreat_energy_destination, tool_slots_free,
     tool_suppressed, special_energy_suppressed,
     special_conditions_persist_on_evolution,
+    pokemon_entry_blocked, pokemon_play_blocked,
 )
 from .legal_actions import (
     ACTION_ATTACH_TOOL,
@@ -2073,11 +2075,13 @@ class GameSession:
         count: int,
         amount_per_click: int = 10,
         prompt: str = "Place damage counters",
+        minimum: Optional[int] = None,
     ) -> Dict[str, int]:
         """Native click-to-place picker (MultiSelectEntityListTargetInformation,
         command Q.N): the player clicks a valid target repeatedly, each click
         stamping a live +amount_per_click damage bubble; Done gates on exactly
-        `count` total clicks (min == max == count).
+        `count` total clicks by default. With `minimum`, Done accepts that
+        many through `count` clicks (for selecting counters to move).
 
         Returns entity_id -> counters placed (zero-click targets omitted).
         """
@@ -2085,6 +2089,7 @@ class GameSession:
         valid = [c.entity_id for c in candidates]
         if not valid or count <= 0:
             return {}
+        min_count = count if minimum is None else max(0, min(minimum, count))
         if isinstance(player, AIPlayer):
             return {valid[0]: count}
 
@@ -2094,7 +2099,7 @@ class GameSession:
             "targetPrompt": {"id": prompt},
             "validTargets": valid,
             "numberToSelect": count,
-            "minimumToSelect": count,
+            "minimumToSelect": min_count,
             "forced": True,
             "amountPerClick": amount_per_click,
             # Q.m.HintStrength only feeds CheckHintStrength's b.w reveal-composite
@@ -2135,26 +2140,37 @@ class GameSession:
                     continue
                 tally: Dict[str, int] = {}
                 total = 0
+                invalid = False
                 for response in selection.get("targetResponses") or []:
                     if not isinstance(response, dict):
                         continue
                     for entry in response.get("entities") or []:
-                        if not isinstance(entry, dict) or total >= count:
+                        if not isinstance(entry, dict):
                             continue
                         target = entry.get("target")
                         clicks = entry.get("selections") or 0
-                        if target not in valid or clicks <= 0:
+                        if type(clicks) is not int or clicks < 0:
+                            invalid = True
                             continue
+                        if target not in valid or clicks <= 0:
+                            invalid = invalid or clicks > 0
+                            continue
+                        if clicks > count - total:
+                            invalid = True
                         clicks = min(clicks, count - total)
                         tally[target] = tally.get(target, 0) + clicks
                         total += clicks
+                if minimum is not None:
+                    if invalid or not min_count <= total <= count:
+                        continue
+                    return tally
                 if total != count:
                     logging.warning(
                         f"[Session {self.game_id}] Damage counter placement totaled "
                         f"{total}/{count}; applying as sent."
                     )
                 return tally
-            return {valid[0]: count}
+            return {} if minimum is not None else {valid[0]: count}
         finally:
             await self._set_opponents_waiting(player_id, False)
 
@@ -2247,6 +2263,10 @@ class GameSession:
     async def resolve_knockouts(self, ctx: EffectContext, _ko_depth: int = 0):
         """Discards each knocked-out stack, awards prizes, promotes a new
         Active for the losing side, and checks every win condition."""
+        # An attack can remove a damaged Pokemon before KO settlement. Do not
+        # animate, award Prizes for, or discard an old reference outside play.
+        ctx.knockouts[:] = [p for p in ctx.knockouts
+                            if ctx.pokemon_is_in_play(p)]
         if not ctx.knockouts:
             return
         # Snapshot ON_KNOCKED_OUT triggers BEFORE any stack moves: ability_locked
@@ -2480,12 +2500,18 @@ class GameSession:
                     },
                 ))
             if moves:
-                # The attrs ride the Knockout bracket (N.k runs non-move
-                # commands generically); a move-less bracket would NRE it.
+                # Native Knockout (N.k) locates its victim by CARD_TYPE, not
+                # entityName. Items played as Pokemon retain Trainer type,
+                # leaving that victim null and crashing IsLegendPokemon before
+                # the promotion offer. Use ordinary grouped movement for them;
+                # KO rules, hooks and replacement selection remain unchanged.
+                sequence = (GameSequence.KNOCKOUT
+                            if pokemon.get_attribute(AttrID.CARD_TYPE) == CardType.POKEMON.value
+                            else GameSequence.GROUPED_MOVE)
                 moves.extend(hp_resets)
                 moves.extend(viz_msgs)
                 await self.send_game_sequence(
-                    list(self.players.values()), GameSequence.KNOCKOUT, moves
+                    list(self.players.values()), sequence, moves
                 )
             entry = {
                 "archetype_id": pokemon.archetype_id,
@@ -4233,6 +4259,8 @@ class GameSession:
 
     async def _execute_play_basic(self, player_id: str, card):
         """Plays a Basic Pokemon from hand onto the bench."""
+        if pokemon_play_blocked(self.board_state, player_id, card):
+            return
         from spirit.game.legend import is_legend, complementary_halves, legend_pairs
         if is_legend(card):
             hand = self.board_state.find_player_area(player_id, "hand")
@@ -5051,6 +5079,8 @@ class GameSession:
             return False
         if not ability_condition_met(ability, self.board_state, player_id, card):
             return False
+        if ability.vstar and player_id in self.turn_state.vstar_used:
+            return False
         if ability.activation != Activations.UNLIMITED:
             self.turn_state.used_abilities.add((card.entity_id, action_id))
         if ability.shared_once_per_turn:
@@ -5112,6 +5142,8 @@ class GameSession:
         attrs applied before the Evolve bracket on both viewers).
         """
         card = evolution_card
+        if pokemon_entry_blocked(self.board_state, player_id, card):
+            return False
         played_from_hand = card.parent is self.board_state.find_player_area(player_id, "hand")
         area = target.parent if target is not None else None
         if not target or not area:
@@ -5395,6 +5427,9 @@ class GameSession:
         owner_id = outgoing.owning_player_id
         if area is None or owner_id is None or incoming is None \
                 or incoming is outgoing:
+            return None
+        actor_id = getattr(ctx, "player_id", owner_id)
+        if pokemon_entry_blocked(self.board_state, actor_id, incoming):
             return None
         source_area = incoming._containing_area_name()
         dest = self.board_state.find_player_area(owner_id, destination_name)
@@ -5867,8 +5902,15 @@ class GameSession:
         """Resolves an attack through the effect engine; attacking ends the turn."""
         action_id = entry["selectableAction"]["actionID"]
         ability = ABILITIES_BY_ID.get(action_id)
-        # A stale client action must not bypass a persistent Clear Vision-GX
-        # lock that appeared after the attack menu was built.
+        # Revalidate the match-wide budget even for a stale/replayed action.
+        if ability is not None and ability.vstar \
+                and player_id in self.turn_state.vstar_used:
+            return False
+        if ability is not None and ability.gx \
+                and player_id in self.turn_state.gx_used \
+                and not self.turn_state.can_repeat_gx(player_id, card):
+            return False
+        # Clear Vision-GX also blocks a GX permitted again by Bonnie.
         if ability is not None and getattr(ability, "gx", False) \
                 and player_id in self.turn_state.gx_locked_players:
             logging.info(
@@ -5911,14 +5953,7 @@ class GameSession:
 
         ctx = await resolve_attack(self, player_id, card, ability, action_id)
         # Effects like Aqua Return can remove the attacker itself from play.
-        await self._resolve_simultaneous_win_conditions()
-        for pid in list(self.players.keys()):
-            if self.board_state.active_pokemon(pid) is None \
-                    and not await self._promote_new_active(pid):
-                await self.end_game(
-                    self._opponent_id(pid),
-                    f"{self.players[pid].screen_name} has no Pokémon left",
-                )
+        await self._settle_empty_active_spots()
         # An attack normally ends the turn; the effect (Additional Order-style
         # ctx flag) or a passive (Fluffy Barrage, evaluated after promotions
         # so "after your opponent chooses a new Active" holds) can keep it.

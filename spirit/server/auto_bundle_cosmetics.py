@@ -2,6 +2,7 @@ import os
 import shutil
 import logging
 import copy
+import filecmp
 from PIL import Image
 import UnityPy
 
@@ -12,6 +13,28 @@ logging.basicConfig(level=logging.INFO)
 ASSETS_DIR = "spirit/assets"
 TEMPLATES_DIR = "spirit/templates/cosmetic_templates"
 BUNDLE_CACHE_DIR = os.path.join(ASSETS_DIR, "bundleCache")
+
+def compile_original_marker_bundle(kind, target_bundle_folder):
+    """Publish the original marker atlas, including its spent face.
+
+    These are gameplay atlases, not replaceable cosmetic PNGs. Keep the
+    archived bundle intact and replace stale custom outputs by content,
+    even when their timestamp is newer than the original template.
+    """
+    if kind not in ("GX", "VSTAR"):
+        raise ValueError("Unknown gameplay marker")
+    source = os.path.join(TEMPLATES_DIR, f"{kind}Token.template")
+    target = os.path.join(BUNDLE_CACHE_DIR, target_bundle_folder,
+                          "00000000000000000000000001000000", "__data")
+    if not os.path.isfile(source):
+        logging.warning("[Cosmetics] Original %s marker bundle is missing", kind)
+        return False
+    if os.path.isfile(target) and filecmp.cmp(source, target, shallow=False):
+        return True
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    shutil.copyfile(source, target)
+    logging.info("[Cosmetics] Restored original %s marker bundle", kind)
+    return True
 
 def compile_cosmetic_bundle(category, custom_dir, template_file, target_bundle_folder, prefix):
     """
@@ -260,22 +283,10 @@ def compile_all_cosmetics():
     )
 
     # 8. GX Token
-    compile_cosmetic_bundle(
-        category="GX Token",
-        custom_dir=os.path.join(ASSETS_DIR, "products", "custom_gxtoken"),
-        template_file="GXToken.template",
-        target_bundle_folder="en_US_GXToken_CRR59_5",
-        prefix="gxtoken"
-    )
+    compile_original_marker_bundle("GX", "en_US_GXToken_CRR59_5")
 
     # 9. VStar Token
-    compile_cosmetic_bundle(
-        category="VStar Token",
-        custom_dir=os.path.join(ASSETS_DIR, "products", "custom_vstartoken"),
-        template_file="VSTARToken.template",
-        target_bundle_folder="en_US_VSTARToken_CRR86_3",
-        prefix="vstartoken"
-    )
+    compile_original_marker_bundle("VSTAR", "en_US_VSTARToken_CRR86_3")
 
     # 10. Expansion symbols added after the archived PTCGO client stopped.
     compile_cosmetic_bundle(

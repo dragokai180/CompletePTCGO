@@ -373,7 +373,8 @@ Final catalog dispatch rerun: **6,207 definitions**, **5,608 grouped probes**,
 The probe count changed because shared implementations are grouped by their
 callable identity. Skips remain prerequisite-dependent probes, not passing
 semantic tests; named regression scenarios above cover many of these paths.
-The local detailed report is sm-swsh-runtime-audit-20260915-complete.json.
+The local detailed report is
+`audits/results/sm-swsh-runtime-audit-20260915-complete.json` (not versioned).
 
 The final shared-text rerun contains 1,740 attack families (1,737 observed,
 3 conditional-healing alerts), 185 Ability families (184 observed, Shell On
@@ -418,9 +419,10 @@ Focused tests:
 Reproduction commands (from the repository root):
 
 ```text
+python -c "from pathlib import Path; Path('audits/results').mkdir(parents=True, exist_ok=True)"
 python -m unittest discover -s tests
-python -m spirit.tools.audit_sm_swsh_runtime --json sm-swsh-runtime.json
-python -m spirit.tools.semantic_effect_audit --kind attack --set-pattern "(SM[0-9]+|Promo_SM|SL|DM|HF|GUM|SWSH[0-9]+|Promo_SWSH|CEL25|PGO|CZ)" --only-problems --json sm-swsh-attacks.json
+python -m spirit.tools.audit_sm_swsh_runtime --json audits/results/sm-swsh-runtime.json
+python -m spirit.tools.semantic_effect_audit --kind attack --set-pattern "(SM[0-9]+|Promo_SM|SL|DM|HF|GUM|SWSH[0-9]+|Promo_SWSH|CEL25|PGO|CZ)" --only-problems --json audits/results/sm-swsh-attacks.json
 ```
 
 Repeat the last command with `--kind ability` and `--kind trainer`.
@@ -440,3 +442,117 @@ attachments, promotion, the last Pokemon leaving play, mixed knockouts and
 valid bonuses. The same seven scenarios were also executed with Robo Substitute
 substituted into the fixture; all passed through the shared no-Prize rule.
 The complete local test suite passed **824 tests** before publication.
+
+## Follow-up: Chromashift, Eternal Zone and Dread End
+
+Chromashift correctly computed Kecleon's current types, but Eternal Zone and
+Dread End still used a printed-type predicate. A basic Darkness Energy therefore
+changed Kecleon's type without enabling the eight-slot Bench or adding its
+30 damage to Dread End. Both field queries now use effective Pokemon types.
+The alternate Eternatus VMAX printing shares this implementation; the gallery
+reprint inherits it. Hidden-zone type predicates are unchanged.
+
+Seven tests in `test_chromashift_eternal_zone` reproduce and cover the interaction:
+all three printings and both owners, multiple basic Energy types, Energy removal,
+Special Energy exclusion, Silent Lab suppression and restoration, other
+non-Darkness Pokemon, excess-Bench discard without Prizes, and printed types
+outside play. Dread End assertions execute the attack and inspect actual HP.
+
+## Follow-up: Eternal Zone entry permissions
+
+The previous type-query correction did not implement Eternal Zone's separate
+prohibition on putting non-Darkness Pokemon into play. The Ability now provides
+an any-zone entry restriction, distinct from effects that only forbid playing
+Pokemon from hand.
+
+The hand menu and authoritative hand-play, effect-Bench, evolution and identity
+replacement executors enforce the restriction before moving a card. Generic
+direct-to-Bench searches and relevant shared Trainer selectors filter forbidden
+entries while preserving private-search failure. An attachment to an existing
+Benched Pokemon is not an entry and does not use this filter.
+
+`test_eternal_zone_entry_permissions` covers all three printings, both players,
+hand/deck/discard entry, non-Darkness evolution, replacement, Ability suppression,
+the all-Darkness prerequisite, legal field movement and private search choices.
+
+## Follow-up: GX/VSTAR budgets and original playmat markers
+
+`_clone_ability` preserved VSTAR but omitted GX. Consequently, 402 GX attacks
+on reprints lost their match-wide restriction, marker animation and GX-specific
+rules. Both Ability and Attack cloning now preserve the GX flag. A catalog-wide
+regression checks GX titles and once-per-game reminders, including granted powers.
+Execution revalidates spent GX/VSTAR budgets for stale actions, in addition to
+the existing menu and copied-attack checks. Bonnie's scoped exception remains
+valid; Clear Vision-GX still overrides it. GX and VSTAR budgets are independent.
+
+Deck initialization recognizes Tool-granted VSTAR Powers (all three Seal Stones),
+so their marker exists even without a VSTAR Pokemon. Marker flip messages reach
+both players and the spent PlayerEntity attributes remain available for snapshots.
+
+The local GX and VSTAR templates were verified byte-for-byte against the original
+SM Cache bundles. The served VSTAR bundle was restored from that archive; GX was
+already original. Startup now publishes these original atlases unchanged instead
+of compiling custom marker PNGs. The manifest includes native case-sensitive
+marker aliases and releases its file handles after reading the bundles.
+
+Regressions: `test_once_per_game_powers`, `test_original_marker_bundles`, and the
+existing Bonnie/copy cases in `test_sm_turn_exceptions`. Native client rendering
+still requires a server restart and a new/reconnected client session for review.
+
+## Follow-up: Restoration and expanded Bench capacity
+
+Restoration's shared `requires_bench_space` condition used a fixed five-slot
+limit even while Eternal Zone allowed eight. It now queries the owner's live
+Bench capacity, respecting both expansion and reduction effects. Existing
+same-name Pokemon and use of Restoration by another copy remain independent.
+
+`test_restoration_bench_capacity` covers all five Darkrai-GX printings, both
+players, five to seven occupied slots, actual restoration into the eighth slot
+with the chosen Darkness Energy, a full Bench, the normal five-slot limit,
+Ability suppression and Collapsed Stadium. The change only updates the space
+predicate; entry restrictions are still enforced separately by the engine.
+
+## Follow-up: deck-to-Bench searches with variable capacity
+
+The shared `search_to_bench` factory also retained the fixed five-slot limit,
+both in its play condition and its selection count. Both now use the current
+owner-specific Bench capacity. Search candidates honor entry restrictions,
+including Eternal Zone, without turning private target availability into a
+play prerequisite: a nonempty deck with no matching card can still be searched
+and failed. A full Bench remains a public restriction.
+
+`test_search_bench_capacity` exercises Buddy-Buddy Poffin, Gloria and Call for
+Family with Sky Field and Eternal Zone, both owners, the last free slot, a
+full Bench, Collapsed Stadium, prohibited non-Darkness entries, private failure,
+an empty deck and callbacks receiving only successfully Benched Pokemon.
+
+## Follow-up: Item-Pokemon knockout animation deadlock
+
+The native client log showed NullReferenceException in EntityUtil.IsLegendPokemon
+called from the Knockout executor (N.k). Inspection of that installed executor
+confirmed it selects its victim with IsPokemon(), which checks CARD_TYPE rather
+than the entity class. Lillie's Poke Doll, Robo Substitute and Fossil Items keep
+Trainer type; no victim is selected and the animation queue stops before the
+new Active offer. Earlier headless promotion tests did not cover this contract.
+
+Knockouts of these cards now use GroupedMove, retaining the complete stack,
+HP/visual resets and all server-side KO, Prize and promotion rules. Printed
+Pokemon still use the native Knockout sequence. Regression tests cover both
+players' human replacement offers, every registered Item-Pokemon definition
+with an attached Energy, and ordinary Pokemon choreography. Native UI replay
+still requires restarting the server and testing in the client.
+
+## Requested interaction: Sinister Hand / Damage Swap
+
+After choosing a source Pokemon, the native multi-click counter picker now
+previews 10 damage removed per click. Done accepts any positive number up to
+the source's available counters and the largest receiver's remaining HP.
+Only then is a receiver selected; receivers with less remaining HP than the
+selected damage are excluded and rejected again at execution. Equal HP is
+allowed, including a Knock Out. Selection alone never mutates damage.
+
+Damage Swap's two Reuniclus printings previously reused Sinister Hand's
+opposing-field predicate and effect; they now operate on the owner's field.
+The native picker retains exact-count behavior for existing callers. Six
+regressions in test_damage_transfer_selection cover both players, all four
+prints, partial confirmation, previews, recipient limits and invalid replies.

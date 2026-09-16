@@ -179,13 +179,14 @@ class HorrorPsychicPassive(Passive):
 
         async def retaliate():
             attacker = ctx.board.get_entity(attacker_id)
-            if not isinstance(attacker, PokemonEntity):
+            if not ctx.pokemon_is_in_play(attacker):
                 return
             await ctx.deal_damage(
                 20, target=attacker, apply_modifiers=False,
                 as_counters=True, is_attack=False,
             )
             if ctx.knockouts:
+                await ctx.flush_choreography()
                 await ctx.session.resolve_knockouts(ctx)
 
         ctx.deferred_actions.append(retaliate)

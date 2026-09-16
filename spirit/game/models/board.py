@@ -671,6 +671,7 @@ class BoardState:
 
     def populate_deck(self, player_id: str, deck_data: Dict[str, Any]):
         """Decodes the player deck definition, pre-populates card entities, and updates player token attributes."""
+        from spirit.game.data_utils import def_for  # circular-import guard
         deck_area = self.find_player_area(player_id, "deck")
         if not deck_area:
             return
@@ -709,6 +710,13 @@ class BoardState:
                     rarity = card_obj.get_attribute_value(AttrID.RARITY)
                     display_name = getattr(card_obj, "display_name", "") or ""
                     searchable = getattr(card_obj, "searchable_by", [])
+                    definition = def_for(guid)
+                    # Seal Stones grant VSTAR Powers without being VSTAR
+                    # Pokemon. Their marker must still exist on the playmat.
+                    powers = list(getattr(definition, "abilities", ()) or ())
+                    powers += list(getattr(definition, "granted_abilities", ()) or ())
+                    has_vstar = has_vstar or any(a.vstar for a in powers)
+                    has_gx = has_gx or any(a.gx for a in powers)
 
                     if (
                         stage == PokemonStage.VSTAR.value or

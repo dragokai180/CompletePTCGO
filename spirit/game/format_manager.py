@@ -143,11 +143,11 @@ class FormatManager:
         self._by_guid: Dict[str, GameFormat] = {}
         self._ref_cache: Dict[tuple, Tuple[Set[str], Set[str]]] = {}
         self._ref_cache_stamp = -1
-        self._legacy_reprint_cache = None
+        self._legacy_reprint_cache = {}
         self.load_formats()
 
     def load_formats(self):
-        self._legacy_reprint_cache = None
+        self._legacy_reprint_cache = {}
         self._ref_cache.clear()
         self._ref_cache_stamp = -1
         if os.path.exists(FORMATS_PATH):
@@ -232,7 +232,7 @@ class FormatManager:
             tuple(fmt.banned_cards), tuple(fmt.extra_legal_cards),
             tuple(sorted(fmt.legal_from.items())),
         )
-        cached = self._legacy_reprint_cache
+        cached = self._legacy_reprint_cache.get(fmt.guid)
         if cached is not None and cached[0] == stamp:
             return cached[1]
         banned, extra = self._resolved_refs(fmt)
@@ -246,7 +246,7 @@ class FormatManager:
             if key is not None:
                 start = fmt.legal_from.get(set_code, 0)
                 index[key] = min(index.get(key, start), start)
-        self._legacy_reprint_cache = (stamp, index)
+        self._legacy_reprint_cache[fmt.guid] = (stamp, index)
         return index
 
     def is_card_eventually_legal(self, format_guid: str, card) -> bool:
@@ -265,7 +265,7 @@ class FormatManager:
         set_code = card.get_attribute_value(AttrID.SET_KEY) or card.key
         if not fmt.regulation_marks:
             return fmt.allows_set(set_code) or (
-                fmt.guid == DeckFormat.LEGACY.value
+                fmt.guid in (DeckFormat.LEGACY.value, DeckFormat.EXPANDED.value)
                 and _legacy_reprint_key(card) in self._legacy_reprints(fmt)
             )
 
@@ -307,7 +307,8 @@ class FormatManager:
             return 0
         set_code = card.get_attribute_value(AttrID.SET_KEY) or card.key
         start = fmt.legal_from.get(set_code, 0)
-        if fmt.guid == DeckFormat.LEGACY.value and not fmt.allows_set(set_code):
+        if fmt.guid in (DeckFormat.LEGACY.value, DeckFormat.EXPANDED.value) \
+                and not fmt.allows_set(set_code):
             source_start = self._legacy_reprints(fmt).get(_legacy_reprint_key(card), 0)
             return max(start, source_start)
         return start

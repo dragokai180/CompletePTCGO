@@ -377,6 +377,12 @@ class Passive:
         """True to forbid playing a Pokemon from hand (Potent Glare)."""
         return False
 
+    def blocks_pokemon_entry(
+        self, card: BoardEntity, player_id: str, carrier: BoardEntity
+    ) -> bool:
+        """Forbid a player putting a Pokemon into play from any zone."""
+        return False
+
     def may_evolve_early(self, pokemon: PokemonEntity, carrier: BoardEntity) -> bool:
         """True to exempt `pokemon` from the just-played/first-turn evolution
         gates (Caterpie's Adaptive Evolution)."""
@@ -1122,6 +1128,23 @@ def pokemon_play_blocked(board: BoardState, player_id: str, card: BoardEntity) -
     """Whether a continuous passive forbids playing `card` from hand."""
     return any(
         passive.blocks_pokemon_play(card, player_id, carrier)
+        or passive.blocks_pokemon_entry(card, player_id, carrier)
+        for passive, carrier in active_passives(board)
+    )
+
+
+def pokemon_entry_blocked(board: BoardState, player_id: str, card: BoardEntity) -> bool:
+    """Any-zone entry restriction; player_id is the effect's controller.
+
+    A Pokemon already on the field may still switch or be promoted.
+    Hand-only restrictions deliberately do not apply to effect-driven entry.
+    """
+    if card.parent is not None and card.parent.get_attribute(AttrID.NAME) in (
+        "activePokemonArea", "bench"
+    ):
+        return False
+    return any(
+        passive.blocks_pokemon_entry(card, player_id, carrier)
         for passive, carrier in active_passives(board)
     )
 

@@ -694,12 +694,13 @@ async def battle_vip_pass(ctx):
     """First turn only: search the deck for up to 2 Basic Pokemon and put
     them onto your Bench."""
     bench = ctx.board.find_player_area(ctx.player_id, "bench")
-    space = BENCH_CAPACITY - len(bench.children) if bench else 0
+    space = effective_bench_capacity(ctx.board, ctx.player_id) - len(bench.children) if bench else 0
     count = min(2, space)
     if count <= 0:
         return
     picks = await ctx.search_deck(
-        is_basic_pokemon, count=count, minimum=0,
+        lambda card: is_basic_pokemon(card) and ctx.can_bench_pokemon(card),
+        count=count, minimum=0,
         prompt="Choose up to 2 Basic Pokémon to put onto your Bench.",
     )
     for card in picks:
@@ -715,7 +716,8 @@ def dream_ball_playable(board, player_id):
 async def dream_ball(ctx):
     """Search your deck for a Pokemon and put it onto your Bench."""
     picks = await ctx.search_deck(
-        is_pokemon_card, count=1, minimum=0,
+        lambda card: is_pokemon_card(card) and ctx.can_bench_pokemon(card),
+        count=1, minimum=0,
         prompt="Choose a Pokémon to put onto your Bench.",
     )
     for card in picks:
@@ -1426,15 +1428,18 @@ async def furisode_girl(ctx):
     """Search the deck for a Basic Pokemon and put it onto the Bench; then
     shuffle. You may switch that Pokemon with your Active Pokemon."""
     picks = await ctx.search_deck(
-        is_basic_pokemon, count=1, minimum=0,
+        lambda card: is_basic_pokemon(card) and ctx.can_bench_pokemon(card),
+        count=1, minimum=0,
         prompt="Choose a Basic Pokémon to put onto your Bench.",
     )
     if not picks:
         await ctx.shuffle_deck()
         return
     target = picks[0]
-    await ctx.bench_pokemon(target)
+    placed = await ctx.bench_pokemon(target)
     await ctx.shuffle_deck()
+    if not placed:
+        return
     if await ctx.ask_yes_no("Switch that Pokémon with your Active Pokémon?"):
         await ctx.switch_active(ctx.player_id, target)
 
@@ -1573,7 +1578,8 @@ def fossil_search(fossil_predicate, count: int = 2,
         if space <= 0:
             return
         picks = await ctx.search_deck(
-            fossil_predicate, count=min(count, space), minimum=0,
+            lambda card: fossil_predicate(card) and ctx.can_bench_pokemon(card),
+            count=min(count, space), minimum=0,
             prompt=f"Choose up to {min(count, space)} {label} cards to put "
                    f"onto your Bench.",
         )

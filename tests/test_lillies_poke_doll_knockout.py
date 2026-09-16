@@ -3,8 +3,8 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from tests import test_hgss_rules as fixtures
-from spirit.game.attributes import AttrID, PokemonTypes
-from spirit.game.data_utils import Attack
+from spirit.game.attributes import AttrID, CardType, GameSequence, PokemonTypes
+from spirit.game.data_utils import Attack, CARD_DEFS_BY_GUID
 from spirit.game.session.effects import EffectContext
 from spirit.tools.effect_smoke import P1, P2, GameOver
 
@@ -132,6 +132,75 @@ class LilliesPokeDollKnockoutTests(unittest.IsolatedAsyncioTestCase):
         await ctx.deal_damage(1000, target=victim)
         await rig.session.resolve_knockouts(ctx)
         self.assertEqual(len(prizes.children), before - 3)
+
+    async def test_item_knockout_reaches_human_promotion_without_unsafe_animation(self):
+        for owner in (P1, P2):
+            with self.subTest(owner=owner):
+                rig, doll, attacker_id = self.setup_doll(owner)
+                bench = list(rig.board.find_player_area(owner, 'bench').children)
+                chosen = bench[-1]
+                ctx = self.context(rig, attacker_id)
+                original_promote = rig.session._promote_new_active
+
+                async def human_promote(pid):
+                    with patch('spirit.game.session.game_session.AIPlayer',
+                               type('NotSmokeAI', (), {})):
+                        return await original_promote(pid)
+
+                async def reply(player, message_type, offer, **kwargs):
+                    self.assertIsNone(rig.board.active_pokemon(owner))
+                    self.assertIn(doll, ctx.discard_pile(owner))
+                    self.assertEqual(set(offer['targetMap']),
+                                     {p.entity_id for p in bench})
+                    self.assertNotIn(GameSequence.KNOCKOUT,
+                                     [call.args[1] for call in sequences.await_args_list])
+                    return {'selection': {'entityID': chosen.entity_id}}
+
+                with patch.object(rig.session, 'send_game_sequence', AsyncMock()) as sequences, \
+                        patch.object(rig.session, '_promote_new_active', side_effect=human_promote), \
+                        patch.object(rig.session, 'prompt_selection_message', side_effect=reply) as prompt, \
+                        patch.object(rig.session, '_take_prizes', AsyncMock()) as prizes:
+                    await ctx.deal_damage(1000, target=doll)
+                    await rig.session.resolve_knockouts(ctx)
+                prompt.assert_awaited_once()
+                prizes.assert_not_awaited()
+                self.assertIs(rig.board.active_pokemon(owner), chosen)
+                self.assertEqual([call.args[1] for call in sequences.await_args_list],
+                                 [GameSequence.GROUPED_MOVE, GameSequence.PLAY_ACTIVE])
+
+    async def test_all_item_pokemon_use_client_safe_knockout_sequences(self):
+        definitions = [d for d in CARD_DEFS_BY_GUID.values()
+                       if getattr(d, 'plays_as_pokemon', False)]
+        self.assertGreater(len(definitions), 4)
+        for definition in definitions:
+            with self.subTest(card=definition.display_name, guid=definition.guid):
+                rig, doll, attacker_id = self.setup_doll()
+                rig.to_area(doll, P1, 'hand')
+                victim = self.add(rig, definition, P1, 'activePokemonArea')
+                rig.attach_energy_type(P1, victim, PokemonTypes.WATER.value)
+                # The client uses CARD_TYPE, not the server's PokemonEntity class.
+                self.assertEqual(victim.get_attribute(AttrID.CARD_TYPE), CardType.TRAINER.value)
+                stack_ids = {victim.entity_id, *(c.entity_id for c in victim.children)}
+                ctx = self.context(rig, attacker_id)
+                with patch.object(rig.session, 'send_game_sequence', AsyncMock()) as sequences, \
+                        patch.object(rig.session, '_take_prizes', AsyncMock()):
+                    await ctx.deal_damage(1000, target=victim)
+                    await rig.session.resolve_knockouts(ctx)
+                self.assertEqual(sequences.await_args_list[0].args[1], GameSequence.GROUPED_MOVE)
+                self.assertTrue(stack_ids.issubset({c.entity_id for c in ctx.discard_pile(P1)}))
+                self.assertIsNotNone(rig.board.active_pokemon(P1))
+
+    async def test_printed_pokemon_keep_native_knockout_animation(self):
+        rig, doll, attacker_id = self.setup_doll()
+        rig.to_area(doll, P1, 'hand')
+        victim = rig.board.find_player_area(P1, 'bench').children[0]
+        rig.to_area(victim, P1, 'activePokemonArea')
+        ctx = self.context(rig, attacker_id)
+        with patch.object(rig.session, 'send_game_sequence', AsyncMock()) as sequences, \
+                patch.object(rig.session, '_take_prizes', AsyncMock()):
+            await ctx.deal_damage(1000, target=victim)
+            await rig.session.resolve_knockouts(ctx)
+        self.assertEqual(sequences.await_args_list[0].args[1], GameSequence.KNOCKOUT)
 
     async def test_last_doll_loses_by_empty_field_without_awarding_prizes(self):
         rig, doll, attacker_id = self.setup_doll()

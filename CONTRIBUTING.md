@@ -34,3 +34,8 @@ timing, and animation boundaries.
 
 Generated audit reports are local artifacts. Commit the audit tool or a focused
 regression test, not its full JSON output.
+
+The [audit index](audits/README.md) links to the maintained review reports.
+Store generated JSON results and investigation notes in `audits/results/`,
+which is ignored by Git. Audit scripts remain in `spirit/tools/` and
+regression tests remain in `tests/`.

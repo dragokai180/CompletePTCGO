@@ -1,34 +1,9 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
-from spirit.game.attributes import AttrID, PokemonTypes, PokemonStage, Rarities
+from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.attacks_common import damage_per, count_in_play
-from spirit.game.card_effects.trainers import is_darkness_pokemon
-from spirit.game.models.board import PokemonEntity
-from spirit.game.session.passives import Passive
-
-
-def _all_darkness_in_play(carrier) -> bool:
-    player_entity = carrier.parent.parent if carrier.parent else None
-    if player_entity is None:
-        return False
-    mons = [
-        c for area in player_entity.children
-        if area.get_attribute(AttrID.NAME) in ("bench", "activePokemonArea")
-        for c in area.children if isinstance(c, PokemonEntity)
-    ]
-    return bool(mons) and all(is_darkness_pokemon(m) for m in mons)
-
-
-class EternalZonePassive(Passive):
-    """While every one of the owner's in-play Pokemon is Darkness type, Bench
-    capacity is 8 (auto-enforced back down to 5 when it stops applying). The
-    accompanying "can't put non-Darkness Pokemon into play" restriction has no
-    engine hook for Pokemon-from-hand plays yet (play_locked only gates
-    Energy/Trainer offers) and is not enforced here."""
-
-    def bench_capacity(self, player_id, carrier):
-        if player_id != carrier.owning_player_id:
-            return None
-        return 8 if _all_darkness_in_play(carrier) else None
+from spirit.game.scripts.cards.SWSH3.EternatusVMAX_117 import (
+    EternalZonePassive, _is_darkness_in_play,
+)
 
 
 card = PokemonCardDef(
@@ -60,7 +35,7 @@ card = PokemonCardDef(
             cost={PokemonTypes.DARKNESS: 1, PokemonTypes.COLORLESS: 1},
             damage=30,
             damage_operator="x",
-            effect=damage_per(count_in_play("mine", is_darkness_pokemon), 30),
+            effect=damage_per(count_in_play("mine", _is_darkness_in_play), 30),
         ),
     ],
 )

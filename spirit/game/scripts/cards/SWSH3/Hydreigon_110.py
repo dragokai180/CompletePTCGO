@@ -17,14 +17,9 @@ def _dark_squall_condition(board, player_id, pokemon):
 
 async def dark_squall(ctx):
     """As often as you like: attach a Darkness Energy card from hand to 1 of your Pokemon."""
-    energies = [c for c in ctx.hand() if _is_darkness_energy_card(c)]
-    picked = await ctx.choose_cards(energies, 1, minimum=1, prompt="Choose a Darkness Energy card to attach")
-    if not picked:
-        return
-    targets = ctx.my_pokemon_in_play()
-    target = await ctx.choose_pokemon(targets, "Choose the Pokémon to attach it to")
-    if target is not None:
-        await ctx.attach_energy(picked[0], target)
+    await ctx.attach_from_hand_freely(
+        _is_darkness_energy_card, ctx.my_pokemon_in_play,
+        "Choose a Darkness Energy to attach, or Done")
 
 
 card = PokemonCardDef(

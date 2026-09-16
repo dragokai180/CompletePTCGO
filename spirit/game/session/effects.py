@@ -58,6 +58,7 @@ from .passives import (
     effective_heal_amount,
     effective_max_hp,
     effective_pokemon_types,
+    pokemon_entry_blocked,
     energy_removal_blocked,
     healing_blocked,
     supporter_effect_replacement,
@@ -130,6 +131,7 @@ class EffectContext:
         # Triggered "you may" effects set this when the window never opened:
         # skips even the announce-only PokeAbility bracket.
         self.suppress_announce: bool = False
+        self.completed_attachment_loop: bool = False
         # Attack-flow only: the resolved attack does NOT end the turn.
         self.attack_keeps_turn: bool = False
         # Snapshot of ctx.knockouts taken just before resolve_knockouts clears
@@ -203,6 +205,11 @@ class EffectContext:
 
     def opponent_pokemon_in_play(self) -> List[PokemonEntity]:
         return self.board.pokemon_in_play(self.opponent_id)
+
+    def pokemon_is_in_play(self, pokemon) -> bool:
+        """A live top-level Pokemon, not a card retained by a delayed callback."""
+        return isinstance(pokemon, PokemonEntity) and pokemon in \
+            self.board.pokemon_in_play(pokemon.owning_player_id)
 
     def attached_energies(self, pokemon: PokemonEntity) -> list:
         return self.board.attached_energies(pokemon)
@@ -390,8 +397,10 @@ class EffectContext:
         effects (Lost Mine, Glistening Droplets).
         """
         target = target if target is not None else self.defender
-        if target is None:
-            logging.warning(f"[Effects {self.game_id}] deal_damage with no target; skipped.")
+        if not self.pokemon_is_in_play(target):
+            # Reactive effects resolve after the attack's movements. A card
+            # in hand/deck/discard is no longer the Attacking Pokemon, and the
+            # client's damage animator has no deckHit/handHit/discardHit path.
             return 0
         if self._trainer_blocked(target):
             return 0
@@ -507,7 +516,7 @@ class EffectContext:
 
     async def knock_out(self, target: Optional[PokemonEntity]) -> bool:
         """Knocks a Pokemon Out directly (an attack EFFECT, not damage)."""
-        if target is None:
+        if not self.pokemon_is_in_play(target):
             return False
         if self.effects_blocked(target):
             logging.info(
@@ -529,7 +538,7 @@ class EffectContext:
         Moving damage counters uses its own primitive, not healing.
         """
         target = target if target is not None else self.my_active()
-        if target is None or amount <= 0:
+        if not self.pokemon_is_in_play(target) or amount <= 0:
             return 0
         if self._trainer_blocked(target):
             return 0
@@ -592,7 +601,7 @@ class EffectContext:
         Asleep/Confused/Paralyzed are mutually exclusive and replace each
         other; Poisoned/Burned stack with everything.
         """
-        if target is None:
+        if not self.pokemon_is_in_play(target):
             return False
         if self._trainer_blocked(target):
             return False
@@ -1206,7 +1215,7 @@ class EffectContext:
         multi-target distribution shielded picks stay legal but their
         counters are prevented (wasted), per the Unfazed Fat ruling.
         """
-        if source is None:
+        if not self.pokemon_is_in_play(source):
             return 0
         if moving_damage_counters_blocked(self.board):
             return 0
@@ -1216,12 +1225,13 @@ class EffectContext:
         if count <= 0:
             return 0
         if isinstance(dest_or_targets, PokemonEntity):
-            if self.effects_blocked(dest_or_targets):
+            if not self.pokemon_is_in_play(dest_or_targets) or self.effects_blocked(dest_or_targets):
                 return 0
             pool = [dest_or_targets]
             placement = {dest_or_targets.entity_id: count}
         else:
-            pool = [p for p in dest_or_targets if p is not source]
+            pool = [p for p in dest_or_targets
+                    if p is not source and self.pokemon_is_in_play(p)]
             if not pool:
                 return 0
             placement = await self.session.prompt_damage_counter_placement(
@@ -1542,6 +1552,11 @@ class EffectContext:
         ("...reveal it, and put it into your hand").
         """
         reveal_batches = {}
+        # Snapshot before the first stack member moves: attachments then
+        # inherit its new hand location. Return moves must run AFTER the
+        # Attack/Ability bracket, never remove its visual source mid-lunge.
+        returning = {c.entity_id for c in cards
+                     if c._containing_area_name() in ("activePokemonArea", "bench")}
         for card in cards:
             owner = card.owning_player_id or self.player_id
             hand = self.board.find_player_area(owner, "hand")
@@ -1573,9 +1588,10 @@ class EffectContext:
                 for vid in (owner, opponent):
                     reveal_batches.setdefault(vid, []).append((card, move))
             else:
-                self._queue(self.session._entity_introduced_msg(card), viewer_id=owner)
-                self._queue(move, viewer_id=owner)
-                self._queue(move, viewer_id=opponent)
+                bracket = GameSequence.GROUPED_MOVE.value if card.entity_id in returning else None
+                self._queue(self.session._entity_introduced_msg(card), viewer_id=owner, bracket=bracket)
+                self._queue(move, viewer_id=owner, bracket=bracket)
+                self._queue(move, viewer_id=opponent, bracket=bracket)
         for vid, entries in reveal_batches.items():
             self._queue_reveal_batch(entries, vid)
 
@@ -2139,6 +2155,16 @@ class EffectContext:
         await self.attach_card(bottom, top)
         return True
 
+    def can_bench_pokemon(self, card: CardEntity) -> bool:
+        """Whether this effect may put the candidate onto its owner's Bench."""
+        owner = card.owning_player_id or self.player_id
+        bench = self.board.find_player_area(owner, "bench")
+        return (
+            bench is not None
+            and len(bench.children) < effective_bench_capacity(self.board, owner)
+            and not pokemon_entry_blocked(self.board, self.player_id, card)
+        )
+
     async def bench_pokemon(self, card: CardEntity) -> bool:
         """Puts a Pokemon from a non-hand zone onto its owner's bench.
 
@@ -2147,7 +2173,7 @@ class EffectContext:
         """
         owner = card.owning_player_id or self.player_id
         bench = self.board.find_player_area(owner, "bench")
-        if not bench or len(bench.children) >= effective_bench_capacity(self.board, owner):
+        if not self.can_bench_pokemon(card):
             return False
         self._note_visual_source(card)
         # Lowest free SLOT (client stamp), not list length -- gaps left by
@@ -2291,6 +2317,58 @@ class EffectContext:
                     self.player_id, e, p))
         await self.enforce_attachment_restrictions(pokemon)
         return True
+
+    async def attach_from_hand_freely(
+        self, predicate: Callable[[CardEntity], bool],
+        targets: Callable[[], Sequence[PokemonEntity]],
+        prompt: str = "Choose an Energy to attach, or Done",
+        after_attach=None,
+    ) -> int:
+        """Repeat a hand attachment Ability using the cards on the playmat.
+
+        Done exits without another activation; each move reaches both clients
+        before the next selection. Announce the Ability once, on completion,
+        rather than pulling its source out for every attachment.
+        """
+        from .legal_actions import ability_condition_met
+
+        attached = 0
+        self.suppress_announce = True
+        while self.pokemon_is_in_play(self.source) \
+                and not ability_locked(self.board, self.source, self.ability) \
+                and ability_condition_met(self.ability, self.board, self.player_id, self.source):
+            pool = [c for c in self.hand() if is_energy_card(c) and predicate(c)]
+            candidates = [p for p in targets() if self.pokemon_is_in_play(p)]
+            if not pool or not candidates:
+                break
+            chosen = await self.choose_cards(pool, 1, minimum=0, prompt=prompt)
+            if not chosen:
+                break
+            energy = chosen[0]
+            target = await self.choose_pokemon(
+                candidates, "Choose a Pokémon to attach the Energy to")
+            if energy not in self.hand() or target not in targets() \
+                    or not self.pokemon_is_in_play(target):
+                break
+            if not await self.attach_energy(energy, target, counts_as_attachment=True):
+                break
+            attached += 1
+            if target.entity_id not in self.visual_targets:
+                self.visual_targets.append(target.entity_id)
+            if after_attach is not None:
+                await after_attach(target)
+            await self.flush_choreography()
+            # Attachment observers must resolve before the next iteration,
+            # not be lost when the final, empty choreography is announced.
+            pending, self.deferred_actions = self.deferred_actions, []
+            for action in pending:
+                await action()
+            await self.session.resolve_knockouts(self)
+            self.knockouts.clear()
+            await self.session.enforce_bench_capacity()
+        self.completed_attachment_loop = bool(attached) and self.pokemon_is_in_play(self.source)
+        self.suppress_announce = not self.completed_attachment_loop
+        return attached
 
     async def attach_card(self, card: CardEntity, pokemon: PokemonEntity) -> bool:
         """Attach a non-Energy card moved by an effect.
@@ -2916,7 +2994,8 @@ async def resolve_triggered_ability(
     # type, player, board position, or lingering attack effect.  When none of
     # those conditions match, the effect queues no state change and must not
     # display an ability banner as though it had activated.
-    if ability.has_trigger(Triggers.ON_ENERGY_ATTACHED) and not ctx._messages:
+    if (ability.has_trigger(Triggers.ON_ENERGY_ATTACHED)
+            or ability.has_trigger(Triggers.ON_DAMAGED_BY_ATTACK)) and not ctx._messages:
         ctx.suppress_announce = True
     # Same rule as activated abilities: a declined "you may" queues no
     # messages and must not end the turn (Climactic Gate).
@@ -2993,7 +3072,7 @@ async def _send_ability_brackets(session, ctx: EffectContext,
             {"gameID": session.game_id, "user": ctx.player_id},
         ))
 
-    if not ctx._messages:
+    if not ctx._messages and not ctx.completed_attachment_loop:
         # Declined/no-op effect: announce only (popin + gamelog, no orb).
         if not ctx.suppress_announce:
             for pid, viewer in session.players.items():

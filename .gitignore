@@ -264,6 +264,7 @@ __marimo__/
 
 # Generated audits and one-off investigation output. Keep the audit tools and
 # regression tests; regenerate reports locally when needed.
+/audits/results/
 /*.json
 !/package-lock.json
 /passive-*.txt

@@ -111,6 +111,12 @@ class ManifestManager:
 
                 asset_names = []
                 aliases = {bundle_name_raw, logical_name}
+                # Native playmat marker requests are case-sensitive and use
+                # the unversioned family, not its lowercase cosmetic prefix.
+                for marker in ("GXToken", "VSTARToken"):
+                    if marker in bundle_name_raw:
+                        aliases.add(marker)
+                        aliases.add(f"{marker}/{marker.lower()}texture")
                 lower_entry = entry.lower()
                 if "landingpage" in lower_entry:
                     aliases.add("LandingPage")
@@ -147,7 +153,11 @@ class ManifestManager:
                 ]
                 if not exact_assets and any(pat in lower_entry for pat in dynamic_texture_patterns):
                     try:
-                        env = UnityPy.load(bundle_file_path)
+                        # UnityPy retains file-backed readers. Read the atlas
+                        # into memory so a manifest scan cannot keep Windows
+                        # handles locked during a later marker restoration.
+                        with open(bundle_file_path, "rb") as bundle_file:
+                            env = UnityPy.load(bundle_file.read())
                         exact_assets = []
                         prefix = ""
                         if "cardSleeves" in bundle_name_raw:

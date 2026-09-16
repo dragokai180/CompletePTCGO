@@ -1061,7 +1061,7 @@ class _BWTextPassive(Passive):
         if counters or status is not None:
             async def retaliate():
                 live_attacker = ctx.board.get_entity(attacker.entity_id)
-                if not isinstance(live_attacker, PokemonEntity):
+                if not ctx.pokemon_is_in_play(live_attacker):
                     return
                 if counters:
                     await ctx.deal_damage(
@@ -1073,6 +1073,7 @@ class _BWTextPassive(Passive):
                 if "discard this card" in t and getattr(carrier, "parent", None) is not None:
                     await ctx.discard_cards([carrier])
                 if ctx.knockouts:
+                    await ctx.flush_choreography()
                     await ctx.session.resolve_knockouts(ctx)
             deferred.append(retaliate)
 
@@ -1105,6 +1106,7 @@ class _BWTextPassive(Passive):
                         apply_modifiers=False, as_counters=True, is_attack=False,
                     )
                 if ctx.knockouts:
+                    await ctx.flush_choreography()
                     await ctx.session.resolve_knockouts(ctx)
             deferred.append(damage_own_bench)
 
@@ -4132,7 +4134,7 @@ class _BWRetaliateWhenDamaged(Passive):
 
         async def retaliate():
             attacker = ctx.board.get_entity(attacker_id)
-            if not isinstance(attacker, PokemonEntity):
+            if not ctx.pokemon_is_in_play(attacker):
                 return
             if should_discard:
                 await ctx.discard_energy_from(attacker, 1)
@@ -4142,6 +4144,7 @@ class _BWRetaliateWhenDamaged(Passive):
                     as_counters=True, is_attack=False,
                 )
             if ctx.knockouts:
+                await ctx.flush_choreography()
                 await ctx.session.resolve_knockouts(ctx)
 
         ctx.deferred_actions.append(retaliate)
@@ -4586,6 +4589,22 @@ async def bw_legacy_attack(ctx):
     text = text.replace("new defending pokémon", "new active pokémon")
     printed = getattr(ctx.ability, "damage", 0) or 0
     primary_damage_dealt = 0
+    # Red Banquet and equivalent simple damage/Prize attacks. This is an
+    # attack-local bonus, not a persistent player passive (Altered Creation).
+    # Register it only for a KO caused by this hit; prize-prevention effects
+    # are still authoritative in the shared knockout resolver.
+    prize_attack = re.fullmatch(
+        r"if (?:your opponent's|the defending) pokémon is knocked out "
+        r"by damage from this attack, take (\d+) more prize cards?\.?",
+        text,
+    )
+    if prize_attack:
+        defender = ctx.defender
+        dealt = await ctx.deal_damage(printed)
+        if dealt > 0 and defender is not None and defender in ctx.knockouts \
+                and defender.entity_id in ctx.attack_damage:
+            ctx.extra_prizes += int(prize_attack.group(1))
+        return
     if "play rock-paper-scissors" in text:
         while True:
             own = await ctx.choose("Choose Rock, Paper or Scissors",
@@ -10284,12 +10303,13 @@ async def bw_legacy_ability(ctx):
     # Fire-only fallback and accidentally interpreted names such as
     # "Lightning Energy" as a proper card name, leaving the other types inert.
     typed_hand_attach = re.search(
-        r"attach an? (grass|fire|water|lightning|psychic|fighting|darkness|"
+        r"attach an? (?:basic )?(grass|fire|water|lightning|psychic|fighting|darkness|"
         r"metal|fairy|special) energy(?: card)? from your hand to (.+?)(?:\.|$)",
         text,
     )
     if typed_hand_attach:
         word, target_text = typed_hand_attach.groups()
+        basic_only = "attach a basic " in typed_hand_attach.group(0)
         if word == "special":
             energies = [card for card in ctx.hand() if is_special_energy(card)]
         else:
@@ -10298,26 +10318,22 @@ async def bw_legacy_ability(ctx):
                 card for card in ctx.hand()
                 if is_energy_card(card) and ptype is not None
                 and energy_provides_type(card, ptype.value)
+                and (not basic_only or is_basic_energy(card))
             ]
-        energy = await _choose_one(
-            ctx, energies, f"Choose a {word.title()} Energy"
-        ) if energies else None
-        if energy is None:
-            return
-        targets = list(ctx.my_pokemon_in_play())
-        if "this pokémon" in target_text \
-                or _name(ctx.source).casefold() in target_text:
-            targets = [ctx.source]
-        elif "mega evolution pokémon" in target_text:
-            targets = [
-                pokemon for pokemon in targets
-                if "Mega" in (subtypes_for(pokemon.archetype_id) or [])
-                or "MEGA" in (subtypes_for(pokemon.archetype_id) or [])
-                or "SV_Mega" in (subtypes_for(pokemon.archetype_id) or [])
-            ]
-        else:
+        def attachment_targets():
+            targets = list(ctx.my_bench() if "benched" in target_text
+                           else ctx.my_pokemon_in_play())
+            if "this pokémon" in target_text \
+                    or _name(ctx.source).casefold() in target_text:
+                targets = [ctx.source]
+            if "mega evolution pokémon" in target_text:
+                targets = [
+                    pokemon for pokemon in targets
+                    if {"Mega", "MEGA", "SV_Mega"} &
+                    set(subtypes_for(pokemon.archetype_id) or [])
+                ]
             type_target = re.search(
-                r"your (grass|fire|water|lightning|psychic|fighting|darkness|"
+                r"your (?:benched )?(grass|fire|water|lightning|psychic|fighting|darkness|"
                 r"metal|fairy|dragon) pokémon", target_text,
             )
             if type_target:
@@ -10328,6 +10344,35 @@ async def bw_legacy_ability(ctx):
                         ctx.board, pokemon
                     )
                 ]
+            owner_name = re.search(r"your ([a-z][a-z' -]*'s) pokémon", target_text)
+            if owner_name:
+                targets = [p for p in targets
+                           if _name(p).casefold().startswith(owner_name.group(1) + " ")]
+            return targets
+
+        targets = attachment_targets()
+        if ctx.ability.activation == Activations.UNLIMITED:
+            def energy_matches(card):
+                return is_special_energy(card) if word == "special" else (
+                    is_energy_card(card) and ptype is not None
+                    and energy_provides_type(card, ptype.value)
+                    and (not basic_only or is_basic_energy(card)))
+
+            heal = re.search(r"heal (\d+) damage from that pokémon", text)
+            async def after_attach(target):
+                if heal:
+                    await ctx.heal(int(heal.group(1)), target)
+
+            await ctx.attach_from_hand_freely(
+                energy_matches, attachment_targets,
+                f"Choose a {word.title()} Energy to attach, or Done",
+                after_attach=after_attach)
+            return
+        energy = await _choose_one(
+            ctx, energies, f"Choose a {word.title()} Energy"
+        ) if energies else None
+        if energy is None:
+            return
         target = targets[0] if len(targets) == 1 else await ctx.choose_pokemon(
             targets, "Choose a Pokémon"
         ) if targets else None

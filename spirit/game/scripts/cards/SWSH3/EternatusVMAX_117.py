@@ -1,9 +1,23 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import AttrID, PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.attacks_common import damage_per, count_in_play
-from spirit.game.card_effects.trainers import is_darkness_pokemon
 from spirit.game.models.board import PokemonEntity
-from spirit.game.session.passives import Passive
+from spirit.game.session.passives import Passive, effective_pokemon_types
+
+
+def _is_darkness_in_play(pokemon) -> bool:
+    """Use the current field type, including Chromashift and Ability locks."""
+    if not isinstance(pokemon, PokemonEntity) or pokemon.parent is None:
+        return False
+    if pokemon.parent.get_attribute(AttrID.NAME) not in ("bench", "activePokemonArea"):
+        return False
+    root = pokemon
+    while root.parent is not None:
+        root = root.parent
+    board = getattr(root, "_board_state", None)
+    return board is not None and PokemonTypes.DARKNESS.value in effective_pokemon_types(
+        board, pokemon
+    )
 
 
 def _all_darkness_in_play(carrier) -> bool:
@@ -15,15 +29,22 @@ def _all_darkness_in_play(carrier) -> bool:
         if area.get_attribute(AttrID.NAME) in ("bench", "activePokemonArea")
         for c in area.children if isinstance(c, PokemonEntity)
     ]
-    return bool(mons) and all(is_darkness_pokemon(m) for m in mons)
+    return bool(mons) and all(_is_darkness_in_play(m) for m in mons)
 
 
 class EternalZonePassive(Passive):
     """While every one of the owner's in-play Pokemon is Darkness type, Bench
-    capacity is 8 (auto-enforced back down to 5 when it stops applying). The
-    accompanying "can't put non-Darkness Pokemon into play" restriction has no
-    engine hook for Pokemon-from-hand plays yet (play_locked only gates
-    Energy/Trainer offers) and is not enforced here."""
+    capacity is 8 and the owner cannot put non-Darkness Pokemon into play."""
+
+    def blocks_pokemon_entry(self, card, player_id, carrier):
+        return (
+            player_id == carrier.owning_player_id
+            and isinstance(card, PokemonEntity)
+            and PokemonTypes.DARKNESS.value not in (
+                card.get_attribute(AttrID.POKEMON_TYPES) or []
+            )
+            and _all_darkness_in_play(carrier)
+        )
 
     def bench_capacity(self, player_id, carrier):
         if player_id != carrier.owning_player_id:
@@ -60,7 +81,7 @@ card = PokemonCardDef(
             cost={PokemonTypes.DARKNESS: 1, PokemonTypes.COLORLESS: 1},
             damage=30,
             damage_operator="x",
-            effect=damage_per(count_in_play("mine", is_darkness_pokemon), 30),
+            effect=damage_per(count_in_play("mine", _is_darkness_in_play), 30),
         ),
     ],
 )

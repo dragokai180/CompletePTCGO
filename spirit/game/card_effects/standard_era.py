@@ -1137,6 +1137,12 @@ async def _generic_search(ctx, text: str, *, count_override: int | None = None) 
             types.intersection(card.get_attribute(AttrID.POKEMON_TYPES) or []))
     else:
         predicate = _search_predicate(text)
+    if "onto your bench" in text or "on your bench" in text:
+        card_predicate = predicate
+        predicate = lambda card: (
+            (card_predicate is None or card_predicate(card))
+            and (not is_pokemon_card(card) or ctx.can_bench_pokemon(card))
+        )
     # A private search for a specified kind may fail even when a matching
     # card exists. An unrestricted "search for N cards" still requires N.
     reveals = "reveal" in text or "show it to your opponent" in text
@@ -1292,6 +1298,8 @@ async def _generic_top_deck(ctx, text: str) -> bool:
     ))
     predicate = None if unrestricted else _search_predicate(text)
     eligible = [card for card in viewed if predicate is None or predicate(card)]
+    if puts_on_bench and not attaches_energy and not puts_in_hand:
+        eligible = [card for card in eligible if ctx.can_bench_pokemon(card)]
     if "a pokémon and a trainer card" in text:
         groups = await ctx.choose_card_groups(
             (

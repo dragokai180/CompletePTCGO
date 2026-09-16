@@ -51,6 +51,7 @@ from spirit.game.session.passives import (
     effective_bench_capacity,
     effective_max_hp,
     effective_retreat_cost,
+    moving_damage_counters_blocked,
 )
 
 
@@ -320,16 +321,9 @@ def deluge_condition(board, player_id, pokemon=None):
 
 
 async def deluge(ctx):
-    energies = [
-        card for card in ctx.hand()
-        if is_basic_energy_of_type(card, PokemonTypes.WATER)
-    ]
-    picked = await ctx.choose_cards(energies, 1, prompt="Choose a Water Energy to attach")
-    if not picked:
-        return
-    target = await ctx.choose_pokemon(ctx.my_pokemon_in_play(), "Choose a Pokémon to attach it to")
-    if target is not None:
-        await ctx.attach_energy(picked[0], target)
+    await ctx.attach_from_hand_freely(
+        lambda card: is_basic_energy_of_type(card, PokemonTypes.WATER),
+        ctx.my_pokemon_in_play, "Choose a Water Energy to attach, or Done")
 
 
 async def stellar_guidance(ctx):
@@ -379,28 +373,59 @@ async def plasma_transfer(ctx):
         await ctx.move_energy(energy, target)
 
 
+def _damage_transfer_sources(board, owner):
+    if owner is None or moving_damage_counters_blocked(board):
+        return []
+    field = board.pokemon_in_play(owner)
+    return [p for p in field
+            if effective_max_hp(board, p) - p.get_attribute(AttrID.HP, 0) >= 10
+            and any(other is not p and other.get_attribute(AttrID.HP, 0) >= 10
+                    for other in field)]
+
+
 def sinister_hand_condition(board, player_id, pokemon=None):
     opponent = next((pid for pid in board.player_ids if pid != player_id), None)
-    if opponent is None or len(board.pokemon_in_play(opponent)) < 2:
-        return False
-    return any(
-        p.get_attribute(AttrID.HP, 0) < effective_max_hp(board, p)
-        for p in board.pokemon_in_play(opponent)
+    return bool(_damage_transfer_sources(board, opponent))
+
+
+def damage_swap_condition(board, player_id, pokemon=None):
+    return bool(_damage_transfer_sources(board, player_id))
+
+
+async def _select_and_move_damage(ctx, owner):
+    damaged = _damage_transfer_sources(ctx.board, owner)
+    if not damaged:
+        return
+    source = await ctx.choose_pokemon(damaged, "Choose a Pokémon to move damage from")
+    if source not in damaged:
+        return
+    targets = [p for p in ctx.board.pokemon_in_play(owner) if p is not source
+               and p.get_attribute(AttrID.HP, 0) >= 10]
+    if not targets:
+        return
+    available = max(0, ctx.max_hp(source) - source.get_attribute(AttrID.HP, 0)) // 10
+    # Never offer a quantity for which no receiver would remain selectable.
+    maximum = min(available, max(p.get_attribute(AttrID.HP, 0) // 10 for p in targets))
+    selected = await ctx.session.prompt_damage_counter_placement(
+        ctx.player_id, ctx.source.entity_id, [source], maximum,
+        amount_per_click=-10, minimum=1,
+        prompt="Click this Pokémon to select damage to move (10 per click), then Done.",
     )
+    count = selected.get(source.entity_id, 0)
+    if type(count) is not int or not 1 <= count <= maximum:
+        return
+    targets = [p for p in targets if p.get_attribute(AttrID.HP, 0) >= count * 10]
+    target = await ctx.choose_pokemon(targets, f"Choose a Pokémon to receive {count * 10} damage")
+    if target in targets and target.get_attribute(AttrID.HP, 0) >= count * 10:
+        await ctx.move_damage_counters(source, target, max_count=count)
 
 
 async def sinister_hand(ctx):
-    damaged = [
-        p for p in ctx.opponent_pokemon_in_play()
-        if p.get_attribute(AttrID.HP, 0) < ctx.max_hp(p)
-    ]
-    source = await ctx.choose_pokemon(damaged, "Choose a Pokémon to move damage from")
-    if source is None:
-        return
-    targets = [p for p in ctx.opponent_pokemon_in_play() if p is not source]
-    target = await ctx.choose_pokemon(targets, "Choose a Pokémon to receive the damage counter")
-    if target is not None:
-        await ctx.move_damage_counters(source, target, max_count=1)
+    await _select_and_move_damage(ctx, ctx.opponent_id)
+
+
+async def damage_swap(ctx):
+    await _select_and_move_damage(ctx, ctx.player_id)
 
 
 # ---------------------------------------------------------------------------

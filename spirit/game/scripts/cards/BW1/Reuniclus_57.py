@@ -1,6 +1,6 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
-from spirit.game.card_effects.bw10 import shadow_punch, sinister_hand, sinister_hand_condition
+from spirit.game.card_effects.bw10 import damage_swap, damage_swap_condition
 from spirit.game.card_effects.bw_era import bw_legacy_attack, bw_legacy_ability, bw_legacy_passive, bw_trainer_effect, bw_trainer_passive, bw_tool_abilities, bw_stadium_ability, bw_stadium_triggers
 
 card = PokemonCardDef(
@@ -24,8 +24,8 @@ card = PokemonCardDef(
             title="Damage Swap",
             game_text="As often as you like during your turn (before your attack), you may move 1 damage counter from 1 of your Pokémon to another of your Pokémon.",
             activation=Activations.UNLIMITED,
-            condition=sinister_hand_condition,
-            effect=sinister_hand,
+            condition=damage_swap_condition,
+            effect=damage_swap,
         ),
         Attack(
             title="Psywave",

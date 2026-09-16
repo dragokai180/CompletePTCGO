@@ -20,14 +20,10 @@ def _ice_dance_condition(board, player_id, pokemon):
 
 async def ice_dance(ctx):
     """As often as you like: attach a Water Energy card from hand to a Benched Water Pokemon."""
-    energies = [c for c in ctx.hand() if _is_water_energy_card(c)]
-    picked = await ctx.choose_cards(energies, 1, minimum=1, prompt="Choose a Water Energy card to attach")
-    if not picked:
-        return
-    targets = [p for p in ctx.my_bench() if is_water_pokemon(p)]
-    target = await ctx.choose_pokemon(targets, "Choose the Benched Water Pokémon to attach it to")
-    if target is not None:
-        await ctx.attach_energy(picked[0], target)
+    await ctx.attach_from_hand_freely(
+        _is_water_energy_card,
+        lambda: [p for p in ctx.my_bench() if is_water_pokemon(p)],
+        "Choose a Water Energy to attach, or Done")
 
 
 card = PokemonCardDef(

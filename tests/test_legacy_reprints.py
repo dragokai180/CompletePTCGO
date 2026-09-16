@@ -106,11 +106,58 @@ class LegacyReprintTests(unittest.TestCase):
         fmt.banned_cards.append("BW5/102")
         self.assertFalse(self.manager.is_card_legal(LEGACY, card))
 
-    def test_other_set_based_formats_are_unchanged(self):
+    def test_expanded_accepts_equivalent_prints_too(self):
         guid = DeckFormat.EXPANDED.value
         self.manager._by_guid[guid] = GameFormat(
             "Expanded", guid, "Expanded", sets=["BW5"])
-        self.assertFalse(self.manager.is_card_legal(guid, self.card("CZ", 146)))
+        self.assertTrue(self.manager.is_card_legal(guid, self.card("CZ", 146)))
+
+    def test_hgss_expanded_reprints(self):
+        guid = DeckFormat.EXPANDED.value
+        for code, number in (
+            ("COL", 77), ("HGSS1", 90), ("HGSS1", 103), ("HGSS1", 91),
+            ("HGSS1", 92), ("HGSS1", 93), ("HGSS1", 94), ("HGSS1", 95),
+            ("HGSS1", 96), ("HGSS1", 98), ("HGSS1", 104), ("HGSS1", 102),
+            ("HGSS2", 78), ("HGSS2", 79), ("HGSS2", 80),
+            ("HGSS2", 82), ("HGSS2", 83),
+        ):
+            with self.subTest(code=code, number=number):
+                self.assertTrue(self.manager.is_card_legal(guid, self.card(code, number)))
+        self.assertFalse(self.manager.is_card_legal(
+            DeckFormat.STANDARD.value, self.card("HGSS1", 103)))
+        self.assertFalse(self.manager.is_card_legal(guid, self.card("HGSS1", 108)))
+
+    def test_expanded_reprint_respects_source_date_bans_and_copy_limit(self):
+        guid = DeckFormat.EXPANDED.value
+        fmt = GameFormat("Expanded", guid, "Expanded", sets=["BW4"],
+                         legal_from={"BW4": 2000})
+        self.manager._by_guid[guid] = fmt
+        card = self.card("HGSS1", 103)
+        self.assertFalse(self.manager.is_card_legal(guid, card, now_ms=1999))
+        self.assertTrue(self.manager.is_card_legal(guid, card, now_ms=2000))
+        fmt.banned_cards = ["HGSS1/103"]
+        self.assertFalse(self.manager.is_card_legal(guid, card))
+        fmt.banned_cards = ["BW4/92"]
+        self.assertFalse(self.manager.is_card_legal(guid, card))
+        fmt.banned_cards = []
+        pokemon = self.card("BW4", 54)
+        energy = next(c for c in loader.cards if c.key == "Free_Energy")
+        cards = [pokemon.guid, card.guid] + [self.card("BW4", 92).guid] * 3 + [energy.guid] * 55
+        validator = DeckValidator({"piles": {"deck": cards}})
+        validator.manager = self.manager
+        self.assertTrue(validator.validate([guid])[0]["valid"])
+        cards[5] = card.guid
+        validator = DeckValidator({"piles": {"deck": cards}})
+        validator.manager = self.manager
+        self.assertFalse(validator.validate([guid])[0]["valid"])
+
+    def test_reprint_indexes_are_cached_per_format(self):
+        legacy = self.manager.by_guid(LEGACY)
+        expanded = self.manager.by_guid(DeckFormat.EXPANDED.value)
+        old_index = self.manager._legacy_reprints(legacy)
+        new_index = self.manager._legacy_reprints(expanded)
+        self.assertIs(old_index, self.manager._legacy_reprints(legacy))
+        self.assertIs(new_index, self.manager._legacy_reprints(expanded))
 
     def test_index_is_cached_and_rebuilt_after_catalog_replacement(self):
         fmt = self.manager.by_guid(LEGACY)

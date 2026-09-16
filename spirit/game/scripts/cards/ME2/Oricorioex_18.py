@@ -39,21 +39,11 @@ def excited_turbo_condition(board, player_id, pokemon):
 
 async def excited_turbo(ctx):
     """Attach a Basic Fire Energy from hand to 1 of your Benched Fire Pokémon."""
-    energies = [c for c in ctx.hand() if _is_basic_fire_energy(c)]
-    bench = [p for p in ctx.my_bench() if _is_fire(p)]
-    if not energies or not bench:
-        return
-    picked = await ctx.choose_cards(
-        energies, 1, minimum=1,
-        prompt="Choose a Basic Fire Energy card to attach",
-    )
-    if not picked:
-        return
-    target = await ctx.choose_pokemon(
-        bench, "Choose a Benched Fire Pokémon to attach it to"
-    )
-    if target is not None:
-        await ctx.attach_energy(picked[0], target)
+    await ctx.attach_from_hand_freely(
+        _is_basic_fire_energy,
+        lambda: [p for p in ctx.my_bench() if _is_fire(p)]
+        if _has_fire_mega_ex(ctx.board, ctx.player_id) else [],
+        "Choose a Basic Fire Energy to attach, or Done")
 
 
 card = PokemonCardDef(

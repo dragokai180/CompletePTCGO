@@ -3,6 +3,7 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.standard_era import (
     standard_ability, standard_attack, standard_passive,
 )
+from spirit.game.scripts.cards.ME2.Oricorioex_18 import excited_turbo, excited_turbo_condition
 
 
 card = PokemonCardDef(
@@ -26,7 +27,8 @@ card = PokemonCardDef(
         Ability(
             title="Excited Turbo",
             game_text="As often as you like during your turn, if you have any [ [Fire] ] Mega Evolution Pokémon ex in play, you may use this Ability. Attach a Basic [ [Fire] ] Energy card from your hand to 1 of your Benched [ [Fire] ] Pokémon.",
-            effect=standard_ability,
+            effect=excited_turbo,
+            condition=excited_turbo_condition,
             activation=Activations.UNLIMITED,
         ),
         Attack(

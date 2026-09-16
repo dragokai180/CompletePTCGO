@@ -22,22 +22,10 @@ def _oceanic_condition(board, player_id, pokemon):
 
 
 async def oceanic_accompaniment(ctx):
-    hand_energies = [c for c in ctx.hand() if _is_water_energy_card(c)]
-    if not hand_energies:
-        return
-    targets = [p for p in ctx.my_pokemon_in_play() if _has_swim_freely(p)]
-    if not targets:
-        return
-    picked = await ctx.choose_cards(
-        hand_energies, 1, prompt="Choose a Water Energy card to attach"
-    )
-    if not picked:
-        return
-    target = await ctx.choose_pokemon(
-        targets, "Choose a Pokémon with Swim Freely to attach the Energy to"
-    )
-    if target is not None:
-        await ctx.attach_energy(picked[0], target)
+    await ctx.attach_from_hand_freely(
+        _is_water_energy_card,
+        lambda: [p for p in ctx.my_pokemon_in_play() if _has_swim_freely(p)],
+        "Choose a Water Energy to attach, or Done")
 
 
 card = PokemonCardDef(

@@ -12,14 +12,13 @@ from typing import Callable, List, Optional
 from spirit.game.attributes import AttrID
 from spirit.game.data_utils import def_for
 from spirit.game.models.board import CardEntity, PokemonEntity
-from spirit.game.session.constants import BENCH_CAPACITY
 from spirit.game.session.effects import (
     full_stack,
     is_basic_pokemon,
     is_trainer_card,
     split_pokemon_stack,
 )
-from spirit.game.session.passives import effective_max_hp
+from spirit.game.session.passives import effective_bench_capacity, effective_max_hp
 from spirit.game.card_effects.trainers import deck_nonempty, is_energy_card
 
 # Spec-friendly aliases used as factory defaults.
@@ -84,12 +83,13 @@ def search_to_bench(predicate=is_basic, count=1, then=None, prompt=""):
     space, regi_gate shape), shuffle after; `then(ctx, benched)` runs last."""
     async def effect(ctx):
         await _deal_printed(ctx)
-        space = BENCH_CAPACITY - len(ctx.my_bench())
+        space = effective_bench_capacity(ctx.board, ctx.player_id) - len(ctx.my_bench())
         benched: List[CardEntity] = []
         take = min(count, space)
         if take > 0:
             picks = await ctx.search_deck(
-                predicate, count=take, minimum=0,
+                lambda card: (predicate is None or predicate(card)) and ctx.can_bench_pokemon(card),
+                count=take, minimum=0,
                 prompt=prompt or "Choose a Pokémon to put onto your Bench.",
             )
             for card in picks:
@@ -103,7 +103,7 @@ def search_to_bench(predicate=is_basic, count=1, then=None, prompt=""):
         return (
             deck_nonempty(board, player_id)
             and bench is not None
-            and len(bench.children) < BENCH_CAPACITY
+            and len(bench.children) < effective_bench_capacity(board, player_id)
         )
     effect.play_condition = playable
     return effect
@@ -680,10 +680,12 @@ def requires_benched():
 
 
 def requires_bench_space(n=1):
-    """At least `n` free bench slots."""
+    """At least `n` free slots under the owner's current Bench-size effects."""
     def check(board, player_id, pokemon=None):
         bench = board.find_player_area(player_id, "bench")
-        return bench is not None and BENCH_CAPACITY - len(bench.children) >= n
+        return bench is not None and (
+            effective_bench_capacity(board, player_id) - len(bench.children) >= n
+        )
     return check
 
 

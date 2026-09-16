@@ -11,22 +11,10 @@ def _spring_bloom_condition(board, player_id, pokemon):
 
 
 async def spring_bloom(ctx):
-    hand_energies = [c for c in ctx.hand() if is_grass_energy_card(c)]
-    if not hand_energies:
-        return
-    targets = [p for p in ctx.my_pokemon_in_play() if not has_rule_box(p.archetype_id)]
-    if not targets:
-        return
-    picked = await ctx.choose_cards(
-        hand_energies, 1, prompt="Choose a Grass Energy card to attach"
-    )
-    if not picked:
-        return
-    target = await ctx.choose_pokemon(
-        targets, "Choose a Pokémon without a Rule Box to attach the Energy to"
-    )
-    if target is not None:
-        await ctx.attach_energy(picked[0], target)
+    await ctx.attach_from_hand_freely(
+        is_grass_energy_card,
+        lambda: [p for p in ctx.my_pokemon_in_play() if not has_rule_box(p.archetype_id)],
+        "Choose a Grass Energy to attach, or Done")
 
 
 card = PokemonCardDef(
