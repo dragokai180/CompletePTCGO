@@ -72,6 +72,7 @@ SYMBOL_SLUGS = {
     "me3": "perfect-order",
     "me4": "chaos-rising",
     "me5": "pitch-black",
+    "me55": "30th-celebration",
     "mep": "_promo",
 }
 

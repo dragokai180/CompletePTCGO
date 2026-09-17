@@ -112,6 +112,7 @@ RECENT_SETS = OrderedDict(
         RecentSet("mega", "me3", "ME3"),
         RecentSet("mega", "me4", "ME4"),
         RecentSet("mega", "me5", "ME5"),
+        RecentSet("mega", "me55", "ME55"),
         RecentSet("mega", "mep", "MEP"),
     )
 )
@@ -246,6 +247,9 @@ def load_image_urls(card_set: RecentSet) -> dict[str, str]:
         if card_set.era in ("sv", "mega") and card_id.startswith(card_set.data_stem + "-"):
             # Black Bolt #80 incorrectly repeats #60 in upstream metadata.
             number = normalize_collector_number(card_id[len(card_set.data_stem) + 1:])
+        if card_set.data_stem == "me55" and card.get("number") in ("R", "G", "B"):
+            from spirit.tools.import_thirtieth_celebration import RGB_NUMBERS
+            number = str(RGB_NUMBERS[card["number"]])
         url = IMAGE_OVERRIDES.get(card_id) or (card.get("images") or {}).get("large")
         if number and url:
             result[number] = str(url)

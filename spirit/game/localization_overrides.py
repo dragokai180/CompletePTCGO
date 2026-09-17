@@ -82,6 +82,7 @@ SET_NAME_LOCALIZATION_OVERRIDES = {
     "set.name.me3": "<i>Perfect Order</i>",
     "set.name.me4": "<i>Chaos Rising</i>",
     "set.name.me5": "<i>Pitch Black</i>",
+    "set.name.me55": "<i>30th Celebration</i>",
     "set.name.mep": "<i>Mega Evolution</i> Black Star Promos",
 }
 

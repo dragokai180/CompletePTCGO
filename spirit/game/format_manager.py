@@ -22,7 +22,7 @@ LEGACY_SETS = {
 CURRENT_STANDARD_SETS = {
     "Free_Energy", "SV05", "SV06", "SV065", "SV07", "SV08", "SV085",
     "SV09", "SV10", "RSV10PT5", "ZSV10PT5", "SVP", "ME1", "ME2",
-    "ME2PT5", "ME3", "ME4", "ME5", "MEP",
+    "ME2PT5", "ME3", "ME4", "ME5", "ME55", "MEP",
 }
 
 

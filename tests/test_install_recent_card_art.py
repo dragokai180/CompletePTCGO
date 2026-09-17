@@ -238,7 +238,7 @@ class InstallRecentCardArtTests(unittest.TestCase):
         selected = selected_sets(["mega"])
         self.assertEqual(
             [card_set.set_code for card_set in selected],
-            ["ME1", "ME2", "ME2PT5", "ME3", "ME4", "ME5", "MEP"],
+            ["ME1", "ME2", "ME2PT5", "ME3", "ME4", "ME5", "ME55", "MEP"],
         )
 
     def test_script_filename_preserves_collector_number(self):

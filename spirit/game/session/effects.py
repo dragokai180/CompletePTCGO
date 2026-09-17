@@ -159,6 +159,9 @@ class EffectContext:
         # target entity_id -> (dealt, pre_hit_hp); first attack hit wins.
         # Feeds ON_DAMAGED_BY_ATTACK and full-HP-at-KO checks.
         self.attack_damage: Dict[str, Tuple[int, int]] = {}
+        # Active at the moment damage landed, even if the attack then switches
+        # that Pokemon out (Counterattack Grouping versus Wormhole).
+        self.attack_damage_active: set[str] = set()
         # ON_DAMAGED_BY_ATTACK trigger inputs (set via ctx_setup).
         self.damaged_by: Optional[PokemonEntity] = None
         self.damage_amount: int = 0
@@ -504,6 +507,7 @@ class EffectContext:
                 if dealt > 0 and is_attack:
                     self.attack_damage.setdefault(target.entity_id, (dealt, current))
                     if self.board.active_pokemon(target.owning_player_id) is target:
+                        self.attack_damage_active.add(target.entity_id)
                         self.session.turn_state.active_attack_damage_taken.add(target.entity_id)
             if dealt > 0:
                 taken = self.session.turn_state.damage_taken
@@ -2956,6 +2960,8 @@ async def _fire_damaged_by_attack_triggers(session, ctx: EffectContext):
     if not ctx.attack_damage:
         return
     board = session.board_state
+    for passive, carrier in list(active_passives(board)):
+        await passive.after_attack_damage(ctx, carrier)
     snapshot: List[Tuple[PokemonEntity, str, Ability, int, int]] = []
     for entity_id, (dealt, pre_hit) in ctx.attack_damage.items():
         pokemon = board.get_entity(entity_id)

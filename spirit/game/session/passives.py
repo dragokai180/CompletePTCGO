@@ -642,6 +642,13 @@ class Passive:
     ) -> None:
         """React after a Knock Out stack has moved but before Prize cards."""
 
+    async def after_attack_damage(self, ctx: Any, carrier: BoardEntity) -> None:
+        """Observe the attack's damage ledger before Knock Out stacks leave play.
+
+        Team retaliation (Counterattack Grouping) also observes allies while
+        its own bearer is Benched. Newly placed counters join the same KO batch.
+        """
+
 
 def carrier_pokemon(carrier: BoardEntity) -> Optional[PokemonEntity]:
     """The in-play Pokemon a passive rides: the carrier itself, or the

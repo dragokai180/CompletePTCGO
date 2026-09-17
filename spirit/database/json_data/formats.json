@@ -24,7 +24,8 @@
         "ME5",
         "SVP",
         "MEP",
-        "SVE"
+        "SVE",
+        "ME55"
       ],
       "allSets": false,
       "bannedCards": [],
@@ -131,7 +132,8 @@
         "XY0",
         "XY10",
         "XY12",
-        "XY3"
+        "XY3",
+        "ME55"
       ],
       "allSets": false,
       "bannedCards": [],
@@ -194,7 +196,8 @@
         "SV10",
         "RSV10PT5",
         "ZSV10PT5",
-        "SVP"
+        "SVP",
+        "ME55"
       ],
       "allSets": true,
       "bannedCards": [],
@@ -226,7 +229,8 @@
         "ME5",
         "SVP",
         "MEP",
-        "SVE"
+        "SVE",
+        "ME55"
       ],
       "allSets": false,
       "bannedCards": [],

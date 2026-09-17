@@ -76,6 +76,12 @@ def load_sources(directories, *, pokemon_only=True):
         elif spec.era == 'sm' or stem == 'sma':
             from spirit.tools.import_sm_sets import number_map
             numbers = number_map(cards, stem)
+        elif stem == 'me55':
+            # Share verified upstream corrections (Murkrow's mislabelled
+            # resistance) and the main set's R/G/B protocol numbering.
+            from spirit.tools.import_thirtieth_celebration import normalized_card
+            cards = [normalized_card(c) for c in cards]
+            numbers = {c['id']: int(c['number']) for c in cards}
         for card in cards:
             if pokemon_only and card.get('supertype') != 'Pokémon':
                 continue
