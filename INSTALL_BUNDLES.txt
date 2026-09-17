@@ -127,7 +127,7 @@ to rebuild the affected bundles, then reconnect the clients.
 
    python -m spirit.main
 
-OPTION C: Install converted Pokemon GO through Crown Zenith foils
+POKEMON GO TO CROWN ZENITH FOILS
 ----------------------------------------------------------------
 
 Use the separately supplied PGO-CRZLiveBundles pack. These are ALREADY
