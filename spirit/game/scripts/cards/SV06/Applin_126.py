@@ -45,7 +45,7 @@ card = PokemonCardDef(
         Attack(
             title="Rolling Tackle",
             game_text="",
-            cost={PokemonTypes.GRASS: 1, PokemonTypes.DARKNESS: 1},
+            cost={PokemonTypes.GRASS: 1, PokemonTypes.FIRE: 1},
             damage=30,
         ),
     ],

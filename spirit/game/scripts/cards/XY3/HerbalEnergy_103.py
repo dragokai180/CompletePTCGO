@@ -18,6 +18,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.GRASS,
     is_special=True,
+    outside_play_types=[],
     provides=[[PokemonTypes.GRASS]],
     passive=standard_passive('This card can only be attached to Grass Pokémon. This card provides Grass Energy only while this card is attached to a Grass Pokémon. When you attach this card from your hand to 1 of your Grass Pokémon, heal 30 damage from that Pokémon. (If this card is attached to anything other than a Grass Pokémon, discard this card.)'),
     attach_to=energy_attach_to('This card can only be attached to Grass Pokémon. This card provides Grass Energy only while this card is attached to a Grass Pokémon. When you attach this card from your hand to 1 of your Grass Pokémon, heal 30 damage from that Pokémon. (If this card is attached to anything other than a Grass Pokémon, discard this card.)'),

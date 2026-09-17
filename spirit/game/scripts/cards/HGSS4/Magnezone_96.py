@@ -33,7 +33,6 @@ card = PokemonCardDef(
             ability_type=AbilityTypes.POKE_POWER,
             effect=standard_ability,
             activation=Activations.ONCE_PER_TURN,
-            usable_from='hand',
         ),
         Attack(
             title='Lost Burn',

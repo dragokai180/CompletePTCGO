@@ -25,5 +25,6 @@ card = EnergyCardDef(
     rarity=Rarities.Rare,
     energy_type=PokemonTypes.METAL,
     is_special=True,
+    outside_play_types=[],
     passive=retreat_free_when(_metal_holder),
 )

@@ -28,7 +28,6 @@ card = PokemonCardDef(
             title='Perfection',
             game_text='This Pokémon can use the attacks of any Pokémon-GX or Pokémon-EX on your Bench or in your discard pile. (You still need the necessary Energy to use each attack.)',
             effect=standard_ability,
-            usable_from='discard',
         ),
         Attack(
             title='Miraculous Duo-GX',

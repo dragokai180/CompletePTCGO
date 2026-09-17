@@ -30,7 +30,6 @@ card = PokemonCardDef(
             game_text='Once at the end of your turn (after your attack), you may use this Ability. Draw cards until you have 8 cards in your hand.',
             effect=standard_ability,
             trigger=Triggers.END_OF_TURN,
-            usable_from='hand',
         ),
         Attack(
             title='Power Cyclone',

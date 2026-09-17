@@ -62,7 +62,7 @@ class DamageTransferSelectionTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(candidates, [source])
                         self.assertEqual(count, 3)
                         self.assertEqual(kwargs['minimum'], 1)
-                        self.assertEqual(kwargs['amount_per_click'], -10)
+                        self.assertEqual(kwargs['amount_per_click'], 10)
                         # Selection is only a preview until the receiver is chosen.
                         self.assertEqual(source.get_attribute(AttrID.HP), hp_before)
                         return {source.entity_id: 3}
@@ -119,14 +119,14 @@ class DamageTransferSelectionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(node['minimumToSelect'], 1)
             self.assertEqual(node['numberToSelect'], 5)
             self.assertEqual(node['validTargets'], [source.entity_id])
-            self.assertEqual(node['amountPerClick'], -10)
+            self.assertEqual(node['amountPerClick'], 10)
             return {'selection': {'targetResponses': [
                 {'entities': [{'target': source.entity_id, 'selections': 3}]}]}}
 
         with patch('spirit.game.session.game_session.AIPlayer', type('NotAI', (), {})), \
                 patch.object(rig.session, 'prompt_selection_message', side_effect=reply):
             result = await rig.session.prompt_damage_counter_placement(
-                P1, ctx.source.entity_id, [source], 5, -10, minimum=1)
+                P1, ctx.source.entity_id, [source], 5, 10, minimum=1)
         self.assertEqual(result, {source.entity_id: 3})
 
     async def test_native_picker_rejects_overflow_and_foreign_targets(self):

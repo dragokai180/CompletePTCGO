@@ -33,5 +33,6 @@ card = EnergyCardDef(
     rarity=Rarities.Rare,
     energy_type=PokemonTypes.DARKNESS,
     is_special=True,
+    outside_play_types=[],
     passive=ShadowyDarknessPassive(),
 )

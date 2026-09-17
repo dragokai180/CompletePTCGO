@@ -15,5 +15,6 @@ card = EnergyCardDef(
     rarity=Rarities.Rare,
     energy_type=PokemonTypes.FIGHTING,
     is_special=True,
+    outside_play_types=[],
     passive=attack_effect_shield_passive(pokemon_type=PokemonTypes.FIGHTING),
 )

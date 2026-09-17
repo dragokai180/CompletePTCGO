@@ -1,5 +1,5 @@
 from spirit.game.data_utils import PokemonCardDef, Attack
-from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
+from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities, AttrID
 from spirit.game.card_effects.attacks_common import flip_bonus
 
 card = PokemonCardDef(
@@ -9,7 +9,9 @@ card = PokemonCardDef(
     display_name="Servine",
     searchable_by=["Servine","Stage 1","Servine"],
     subtypes=["Stage 1"],
-    collector_number=2,
+    # Original client slots 116..140 hold Radiant Collection RC1..RC25.
+    collector_number=117,
+    attributes={AttrID.CARD_NUMBER_TEXT.value: {"type": "string", "value": "RC2"}},
     set_code="BW11",
     rarity=Rarities.Common,
     hp=80,

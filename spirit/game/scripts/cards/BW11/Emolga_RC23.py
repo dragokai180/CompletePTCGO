@@ -1,5 +1,5 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
-from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
+from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities, AttrID
 from spirit.game.card_effects.bw10 import call_for_family, comet_punch
 
 card = PokemonCardDef(
@@ -9,7 +9,9 @@ card = PokemonCardDef(
     display_name="Emolga",
     searchable_by=["Emolga","Basic","Emolga"],
     subtypes=["Basic"],
-    collector_number=23,
+    # Original client slots 116..140 hold Radiant Collection RC1..RC25.
+    collector_number=138,
+    attributes={AttrID.CARD_NUMBER_TEXT.value: {"type": "string", "value": "RC23"}},
     set_code="BW11",
     rarity=Rarities.RareUltra,
     hp=70,

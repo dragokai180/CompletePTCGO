@@ -1,5 +1,5 @@
 from spirit.game.data_utils import PokemonCardDef, Attack
-from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
+from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities, AttrID
 from spirit.game.card_effects.attacks_common import flip_damage
 
 card = PokemonCardDef(
@@ -9,7 +9,9 @@ card = PokemonCardDef(
     display_name="Minccino",
     searchable_by=["Minccino","Basic","Minccino"],
     subtypes=["Basic"],
-    collector_number=18,
+    # Original client slots 116..140 hold Radiant Collection RC1..RC25.
+    collector_number=133,
+    attributes={AttrID.CARD_NUMBER_TEXT.value: {"type": "string", "value": "RC18"}},
     set_code="BW11",
     rarity=Rarities.Common,
     hp=60,

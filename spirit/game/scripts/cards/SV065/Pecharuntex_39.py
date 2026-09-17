@@ -7,8 +7,16 @@ from spirit.game.attributes import (
     SpecialConditions,
 )
 from spirit.game.card_effects.attacks_common import count_prizes_taken
+from spirit.game.data_utils import def_for
+from spirit.game.session.passives import effective_pokemon_types
 
 PECHARUNT_EX_GUID = "d9ce4ae0-25bc-476d-9be7-d1d7459d1bbe"
+
+
+def _eligible_target(board, pokemon):
+    definition = def_for(pokemon.archetype_id)
+    return (getattr(definition, "display_name", "") != "Pecharunt ex"
+            and PokemonTypes.DARKNESS.value in effective_pokemon_types(board, pokemon))
 
 
 def _subjugating_chains_condition(board, player_id, pokemon) -> bool:
@@ -17,10 +25,7 @@ def _subjugating_chains_condition(board, player_id, pokemon) -> bool:
     if not bench:
         return False
     for c in bench.children:
-        if c.archetype_id == PECHARUNT_EX_GUID:
-            continue
-        types = c.get_attribute(AttrID.POKEMON_TYPES) or []
-        if PokemonTypes.DARKNESS.value in types:
+        if _eligible_target(board, c):
             return True
     return False
 
@@ -28,10 +33,7 @@ def _subjugating_chains_condition(board, player_id, pokemon) -> bool:
 async def subjugating_chains(ctx):
     candidates = []
     for p in ctx.my_bench():
-        if p.archetype_id == PECHARUNT_EX_GUID:
-            continue
-        types = p.get_attribute(AttrID.POKEMON_TYPES) or []
-        if PokemonTypes.DARKNESS.value in types:
+        if _eligible_target(ctx.board, p):
             candidates.append(p)
 
     if not candidates:
@@ -85,7 +87,7 @@ card = PokemonCardDef(
         ),
         Attack(
             title="Irritated Outburst",
-            game_text="",
+            game_text="This attack does 60 damage for each Prize card your opponent has taken.",
             cost={PokemonTypes.DARKNESS: 2},
             damage=60,
             damage_operator="x",

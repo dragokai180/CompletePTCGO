@@ -15,5 +15,6 @@ card = EnergyCardDef(
     rarity=Rarities.Rare,
     energy_type=PokemonTypes.PSYCHIC,
     is_special=True,
+    outside_play_types=[],
     on_attach=telepathic_psychic_on_attach,
 )

@@ -18,6 +18,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.PSYCHIC,
     is_special=True,
+    outside_play_types=[],
     provides=[[PokemonTypes.PSYCHIC]],
     passive=standard_passive('This card can only be attached to Psychic Pokémon. This card provides Psychic Energy only while this card is attached to a Psychic Pokémon. The Retreat Cost of the Pokémon this card is attached to is ColorlessColorless less. (If this card is attached to anything other than a Psychic Pokémon, discard this card.)'),
     attach_to=energy_attach_to('This card can only be attached to Psychic Pokémon. This card provides Psychic Energy only while this card is attached to a Psychic Pokémon. The Retreat Cost of the Pokémon this card is attached to is ColorlessColorless less. (If this card is attached to anything other than a Psychic Pokémon, discard this card.)'),

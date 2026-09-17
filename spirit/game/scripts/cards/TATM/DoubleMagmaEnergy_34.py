@@ -18,6 +18,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.FIGHTING,
     is_special=True,
+    outside_play_types=[],
     provides=[[PokemonTypes.FIGHTING, PokemonTypes.FIGHTING]],
     passive=standard_passive('This card can only be attached to Team Magma Pokémon. Discard this card at the end of the turn you attached it. This card provides FightingFighting Energy only while it is attached to a Team Magma Pokémon. (If this card is attached to anything other than a Team Magma Pokémon, discard this card.)'),
     attach_to=energy_attach_to('This card can only be attached to Team Magma Pokémon. Discard this card at the end of the turn you attached it. This card provides FightingFighting Energy only while it is attached to a Team Magma Pokémon. (If this card is attached to anything other than a Team Magma Pokémon, discard this card.)'),

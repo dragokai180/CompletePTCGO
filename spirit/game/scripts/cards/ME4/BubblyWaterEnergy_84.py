@@ -34,6 +34,7 @@ card = EnergyCardDef(
     rarity=Rarities.Rare,
     energy_type=PokemonTypes.WATER,
     is_special=True,
+    outside_play_types=[],
     on_attach=bubbly_water_on_attach,
     passive=condition_immunity_passive(protects=_water_holder),
 )

@@ -32,7 +32,6 @@ card = PokemonCardDef(
             game_text='Once during your turn (before your attack), you may draw cards until you have 7 cards in your hand. If you drew any cards in this way, this Pokémon is Knocked Out.',
             effect=standard_ability,
             activation=Activations.ONCE_PER_TURN,
-            usable_from='hand',
         ),
         Attack(
             title='Hypnoblast',

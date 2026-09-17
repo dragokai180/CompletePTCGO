@@ -29,7 +29,6 @@ card = PokemonCardDef(
             title="Food Prep",
             game_text="Attacks used by this Pokémon cost Colorless less for each Kofu card in your discard pile.",
             effect=standard_ability,
-            usable_from="discard",
         ),
         Attack(
             title="Haymaker",

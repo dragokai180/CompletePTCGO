@@ -18,6 +18,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
+    outside_play_types=[],
     provides=[[PokemonTypes.COLORLESS]],
     passive=standard_passive("As long as this card is attached to a Pokémon, it provides Colorless Energy.The Pokémon this card is attached to recovers from being Asleep, Confused, or Paralyzed and can't be affected by those Special Conditions."),
 )

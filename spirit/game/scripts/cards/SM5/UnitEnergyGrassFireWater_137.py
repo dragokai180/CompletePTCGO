@@ -18,6 +18,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
+    outside_play_types=[PokemonTypes.COLORLESS],
     provides=[[PokemonTypes.COLORLESS]],
     passive=standard_passive('This card provides Colorless Energy. While this card is attached to a Pokémon, it provides Grass, Fire, and Water Energy but provides only 1 Energy at a time.'),
 )

@@ -1,5 +1,5 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
-from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
+from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities, AttrID
 from spirit.game.card_effects.bw10 import plasma_transfer, plasma_transfer_condition, tri_attack
 from spirit.game.card_effects.bw_era import bw_legacy_attack, bw_legacy_ability, bw_legacy_passive, bw_trainer_effect, bw_trainer_passive, bw_tool_abilities, bw_stadium_ability, bw_stadium_triggers
 
@@ -10,7 +10,9 @@ card = PokemonCardDef(
     display_name="Ursaring",
     searchable_by=["Ursaring","Stage 1","Ursaring"],
     subtypes=["Stage 1"],
-    collector_number=16,
+    # Original client slots 116..140 hold Radiant Collection RC1..RC25.
+    collector_number=131,
+    attributes={AttrID.CARD_NUMBER_TEXT.value: {"type": "string", "value": "RC16"}},
     set_code="BW11",
     rarity=Rarities.Common,
     hp=130,

@@ -30,7 +30,6 @@ card = PokemonCardDef(
             game_text="Once during your turn, if you have no cards in your hand, you may use this Ability. Search your deck for a Supporter card, reveal it, and put it into your hand. Then, shuffle your deck.",
             effect=standard_ability,
             activation=Activations.ONCE_PER_TURN,
-            usable_from="hand",
         ),
         Attack(
             title="Air Slash",

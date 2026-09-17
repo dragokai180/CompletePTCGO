@@ -21,6 +21,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
+    outside_play_types=[],
     attach_to=_is_team_rockets,
     discard_if_invalid=True,
     provides=[

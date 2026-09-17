@@ -178,6 +178,10 @@ class Passive:
         """Extra max HP granted to `pokemon` (e.g. Heat Fire Energy's +20)."""
         return 0
 
+    def modify_attack_cost_for_attack(self, cost, pokemon, carrier, board, attack):
+        """Named-attack discounts can inspect the attack, not guess its cost."""
+        return self.modify_attack_cost(cost, pokemon, carrier, board)
+
     def modify_retreat_cost(
         self, cost: int, pokemon: PokemonEntity, carrier: BoardEntity,
         board: BoardState,
@@ -737,20 +741,40 @@ def _locks_abilities_of(
     return False
 
 
+def _suppression_sources(board: BoardState):
+    """An Ability already removed by a Trainer/attack cannot suppress others.
+
+    Resolve non-Ability locks first, avoiding recursive active_passives calls.
+    This covers Hex Maniac, Shadow Stitching, Silent Lab and Path to the Peak,
+    including Ability-based Tool/Special Energy suppression.
+    """
+    triples = _collect_passives(board)
+    state = getattr(board, "turn_state", None)
+    disabled = state is not None and state.turn_number <= getattr(
+        state, "abilities_disabled_through_turn", 0)
+    independent = [entry for entry in triples if not entry[2]]
+    return [entry for entry in triples if not entry[2] or not (
+        disabled or _locks_abilities_of(independent, entry[1]))]
+
+
 def ability_locked(
     board: BoardState, pokemon: PokemonEntity, ability: Any = None
 ) -> bool:
     """Whether a passive (Path to the Peak) is disabling `pokemon`'s Abilities.
 
-    Evaluated on the UNFILTERED set: a lock contributed by a Pokemon ability
-    is never itself disabled by another lock (Garbotoxin-style recursion is
-    out of scope -- Path to the Peak rides a Stadium so this is safe).
+    Trainer/attack locks disable their affected Ability sources before
+    evaluating Ability-contributed locks. Trainer callbacks and Tool-granted
+    effects are not Pokemon Abilities, despite sharing the dispatch class.
     """
+    # Trainer/Stadium callbacks reuse Ability for dispatch, but are not
+    # Pokemon Abilities. Locks must never suppress these card effects.
+    if not isinstance(pokemon, PokemonEntity) or getattr(ability, "is_granted", False):
+        return False
     state = getattr(board, "turn_state", None)
     if state is not None and state.turn_number <= getattr(
             state, "abilities_disabled_through_turn", 0):
         return True
-    if _locks_abilities_of(_collect_passives(board), pokemon):
+    if _locks_abilities_of(_suppression_sources(board), pokemon):
         return True
     if ability is None:
         return False
@@ -765,22 +789,23 @@ def out_of_play_ability_locked(board: BoardState, card: BoardEntity) -> bool:
     """Whether a passive is disabling the Abilities of a card in a hand or a
     discard pile (Garbotoxin).
 
-    Evaluated on the UNFILTERED set for the same reason ability_locked is: a
-    lock is never switched off by another lock.
+    Uses the same enabled suppression sources as in-play Ability checks.
     """
+    if not isinstance(card, PokemonEntity):
+        return False
     state = getattr(board, "turn_state", None)
     if state is not None and state.turn_number <= getattr(
             state, "abilities_disabled_through_turn", 0):
         return True
     return any(p.blocks_out_of_play_abilities(card, c)
-               for p, c, _ in _collect_passives(board))
+               for p, c, _ in _suppression_sources(board))
 
 
 def _suppressed_special_energy(
     triples: List[Tuple[Passive, BoardEntity, bool]], entity: BoardEntity
 ) -> bool:
     """Whether `entity` is a Special Energy neutralized by a suppression
-    passive (evaluated on the UNFILTERED set, like ability locks)."""
+    passive among the enabled suppression sources."""
     if not entity.get_attribute(AttrID.IS_SPECIAL_ENERGY):
         return False
     return any(p.suppresses_special_energy(entity, c) for p, c, _ in triples)
@@ -790,7 +815,7 @@ def _suppressed_tool(
     triples: List[Tuple[Passive, BoardEntity, bool]], entity: BoardEntity
 ) -> bool:
     """Whether `entity` is an attached Pokemon Tool neutralized by a
-    suppression passive (Tool Jammer), evaluated on the UNFILTERED set."""
+    suppression passive (Tool Jammer) among the enabled sources."""
     if entity.get_attribute(AttrID.TRAINER_TYPE) != TrainerType.POKEMON_TOOL.value:
         return False
     return any(p.suppresses_tool(entity, c) for p, c, _ in triples)
@@ -805,7 +830,7 @@ def active_passives(board: BoardState) -> List[Tuple[Passive, BoardEntity]]:
     whose own Abilities are locked (Path to the Peak) are excluded, as are
     passives riding a suppressed Special Energy (Temple of Sinnoh).
     """
-    triples = _collect_passives(board)
+    triples = _suppression_sources(board)
     state = getattr(board, "turn_state", None)
     all_abilities_disabled = state is not None and state.turn_number <= getattr(
         state, "abilities_disabled_through_turn", 0
@@ -814,16 +839,19 @@ def active_passives(board: BoardState) -> List[Tuple[Passive, BoardEntity]]:
     def blocked(pokemon: PokemonEntity) -> bool:
         return all_abilities_disabled or _locks_abilities_of(triples, pokemon)
 
-    return [(p, c) for p, c, is_ability in triples
-            if not (is_ability and blocked(c))
-            and not _suppressed_special_energy(triples, c)
-            and not _suppressed_tool(triples, c)]
+    enabled = [entry for entry in triples if not (entry[2] and blocked(entry[1]))]
+    return [(p, c) for p, c, _ in enabled
+            if not _suppressed_special_energy(enabled, c)
+            and not _suppressed_tool(enabled, c)]
 
 
 def tool_suppressed(board: BoardState, tool: BoardEntity) -> bool:
     """Whether an attached Tool is neutralized (Tool Jammer): gates its
     granted_abilities in PIE_ABILITIES, not just its passive hooks."""
-    return _suppressed_tool(_collect_passives(board), tool)
+    triples = _suppression_sources(board)
+    enabled = [entry for entry in triples if not (
+        entry[2] and _locks_abilities_of(triples, entry[1]))]
+    return _suppressed_tool(enabled, tool)
 
 
 def granted_extra_attacks(board: BoardState, pokemon: PokemonEntity) -> List[Any]:
@@ -929,7 +957,7 @@ def compute_damage(
 
 
 def effective_attack_cost(
-    board: BoardState, pokemon: PokemonEntity, cost: Dict[str, int]
+    board: BoardState, pokemon: PokemonEntity, cost: Dict[str, int], attack=None
 ) -> Dict[str, int]:
     """An attack's cost after cost-modifying passives (e.g. Excited Heart)."""
     seen_keys = set()
@@ -937,7 +965,7 @@ def effective_attack_cost(
         key = passive.stacking_key
         if key is not None and key in seen_keys:
             continue
-        modified = passive.modify_attack_cost(dict(cost), pokemon, carrier, board)
+        modified = passive.modify_attack_cost_for_attack(dict(cost), pokemon, carrier, board, attack)
         if key is not None and modified != cost:
             seen_keys.add(key)
         cost = modified
@@ -1338,7 +1366,10 @@ def burn_recovery_blocked(board: BoardState, pokemon: PokemonEntity) -> bool:
 
 def special_energy_suppressed(board: BoardState, energy: BoardEntity) -> bool:
     """Whether `energy` is a Special Energy neutralized by a passive."""
-    return _suppressed_special_energy(_collect_passives(board), energy)
+    triples = _suppression_sources(board)
+    enabled = [entry for entry in triples if not (
+        entry[2] and _locks_abilities_of(triples, entry[1]))]
+    return _suppressed_special_energy(enabled, energy)
 
 
 def effective_pokemon_types(board: BoardState, pokemon: BoardEntity) -> List[Any]:
@@ -1359,16 +1390,42 @@ def energy_removal_blocked(board: BoardState, mover_player_id: str,
     )
 
 
+def has_removable_attack_effects(board: BoardState, players) -> bool:
+    """Only ongoing attack effects count, not damage/status or spent GX uses."""
+    state = getattr(board, 'turn_state', None)
+    ids = {p.entity_id for pid in players for p in board.pokemon_in_play(pid)}
+    if state is not None and state.has_attack_effects(players, ids):
+        return True
+    turn = getattr(state, 'turn_number', 0)
+    return any(
+        temp.from_attack
+        and (temp.expires_after_turn is None or temp.expires_after_turn >= turn)
+        and (temp.player_id in players or temp.carrier_entity_id in ids)
+        and board.get_entity(temp.carrier_entity_id) is not None
+        for temp in getattr(board, 'temporary_passives', ())
+    )
+
+
 def energy_provided_options(board: Optional[BoardState], energy: BoardEntity) -> List[List[int]]:
     """An energy card's provided-type options after suppression (a suppressed
     Special Energy provides only Colorless) and modify_energy_provided hooks."""
     info = energy.get_attribute(AttrID.ENERGY_INFO) or {}
     options = [list(option) for option in info.get("options", [])]
+    definition = def_for(energy.archetype_id)
+    holder = carrier_pokemon(energy)
+    attached = holder is not None and _carrier_in_play(energy)
+    if not attached:
+        outside = getattr(definition, 'outside_play_types', None)
+        if outside is not None:
+            return [[getattr(kind, 'value', kind)] for kind in outside]
+        return options
+    restriction = getattr(definition, 'attach_to', None)
+    if getattr(definition, 'discard_if_invalid', False) and restriction and not restriction(holder):
+        return []
     if board is None:
         return options
     if special_energy_suppressed(board, energy):
         options = [[PokemonTypes.COLORLESS.value]]
-    holder = carrier_pokemon(energy)
     for passive, carrier in active_passives(board):
         hook = passive.modify_energy_provided
         # The carrier parameter was added after the original hook shipped.

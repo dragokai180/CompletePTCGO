@@ -16,6 +16,7 @@ card = EnergyCardDef(
     rarity=Rarities.RareRainbow,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
+    outside_play_types=[],
     provides=[[PokemonTypes.COLORLESS]],
     passive=standard_passive("As long as this card is attached to a Pokémon, it provides Colorless Energy.  When you attach this card from your hand to 1 of your Benched Pokémon, switch that Pokémon with your Active Pokémon."),
     on_attach=energy_on_attach("As long as this card is attached to a Pokémon, it provides Colorless Energy.  When you attach this card from your hand to 1 of your Benched Pokémon, switch that Pokémon with your Active Pokémon."),

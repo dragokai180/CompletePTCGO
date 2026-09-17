@@ -1,5 +1,5 @@
 from spirit.game.data_utils import PokemonCardDef, Attack
-from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
+from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities, AttrID
 from spirit.game.card_effects.support_common import heal_attack
 
 card = PokemonCardDef(
@@ -9,7 +9,9 @@ card = PokemonCardDef(
     display_name="Teddiursa",
     searchable_by=["Teddiursa","Basic","Teddiursa"],
     subtypes=["Basic"],
-    collector_number=15,
+    # Original client slots 116..140 hold Radiant Collection RC1..RC25.
+    collector_number=130,
+    attributes={AttrID.CARD_NUMBER_TEXT.value: {"type": "string", "value": "RC15"}},
     set_code="BW11",
     rarity=Rarities.Common,
     hp=60,

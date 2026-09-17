@@ -43,7 +43,7 @@ def attribute_resistance(attributes):
     return kind, get(AttrID.RESISTANCE_AMOUNT, None) if kind != PokemonTypes.UNSET.value else 0
 
 
-def load_sources(directories):
+def load_sources(directories, *, pokemon_only=True):
     """First directory wins for duplicate IDs; later directories fill gaps."""
     catalogs = defaultdict(dict)
     specs = {s.data_stem: s for s in RECENT_SETS.values()
@@ -77,7 +77,7 @@ def load_sources(directories):
             from spirit.tools.import_sm_sets import number_map
             numbers = number_map(cards, stem)
         for card in cards:
-            if card.get('supertype') != 'Pokémon':
+            if pokemon_only and card.get('supertype') != 'Pokémon':
                 continue
             if stem in GALLERY_SETS:
                 number = gallery_number(stem, card['number'])
@@ -91,6 +91,8 @@ def load_sources(directories):
                 if match is None:
                     continue
                 number = int(match.group())
+                if spec.set_code == 'BW11' and raw.upper().startswith('RC'):
+                    number += 115
             index[(spec.set_code, int(number), normalized_name(card['name']))].append(card)
     return index
 

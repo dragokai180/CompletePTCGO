@@ -30,7 +30,6 @@ card = PokemonCardDef(
             game_text="Once during your turn, you may discard a Basic Fire Energy card from your hand in order to use this Ability. Draw cards until you have 7 cards in your hand.",
             effect=standard_ability,
             activation=Activations.ONCE_PER_TURN,
-            usable_from="hand",
         ),
         Attack(
             title="Energized Storm",

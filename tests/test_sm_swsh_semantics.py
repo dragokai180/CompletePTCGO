@@ -173,6 +173,11 @@ class SmSwshSemanticTests(unittest.IsolatedAsyncioTestCase):
                  'Single Strike Energy', 'Rapid Strike Energy', 'Impact Energy',
                  'Spiral Energy', 'Fusion Strike Energy'}
         rig, e = self.rig('SWSH3.EternatusV_116')
+        holders = {
+            'Single Strike': self.add(rig, fixtures.definition('SWSH5.SingleStrikeUrshifuV_85'), P1, 'bench'),
+            'Rapid Strike': self.add(rig, fixtures.definition('SWSH5.RapidStrikeUrshifuV_87'), P1, 'bench'),
+            'Fusion Strike': self.add(rig, fixtures.definition('SWSH8.GenesectV_185'), P1, 'bench'),
+        }
         definitions = [d for d in CARD_DEFS_BY_GUID.values() if d.display_name in names]
         self.assertGreater(len(definitions), len(names))
         for definition in definitions:
@@ -181,6 +186,12 @@ class SmSwshSemanticTests(unittest.IsolatedAsyncioTestCase):
                 energy = self.add(rig, definition, P1, 'hand')
                 self.assertEqual(energy_card_types(energy), [])
                 rig.attach(energy, e['target'])
+                if definition.attach_to and definition.discard_if_invalid:
+                    # An illegally attached battle-style Energy provides
+                    # nothing; then exercise the matching valid holder.
+                    self.assertEqual(energy_card_types(energy), [])
+                    holder = next(p for p in holders.values() if definition.attach_to(p))
+                    rig.attach(energy, holder)
                 self.assertTrue(energy_card_types(energy))
                 rig.to_area(energy, P1, 'discard')
                 self.assertEqual(energy_card_types(energy), [])

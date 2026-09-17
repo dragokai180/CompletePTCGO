@@ -29,7 +29,6 @@ card = PokemonCardDef(
             game_text='Once during your turn (before your attack), if this Pokémon is your Active Pokémon, and if you have 35 or more cards in your hand, you may use this Ability. If you do, you win this game.',
             effect=standard_ability,
             activation=Activations.ONCE_PER_TURN,
-            usable_from='hand',
         ),
         Attack(
             title='Hidden Power',

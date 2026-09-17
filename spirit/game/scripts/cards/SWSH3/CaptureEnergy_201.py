@@ -14,5 +14,6 @@ card = EnergyCardDef(
     rarity=Rarities.RareSecret,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
+    outside_play_types=[],
     on_attach=capture_on_attach,
 )

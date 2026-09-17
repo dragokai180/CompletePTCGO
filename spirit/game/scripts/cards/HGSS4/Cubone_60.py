@@ -31,7 +31,6 @@ card = PokemonCardDef(
             game_text="Any damage done to Cubone by your opponent's attacks is reduced by 20 for each Marowak in your discard pile (after applying Weakness and Resistance).",
             ability_type=AbilityTypes.POKE_BODY,
             effect=standard_ability,
-            usable_from='discard',
         ),
         Attack(
             title='Bone Rush',

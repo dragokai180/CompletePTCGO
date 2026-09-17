@@ -29,7 +29,6 @@ card = PokemonCardDef(
             game_text='Once during your turn (before your attack), you may switch this Pokémon with a Wishiwashi-GX in your hand. Any attached cards, damage counters, Special Conditions, turns in play, and any other effects remain on the new Pokémon.',
             effect=standard_ability,
             activation=Activations.ONCE_PER_TURN,
-            usable_from='hand',
         ),
         Attack(
             title='Sharpshooting',

@@ -31,7 +31,6 @@ card = PokemonCardDef(
             game_text='Once during your turn, you may draw cards until you have 3 cards in your hand.',
             effect=standard_ability,
             activation=Activations.ONCE_PER_TURN,
-            usable_from='hand',
         ),
         Attack(
             title='Genome Hacking',

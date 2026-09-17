@@ -31,7 +31,6 @@ card = PokemonCardDef(
             title="Tuning Echo",
             game_text="If you have the same number of cards in your hand as your opponent, ignore all Energy in the cost of Frightening Howl used by this Pokémon.",
             effect=standard_ability,
-            usable_from="hand",
         ),
         Attack(
             title="Frightening Howl",

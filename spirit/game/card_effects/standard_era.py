@@ -63,6 +63,20 @@ class _DevolutionEvolutionLock(Passive):
         return target is carrier
 
 
+def standard_ability_source_zone(text: str) -> Optional[str]:
+    """Only an explicit location of the bearer permits an out-of-play action.
+
+    Drawing cards *in your hand* and using cards *in your discard pile* do
+    not put the Ability's bearer there. Last-card entry powers are different.
+    """
+    text = _norm(text)
+    if re.search(r"(?:if|while) this pokémon is in your discard pile", text):
+        return "discard"
+    if re.search(r"if this pokémon is (?:in your hand|the last card in your hand)", text):
+        return "hand"
+    return None
+
+
 def normalize_standard_card_definition(definition) -> None:
     """Repair behavior classification on mechanically imported Pokémon.
 
@@ -129,25 +143,13 @@ def normalize_standard_card_definition(definition) -> None:
             ability.activation = None
             # ON_PLAY/ON_EVOLVE describe where the card came from, not an
             # out-of-play action the player may click repeatedly.
-            ability.usable_from = (
-                "discard"
-                if "if this pokémon is in your discard pile" in text
-                or "while this pokémon is in your discard pile" in text
-                else None
-            )
+            ability.usable_from = standard_ability_source_zone(text)
         elif inferred_activation is not None:
             ability.effect = bw_legacy_ability
             ability.passive = None
             ability.activation = inferred_activation
             ability.trigger = None
-            ability.usable_from = (
-                "discard"
-                if "if this pokémon is in your discard pile" in text
-                or "while this pokémon is in your discard pile" in text
-                else "hand"
-                if "if this pokémon is in your hand" in text
-                else None
-            )
+            ability.usable_from = standard_ability_source_zone(text)
             if ability.condition is None:
                 ability.condition = standard_ability_condition(text)
         else:
@@ -410,6 +412,10 @@ def standard_ability_condition(game_text: str):
         if draw_until:
             cost = _ability_hand_discard_cost(text)
             paid = (len(hand) if cost[0] is None else cost[0]) if cost else 0
+            if "put a card from your hand on the bottom of your deck" in text:
+                if not hand:
+                    return False
+                paid += 1
             if len(hand) - paid >= int(draw_until.group(1)) or deck_area is None or not deck_area.children:
                 return False
         if "draw a card" in text and "discard" not in text and (deck_area is None or not deck_area.children):
@@ -573,6 +579,20 @@ def standard_ability_condition(game_text: str):
                        for p in candidates):
                 return False
 
+        counter_target = re.search(
+            r"(?:put|place) \d+ damage counters? on 1 of your opponent's (benched )?pokémon(-ex|-gx)?",
+            text)
+        if counter_target:
+            targets = list(board.pokemon_in_play(opponent_id)) if opponent_id else []
+            if counter_target.group(1):
+                targets = [p for p in targets if _in_area(p, "bench")]
+            if counter_target.group(2):
+                subtype = counter_target.group(2)[1:].upper()
+                targets = [p for p in targets if subtype in
+                           (getattr(def_for(p.archetype_id), "subtypes", ()) or ())]
+            if not targets:
+                return False
+
         if re.search(r"remove (?:all|\d+) damage counters? from", text):
             targets = [board.active_pokemon(player_id)] if "from your active pokémon" in text else own
             if not any(p is not None and p.get_attribute(AttrID.HP, 0) < effective_max_hp(board, p)
@@ -701,7 +721,11 @@ async def giant_water_shuriken(ctx):
         and energy_provides_type(card, PokemonTypes.WATER.value),
     )
     if discarded:
-        await ctx.place_damage_counters(6, ctx.opponent_pokemon_in_play())
+        target = await ctx.choose_pokemon(
+            ctx.opponent_pokemon_in_play(), "Choose a Pokémon for 6 damage counters")
+        if target is not None:
+            await ctx.deal_damage(60, target=target, as_counters=True,
+                                  apply_modifiers=False, is_attack=False)
 
 
 def hyper_transfer_condition(board, player_id, source=None) -> bool:
@@ -3679,6 +3703,10 @@ def standard_trainer_condition(game_text: str):
         own_in_play = list(board.pokemon_in_play(player_id))
         opposing_in_play = list(board.pokemon_in_play(opponent_id)) \
             if opponent_id else []
+        if text.startswith("remove all effects of attacks on"):
+            from spirit.game.session.passives import has_removable_attack_effects
+            affected = set(board.player_ids) if "each player" in text else {player_id}
+            return has_removable_attack_effects(board, affected)
         own_bench_area = board.find_player_area(player_id, "bench")
         opposing_bench_area = board.find_player_area(opponent_id, "bench") \
             if opponent_id else None

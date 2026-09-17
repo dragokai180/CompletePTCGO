@@ -18,6 +18,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.GRASS,
     is_special=True,
+    outside_play_types=[PokemonTypes.COLORLESS],
     provides=[[PokemonTypes.GRASS], [PokemonTypes.FIRE], [PokemonTypes.WATER], [PokemonTypes.LIGHTNING], [PokemonTypes.PSYCHIC], [PokemonTypes.FIGHTING], [PokemonTypes.DARKNESS], [PokemonTypes.METAL]],
     passive=standard_passive('Attach Rainbow Energy to 1 of your Pokémon. While in play, Rainbow Energy provides every type of Energy but provides only 1 Energy at a time. (Has no effect other than providing Energy.) When you attach this card from your hand to 1 of your Pokémon, put 1 damage counter on that Pokémon. (While not in play, Rainbow Energy counts as Colorless Energy.)'),
     on_attach=energy_on_attach('Attach Rainbow Energy to 1 of your Pokémon. While in play, Rainbow Energy provides every type of Energy but provides only 1 Energy at a time. (Has no effect other than providing Energy.) When you attach this card from your hand to 1 of your Pokémon, put 1 damage counter on that Pokémon. (While not in play, Rainbow Energy counts as Colorless Energy.)'),

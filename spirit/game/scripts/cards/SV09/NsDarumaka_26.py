@@ -26,7 +26,7 @@ card = PokemonCardDef(
         ),
         Attack(
             title="Flare",
-            cost={PokemonTypes.FIRE: 1, PokemonTypes.COLORLESS: 2},
+            cost={PokemonTypes.FIRE: 2, PokemonTypes.COLORLESS: 1},
             damage=50,
         ),
     ],

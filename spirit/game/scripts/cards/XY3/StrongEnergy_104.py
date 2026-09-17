@@ -18,6 +18,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.FIGHTING,
     is_special=True,
+    outside_play_types=[],
     provides=[[PokemonTypes.FIGHTING]],
     passive=standard_passive("This card can only be attached to Fighting Pokémon. This card provides Fighting Energy only while this card is attached to a Fighting Pokémon. The attacks of the Fighting Pokémon this card is attached to do 20 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance). (If this card is attached to anything other than a Fighting Pokémon, discard this card.)"),
     attach_to=energy_attach_to("This card can only be attached to Fighting Pokémon. This card provides Fighting Energy only while this card is attached to a Fighting Pokémon. The attacks of the Fighting Pokémon this card is attached to do 20 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance). (If this card is attached to anything other than a Fighting Pokémon, discard this card.)"),

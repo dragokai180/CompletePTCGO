@@ -13,5 +13,6 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
+    outside_play_types=[PokemonTypes.COLORLESS],
     provides=[[PokemonTypes.COLORLESS, PokemonTypes.COLORLESS]],
 )

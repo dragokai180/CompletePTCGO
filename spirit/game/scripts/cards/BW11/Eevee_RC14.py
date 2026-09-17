@@ -1,5 +1,5 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
-from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
+from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities, AttrID
 from spirit.game.card_effects.attacks_common import flip_or_nothing
 from spirit.game.card_effects.passives_common import prevent_damage_when
 
@@ -10,7 +10,9 @@ card = PokemonCardDef(
     display_name="Eevee",
     searchable_by=["Eevee","Basic","Eevee"],
     subtypes=["Basic"],
-    collector_number=14,
+    # Original client slots 116..140 hold Radiant Collection RC1..RC25.
+    collector_number=129,
+    attributes={AttrID.CARD_NUMBER_TEXT.value: {"type": "string", "value": "RC14"}},
     set_code="BW11",
     rarity=Rarities.Uncommon,
     hp=60,

@@ -1,15 +1,6 @@
+from spirit.game.card_effects.standard_era import standard_passive
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, def_for
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
-
-
-def _is_team_rockets(pokemon) -> bool:
-    definition = def_for(pokemon.archetype_id)
-    name = getattr(definition, "display_name", "") or ""
-    return name.startswith("Team Rocket's ")
-
-
-def _power_saver_ok(board, player_id, pokemon=None) -> bool:
-    return sum(1 for p in board.pokemon_in_play(player_id) if _is_team_rockets(p)) >= 4
 
 
 async def erasure_ball(ctx):
@@ -53,6 +44,7 @@ card = PokemonCardDef(
         Ability(
             title="Power Saver",
             game_text="This Pokémon can't attack unless you have 4 or more Team Rocket's Pokémon in play.",
+            passive=standard_passive("This Pokémon can't attack unless you have 4 or more Team Rocket's Pokémon in play."),
         ),
         Attack(
             title="Erasure Ball",
@@ -60,7 +52,6 @@ card = PokemonCardDef(
             cost={PokemonTypes.PSYCHIC: 2, PokemonTypes.COLORLESS: 1},
             damage=160,
             damage_operator="+",
-            condition=_power_saver_ok,
             effect=erasure_ball,
         ),
     ],

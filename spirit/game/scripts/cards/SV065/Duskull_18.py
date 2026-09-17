@@ -1,31 +1,18 @@
-from spirit.game.data_utils import PokemonCardDef, Ability, Attack, Activations
+from spirit.game.data_utils import PokemonCardDef, Attack, def_for
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
-from spirit.game.session.constants import BENCH_CAPACITY
+from spirit.game.session.passives import effective_bench_capacity
 
 
 DUSKULL_GUID = "eb9fd2e6-7cf4-4523-a899-61f45834ac12"
 
 
-def _come_and_get_you_condition(board, player_id, pokemon) -> bool:
-    bench = board.find_player_area(player_id, "bench")
-    if not bench or len(bench.children) >= BENCH_CAPACITY:
-        return False
-    discard = board.find_player_area(player_id, "discard")
-    if not discard:
-        return False
-    return any(
-        c.archetype_id == DUSKULL_GUID
-        for c in discard.children
-        if getattr(c, "archetype_id", None)
-    )
-
-
 async def come_and_get_you(ctx):
     """Put up to 3 Duskull from your discard pile onto your Bench."""
-    candidates = [c for c in ctx.discard_pile() if c.archetype_id == DUSKULL_GUID]
+    candidates = [c for c in ctx.discard_pile()
+                  if getattr(def_for(c.archetype_id), "display_name", None) == "Duskull"]
     if not candidates:
         return
-    space = BENCH_CAPACITY - len(ctx.my_bench())
+    space = effective_bench_capacity(ctx.board, ctx.player_id) - len(ctx.my_bench())
     if space <= 0:
         return
     count = min(3, space)
@@ -58,11 +45,10 @@ card = PokemonCardDef(
     resistance_type=PokemonTypes.FIGHTING,
     family_id=355,
     abilities=[
-        Ability(
+        Attack(
             title="Come and Get You",
             game_text="Put up to 3 Duskull from your discard pile onto your Bench.",
-            activation=Activations.ONCE_PER_TURN,
-            condition=_come_and_get_you_condition,
+            cost={PokemonTypes.PSYCHIC: 1},
             effect=come_and_get_you,
         ),
         Attack(

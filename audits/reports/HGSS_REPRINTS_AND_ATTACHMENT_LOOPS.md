@@ -26,6 +26,22 @@ Bloom, Oceanic Accompaniment and Excited Turbo, including their shared reprints.
 Single-use powers such as Water Acceleration retain their printed limits.
 The loop does not spend the ordinary once-per-turn Energy attachment.
 
+### Immediate Energy selection (2026-09-16 follow-up)
+
+The previous optional root offer still required Done: the native client's
+`ClickableObject` only selects, without advancing, when minimum and maximum
+selection counts differ. A non-forced `SelectionWithTargetsNode` always has
+minimum 0 and maximum 1, even when its cards have no child nodes.
+
+The picker now opens an `EntityListTargetNode` with minimum=maximum=1 and
+forced=false. Clicking an Energy advances immediately; Done with no selection
+cancels the optional node and exits the loop. This is supported by the original
+client's `EntityListTargetNode` and `NextButtonClickHandler` implementations.
+The server still accepts an empty result and rejects unoffered card IDs.
+
+Protocol regressions cover Deluge and Inferno Fandango for both players and
+assert the exact wire counts, optional cancellation and Energy-to-Pokemon order.
+
 ## Regression coverage
 
 - HGSS reprint legality, bans, release dates and mixed-print copy limits.

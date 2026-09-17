@@ -1,23 +1,10 @@
-from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Triggers
+from spirit.game.card_effects.bw_era import bw_legacy_attack
+from spirit.game.data_utils import PokemonCardDef, Attack
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 
 
-async def electrified_bite_mark(ctx):
-    """60 damage."""
-    await ctx.deal_damage()
 
 
-async def electrified_bite_mark_watch(ctx):
-    """During opponent's next turn, if they attach an Energy card from
-    hand to the Defending Pokémon, put 6 damage counters on it."""
-    if not ctx.attack_used_last_turn(title="Electrified Bite Mark", entity=ctx.source):
-        return
-    if ctx.attaching_player_id != ctx.opponent_id:
-        return
-    receiver = ctx.energy_receiver
-    if receiver is None or receiver is not ctx.opponent_active():
-        return
-    await ctx.deal_damage(60, target=receiver, apply_modifiers=False, as_counters=True)
 
 
 async def electro_sprinkler(ctx):
@@ -59,13 +46,7 @@ card = PokemonCardDef(
             game_text="During your opponent's next turn, if they attach an Energy card from their hand to the Defending Pokémon, put 6 damage counters on that Pokémon.",
             cost={PokemonTypes.LIGHTNING: 1},
             damage=60,
-            effect=electrified_bite_mark,
-        ),
-        Ability(
-            title="Electrified Bite Mark",
-            game_text="During your opponent's next turn, if they attach an Energy card from their hand to the Defending Pokémon, put 6 damage counters on that Pokémon.",
-            trigger=Triggers.ON_ENERGY_ATTACHED,
-            effect=electrified_bite_mark_watch,
+            effect=bw_legacy_attack,
         ),
         Attack(
             title="Electro Sprinkler",

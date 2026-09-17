@@ -29,7 +29,6 @@ card = PokemonCardDef(
             title="Synchro Pulse",
             game_text="If you have the same number of cards in your hand as your opponent, attacks used by this Pokémon do 80 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance).",
             effect=standard_ability,
-            usable_from="hand",
         ),
         Attack(
             title="Flashing Bolt",

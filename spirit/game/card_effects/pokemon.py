@@ -556,6 +556,15 @@ def energy_provides_type(card, type_value) -> bool:
     if 'while not in play' in text and 'counts as colorless energy' in text \
             and card._containing_area_name() not in ('activePokemonArea', 'bench'):
         return type_value == PokemonTypes.COLORLESS.value
+    # Attached cards must use their live provision, including Prism/Unit
+    # restrictions and Special Energy suppression, not their UI icon.
+    root = card
+    while getattr(root, 'parent', None) is not None:
+        root = root.parent
+    board = getattr(root, '_board_state', None)
+    if board is not None:
+        from spirit.game.session.passives import energy_provided_options
+        return any(type_value in option for option in energy_provided_options(board, card))
     info = card.get_attribute(AttrID.ENERGY_INFO) or {}
     for option in info.get("options", []):
         if type_value in option:
@@ -564,11 +573,22 @@ def energy_provides_type(card, type_value) -> bool:
 
 
 def energy_card_types(card):
-    """Printed Energy types in the card's current zone, not Pokemon types.
+    """Provided Energy types in the card's current zone, not Pokemon types.
 
     This is for typed searches and basic-Energy diversity. Attached Energy
-    units and field modifiers must use energy_provided_options instead.
+    unit quantities must use energy_provided_options instead.
     """
+    if not is_energy_card(card):
+        return []
+    root = card
+    while getattr(root, 'parent', None) is not None:
+        root = root.parent
+    board = getattr(root, '_board_state', None)
+    if board is not None:
+        from spirit.game.session.passives import energy_provided_options
+        # Resolve field passives once, not once per possible Energy type.
+        provided = {kind for option in energy_provided_options(board, card) for kind in option}
+        return [ptype.value for ptype in PokemonTypes if ptype.value in provided]
     return [ptype.value for ptype in PokemonTypes
             if energy_provides_type(card, ptype.value)]
 

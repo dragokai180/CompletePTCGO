@@ -403,6 +403,37 @@ class TurnState:
             return entry[1]
         return None
 
+    def has_attack_effects(self, players, pokemon_ids):
+        """Whether Ranger/Channeler can remove a live ongoing attack effect."""
+        def live(expiry):
+            return getattr(expiry, 'from_attack', False) and expiry >= self.turn_number
+
+        for name in ('retreat_locks', 'attach_restrictions'):
+            if any(key in pokemon_ids and live(exp) for key, exp in getattr(self, name).items()):
+                return True
+        if any(key[0] in pokemon_ids and live(exp) for key, exp in self.attack_locks.items()):
+            return True
+        for name, targets, index in (
+            ('attack_flip_checks', pokemon_ids, 0),
+            ('attach_ends_turn_checks', pokemon_ids, 0),
+            ('trainer_flip_checks', players, 0),
+            ('forced_coins_through_turn', players, 1),
+        ):
+            if any(key in targets and live(value[index]) for key, value in getattr(self, name).items()):
+                return True
+        if any(pid in players and live(exp) for pid, entries in self.play_locks.items()
+               for _, exp in entries):
+            return True
+        if self.attack_gx_locked_players & set(players):
+            return True
+        if any(getattr(mod, 'from_attack', False) and mod.player_id in players
+               and (mod.expires_after_turn is None or mod.expires_after_turn >= self.turn_number)
+               and (mod.source_entity_id is None or mod.source_entity_id in pokemon_ids)
+               for mod in self.damage_modifiers):
+            return True
+        return any(entry.get('from_attack', False) and entry['player_id'] in players
+                   for entry in self.extra_prize_watchers)
+
     def remove_attack_effects(self, players, pokemon_ids):
         """Ranger/Channeler remove ongoing effects, not damage, conditions or history."""
         def attack(expiry):
@@ -1081,7 +1112,7 @@ def _attack_entries(
                 and not definition.condition(board, player_id, active):
             continue
         # Cost-modifying passives (e.g. Excited Heart) apply here.
-        cost = effective_attack_cost(board, active, ability.get("cost") or {})
+        cost = effective_attack_cost(board, active, ability.get("cost") or {}, attack=definition)
         if attack_cost_satisfied(cost, energies, board):
             entries.append(_target_map_entry(
                 game_id, active.entity_id, ability_id, ACTION_USE_ATTACK,

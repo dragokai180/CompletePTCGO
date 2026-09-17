@@ -1,5 +1,5 @@
 from spirit.game.data_utils import PokemonCardDef, Attack
-from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
+from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities, AttrID
 
 card = PokemonCardDef(
     guid="0e8a8175-8622-55c2-a551-e0f97c5c1cbc",
@@ -8,7 +8,9 @@ card = PokemonCardDef(
     display_name="Torchic",
     searchable_by=["Torchic","Basic","Torchic"],
     subtypes=["Basic"],
-    collector_number=5,
+    # Original client slots 116..140 hold Radiant Collection RC1..RC25.
+    collector_number=120,
+    attributes={AttrID.CARD_NUMBER_TEXT.value: {"type": "string", "value": "RC5"}},
     set_code="BW11",
     rarity=Rarities.Common,
     hp=60,

@@ -1,13 +1,10 @@
-from spirit.game.data_utils import PokemonCardDef, Attack, Ability
+from spirit.game.data_utils import PokemonCardDef, Attack, Ability, def_for
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.attacks_common import bonus_if, lock_defender_attacks
 
-GLIMWOOD_TANGLE_GUID = "4d910b75-6845-5f9b-99b1-e6b12b65af27"
-
-
 def _glimwood_tangle_in_play(ctx):
     stadium = ctx.stadium_in_play()
-    return stadium is not None and stadium.archetype_id == GLIMWOOD_TANGLE_GUID
+    return stadium is not None and getattr(def_for(stadium.archetype_id), "display_name", "") == "Glimwood Tangle"
 
 
 async def flickering_light(ctx):

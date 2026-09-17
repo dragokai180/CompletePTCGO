@@ -30,7 +30,6 @@ card = PokemonCardDef(
             game_text="You must put a card from your hand on the bottom of your deck in order to use this Ability. Once during your turn, you may draw cards until you have 5 cards in your hand.",
             effect=standard_ability,
             activation=Activations.ONCE_PER_TURN,
-            usable_from="hand",
         ),
         Attack(
             title="Hydro Splash",

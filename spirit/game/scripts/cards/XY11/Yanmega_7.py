@@ -31,7 +31,6 @@ card = PokemonCardDef(
             title='Sonic Vision',
             game_text="If you have exactly 4 cards in your hand, ignore all Energy in the attack cost of each of this Pokémon's attacks.",
             effect=standard_ability,
-            usable_from='hand',
         ),
         Attack(
             title='Assault Boom',

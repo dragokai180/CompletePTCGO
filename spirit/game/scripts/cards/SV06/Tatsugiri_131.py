@@ -53,7 +53,7 @@ card = PokemonCardDef(
         Attack(
             title="Surf",
             game_text="",
-            cost={PokemonTypes.WATER: 1, PokemonTypes.COLORLESS: 1},
+            cost={PokemonTypes.FIRE: 1, PokemonTypes.WATER: 1},
             damage=50,
         ),
     ],

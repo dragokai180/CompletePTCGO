@@ -14,6 +14,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
+    outside_play_types=[],
     abilities=[Ability(
         title="Treasure Energy",
         game_text=(

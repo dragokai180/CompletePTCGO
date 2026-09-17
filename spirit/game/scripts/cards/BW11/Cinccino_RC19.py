@@ -1,5 +1,5 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
-from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
+from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities, AttrID
 from spirit.game.card_effects.attacks_common import count_energy, damage_per
 from spirit.game.card_effects.passives_common import flip_prevent_damage_passive
 from spirit.game.card_effects.bw_era import bw_legacy_attack, bw_legacy_ability, bw_legacy_passive, bw_trainer_effect, bw_trainer_passive, bw_tool_abilities, bw_stadium_ability, bw_stadium_triggers
@@ -11,7 +11,9 @@ card = PokemonCardDef(
     display_name="Cinccino",
     searchable_by=["Cinccino","Stage 1","Cinccino"],
     subtypes=["Stage 1"],
-    collector_number=19,
+    # Original client slots 116..140 hold Radiant Collection RC1..RC25.
+    collector_number=134,
+    attributes={AttrID.CARD_NUMBER_TEXT.value: {"type": "string", "value": "RC19"}},
     set_code="BW11",
     rarity=Rarities.Uncommon,
     hp=90,

@@ -1948,6 +1948,8 @@ class GameSession:
         count: int,
         minimum: Optional[int] = None,
         prompt: str = "Choose a card",
+        *,
+        submit_on_pick: bool = False,
     ) -> List[str]:
         """In-place picker: the targets glow green where they sit (hand or
         playmat) instead of opening the reveal browser.
@@ -1964,15 +1966,25 @@ class GameSession:
         if isinstance(player, AIPlayer):
             return valid[:count]
 
+        if submit_on_pick:
+            if count != 1 or minimum != 0:
+                raise ValueError("Immediate optional picks require count=1, minimum=0")
+
         min_to_select = count if minimum is None else minimum
         forced = min_to_select > 0
+        # ClickableObject only auto-advances a single-card list when its
+        # minimum equals its maximum. An optional bare root has min=0/max=1
+        # and therefore still waits for Done. Use a child with min=max=1,
+        # but forced=False: EntityListTargetNode permits cancelling an empty
+        # selection, and NextButtonClickHandler sends that cancellation.
+        wire_minimum = count if submit_on_pick else min_to_select
         node = {
             "name": SelectionKind.ENTITY_LIST.value,
             "selected": True,
             "targetPrompt": {"id": prompt},
             "validTargets": valid,
             "numberToSelect": count,
-            "minimumToSelect": min_to_select,
+            "minimumToSelect": wire_minimum,
             "forced": forced,
         }
         picked = await self._run_pick_offer(
@@ -2224,9 +2236,10 @@ class GameSession:
                     if isinstance(selection, dict) else []
                 for response in responses:
                     if isinstance(response, dict):
-                        picked.extend(
-                            t for t in (response.get("entityList") or []) if t in valid
-                        )
+                        picked.extend(response.get("entityList") or [])
+                if any(target not in valid for target in picked):
+                    # An invalid click is not an optional empty selection.
+                    continue
                 picked = picked[:count]
                 if len(picked) >= min_effective:
                     return picked

@@ -28,7 +28,6 @@ card = PokemonCardDef(
             title='Roto Motor',
             game_text="If you have 9 or more Pokémon Tool cards in your discard pile, ignore all Energy in the attack cost of each of this Pokémon's attacks.",
             effect=standard_ability,
-            usable_from='discard',
         ),
         Attack(
             title='Special Mow',

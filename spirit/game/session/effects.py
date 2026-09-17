@@ -270,7 +270,9 @@ class EffectContext:
 
     def is_ability_effect(self) -> bool:
         """Whether this ctx resolves a Pokemon Ability (not an attack/trainer)."""
-        return self.ability is not None and not self.is_attack_effect()
+        return isinstance(self.source, PokemonEntity) and self.ability is not None \
+            and not self.is_attack_effect() and not self.is_trainer_effect \
+            and not self.ability.is_granted
 
     def effects_blocked(self, target: PokemonEntity) -> bool:
         """Whether an opposing attack/Ability EFFECT on `target` is shielded
@@ -1301,6 +1303,7 @@ class EffectContext:
         ordered: bool = False,
         display_cards: Optional[Sequence[CardEntity]] = None,
         slot_prompt: str = "",
+        submit_on_pick: bool = False,
     ) -> List[CardEntity]:
         """Card pick over `cards`; returns the picked entities.
 
@@ -1312,6 +1315,8 @@ class EffectContext:
         browser's empty pick slot ("Choose a Basic Pokemon to put into your
         hand."). minimum=None means exactly `count` (or every card if fewer
         exist); minimum=0 makes the pick optional ("up to count").
+        submit_on_pick lets an optional single in-place pick advance on click;
+        Done with no card selected still declines the pick.
         """
         if (not cards and not display_cards) or count <= 0:
             return []
@@ -1319,7 +1324,8 @@ class EffectContext:
         if not ordered and display_cards is None and cards \
                 and self._visible_in_place(cards, pid):
             picked_ids = await self.session.prompt_entity_picker(
-                pid, self.source.entity_id, cards, count, minimum, prompt
+                pid, self.source.entity_id, cards, count, minimum, prompt,
+                **({"submit_on_pick": True} if submit_on_pick else {}),
             )
         else:
             picked_ids = await self.session.prompt_card_chooser(
@@ -2341,7 +2347,8 @@ class EffectContext:
             candidates = [p for p in targets() if self.pokemon_is_in_play(p)]
             if not pool or not candidates:
                 break
-            chosen = await self.choose_cards(pool, 1, minimum=0, prompt=prompt)
+            chosen = await self.choose_cards(
+                pool, 1, minimum=0, prompt=prompt, submit_on_pick=True)
             if not chosen:
                 break
             energy = chosen[0]

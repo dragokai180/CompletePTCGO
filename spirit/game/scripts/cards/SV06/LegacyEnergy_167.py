@@ -41,6 +41,7 @@ card = EnergyCardDef(
     rarity=Rarities.Ace,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
+    outside_play_types=[],
     provides=ALL_TYPES_ONE_AT_A_TIME,
     passive=_LegacyEnergyPassive(),
 )

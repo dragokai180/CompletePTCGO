@@ -295,9 +295,11 @@ class ReportedCardRegressions(unittest.IsolatedAsyncioTestCase):
                 self.assertLessEqual(kwargs["minimum"], 1)
                 self.assertIn(chosen, rig.board.find_player_area(P1, "deck").children)
 
-    async def test_cinderace_errata_retreat_is_one(self):
+    async def test_cinderace_errata_retreat_is_two(self):
+        # Official errata: two Colorless instead of the misprinted one.
+        # https://play.pokemon.com/en-us/resources/documents/tcg-errata/
         rig, e = self.rig("SWSH1.Cinderace_36")
-        self.assertEqual(e["target"].get_attribute(AttrID.RETREAT_COST), 1)
+        self.assertEqual(e["target"].get_attribute(AttrID.RETREAT_COST), 2)
 
 
 if __name__ == "__main__":

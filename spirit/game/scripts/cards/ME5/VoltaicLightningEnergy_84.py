@@ -31,5 +31,6 @@ card = EnergyCardDef(
     rarity=Rarities.Rare,
     energy_type=PokemonTypes.LIGHTNING,
     is_special=True,
+    outside_play_types=[],
     passive=VoltaicLightningPassive(),
 )

@@ -16,6 +16,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
+    outside_play_types=[PokemonTypes.COLORLESS],
     provides=ALL_TYPES_ONE_AT_A_TIME,
     passive=PrismEnergyPassive(),
 )

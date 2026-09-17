@@ -16,6 +16,7 @@ card = EnergyCardDef(
     rarity=Rarities.Rare,
     energy_type=PokemonTypes.FIRE,
     is_special=True,
+    outside_play_types=[],
     provides=[[PokemonTypes.FIRE]],
     passive=standard_passive("As long as this card is attached to a Pokémon, it provides Fire Energy.\n \nIf this card is discarded by an effect of an attack used by the Fire Pokémon this card is attached to, put this card into your hand after attack damage and effects."),
 )

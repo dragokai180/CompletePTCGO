@@ -1,5 +1,5 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
-from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
+from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities, AttrID
 from spirit.game.card_effects.bw10 import retribution, signal_beam
 from spirit.game.card_effects.bw_era import bw_legacy_attack, bw_legacy_ability, bw_legacy_passive, bw_trainer_effect, bw_trainer_passive, bw_tool_abilities, bw_stadium_ability, bw_stadium_triggers
 
@@ -10,7 +10,9 @@ card = PokemonCardDef(
     display_name="Gardevoir",
     searchable_by=["Gardevoir","Stage 2","Gardevoir"],
     subtypes=["Stage 2"],
-    collector_number=10,
+    # Original client slots 116..140 hold Radiant Collection RC1..RC25.
+    collector_number=125,
+    attributes={AttrID.CARD_NUMBER_TEXT.value: {"type": "string", "value": "RC10"}},
     set_code="BW11",
     rarity=Rarities.Uncommon,
     hp=120,

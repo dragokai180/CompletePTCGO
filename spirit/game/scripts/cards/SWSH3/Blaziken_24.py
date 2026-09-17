@@ -3,6 +3,7 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.support_common import attach_from_discard
 from spirit.game.card_effects.trainers import is_basic_energy_card
 from spirit.game.card_effects.passives_common import is_in_active_spot
+from spirit.game.card_effects.standard_era import standard_passive
 
 card = PokemonCardDef(
     guid="337f5722-020d-5675-ae97-021c8517e0f9",
@@ -15,10 +16,7 @@ card = PokemonCardDef(
     set_code="SWSH3",
     rarity=Rarities.RareHolo,
     hp=170,
-    # Double Type: this Pokemon is Fire AND Fighting type as long as it's in
-    # play; baked directly into POKEMON_TYPES since Weakness is computed off
-    # the live attacker's type list.
-    elements=[PokemonTypes.FIRE, PokemonTypes.FIGHTING],
+    elements=[PokemonTypes.FIRE],
     stage=PokemonStage.STAGE2,
     retreat_cost=2,
     weakness_type=PokemonTypes.WATER,
@@ -28,6 +26,7 @@ card = PokemonCardDef(
         Ability(
             title="Double Type",
             game_text="As long as this Pokémon is in play, it is Fire and Fighting type.",
+            passive=standard_passive("As long as this Pokémon is in play, it is Fire and Fighting type."),
         ),
         Attack(
             title="Turbo Drive",

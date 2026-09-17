@@ -17,7 +17,7 @@ def extra_energy_satisfied(ctx, text):
     cost = effective_attack_cost(ctx.board, ctx.attacker, {
         getattr(kind, 'value', kind): count
         for kind, count in (ctx.ability.cost or {}).items()
-    })
+    }, attack=ctx.ability)
     extras = re.findall(r"(\d+) extra (?:(\w+) )?energy", clause.group(1))
     if 'extra fire, water, and lightning energy' in clause.group(1):
         extras = [('1', 'fire'), ('1', 'water'), ('1', 'lightning')]

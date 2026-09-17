@@ -408,7 +408,10 @@ async def _select_and_move_damage(ctx, owner):
     maximum = min(available, max(p.get_attribute(AttrID.HP, 0) // 10 for p in targets))
     selected = await ctx.session.prompt_damage_counter_placement(
         ctx.player_id, ctx.source.entity_id, [source], maximum,
-        amount_per_click=-10, minimum=1,
+        # This is the client's selected-damage badge, not an HP change.
+        # Use the same positive 10/20/30 preview as Phantom Dive; the actual
+        # removal from this source happens only after choosing a receiver.
+        amount_per_click=10, minimum=1,
         prompt="Click this Pokémon to select damage to move (10 per click), then Done.",
     )
     count = selected.get(source.entity_id, 0)

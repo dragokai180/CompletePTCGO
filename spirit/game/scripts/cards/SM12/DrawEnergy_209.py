@@ -18,6 +18,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
+    outside_play_types=[PokemonTypes.COLORLESS],
     provides=[[PokemonTypes.COLORLESS]],
     passive=standard_passive('This card provides Colorless Energy. When you attach this card from your hand to a Pokémon, draw a card.'),
     on_attach=energy_on_attach('This card provides Colorless Energy. When you attach this card from your hand to a Pokémon, draw a card.'),

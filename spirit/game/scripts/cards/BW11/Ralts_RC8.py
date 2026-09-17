@@ -1,5 +1,5 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
-from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
+from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities, AttrID
 from spirit.game.card_effects.bw10 import deluge, deluge_condition, hydro_pump, powder_snow, reflect_energy
 
 card = PokemonCardDef(
@@ -9,7 +9,9 @@ card = PokemonCardDef(
     display_name="Ralts",
     searchable_by=["Ralts","Basic","Ralts"],
     subtypes=["Basic"],
-    collector_number=8,
+    # Original client slots 116..140 hold Radiant Collection RC1..RC25.
+    collector_number=123,
+    attributes={AttrID.CARD_NUMBER_TEXT.value: {"type": "string", "value": "RC8"}},
     set_code="BW11",
     rarity=Rarities.Common,
     hp=40,

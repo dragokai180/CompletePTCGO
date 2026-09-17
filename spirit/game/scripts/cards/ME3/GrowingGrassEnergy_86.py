@@ -15,5 +15,6 @@ card = EnergyCardDef(
     rarity=Rarities.Rare,
     energy_type=PokemonTypes.GRASS,
     is_special=True,
+    outside_play_types=[],
     passive=GrowingGrassPassive(),
 )

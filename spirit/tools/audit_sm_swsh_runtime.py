@@ -16,18 +16,32 @@ from spirit.tools.effect_smoke import (
     _plan_tests, run_one, pick_filler_basic, pick_filler_item, basic_energy_guids,
 )
 from spirit.tools.semantic_effect_audit import _Trace, _EVENTS, _semantic_scenario
+from spirit.tools.audit_printed_resistance import load_sources, normalized_name
+from spirit.tools.install_recent_card_art import DATA_ROOT
 
 ERA_PATTERN = r"(SM[0-9]+|Promo_SM|SL|DM|HF|GUM|SWSH[0-9]+|Promo_SWSH|SWSH_Energy|CEL25|PGO|CZ)"
 
 
-async def audit():
+async def audit(set_pattern=ERA_PATTERN):
     loader.load_all()
+    printed = load_sources([DATA_ROOT], pokemon_only=False)
+
+    def rule_text(definition, runner):
+        text = getattr(runner, 'game_text', '') or ''
+        if not text and not isinstance(runner, Ability):
+            name = definition.display_name or definition.name
+            candidates = printed.get((definition.set_code, definition.collector_number,
+                                      normalized_name(name)), [])
+            if candidates:
+                text = ' '.join(candidates[0].get('rules') or [])
+        return text
+
     groups = {}
     cards = [d for d in CARD_DEFS_BY_GUID.values()
-             if re.fullmatch(ERA_PATTERN, d.set_code, re.I)]
+             if re.fullmatch(set_pattern, d.set_code, re.I)]
     for definition in cards:
         for kind, title, runner, scripted in _plan_tests(definition):
-            text = getattr(runner, 'game_text', '') or ''
+            text = rule_text(definition, runner)
             effect = getattr(runner, 'effect', None) if isinstance(runner, Ability) else getattr(definition, 'effect', None)
             # Shared text families have a separate semantic report. Include
             # authored effects and every passive/energy hook here.
@@ -45,7 +59,7 @@ async def audit():
     with _Trace():
         for i, (definition, plan, copies) in enumerate(groups.values(), 1):
             kind, title, runner, scripted = plan
-            text = getattr(runner, 'game_text', '') or ''
+            text = rule_text(definition, runner)
             events = []
             token = _EVENTS.set(events)
             try:
@@ -69,8 +83,10 @@ async def audit():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--json', type=Path, required=True)
+    parser.add_argument('--set-pattern', default=ERA_PATTERN,
+                        help='Use .* to include all registered expansions.')
     args = parser.parse_args()
-    report = asyncio.run(audit())
+    report = asyncio.run(audit(args.set_pattern))
     args.json.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding='utf8')
     print({k: v for k, v in report.items() if k != 'rows'})
     for row in report['rows']:

@@ -18,6 +18,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
+    outside_play_types=[],
     provides=[[PokemonTypes.COLORLESS]],
     passive=standard_passive('As long as this card is attached to a Pokémon, it provides Colorless Energy.  When you attach this card from your hand to 1 of your Pokémon, heal 30 damage from that Pokémon.'),
     on_attach=energy_on_attach('As long as this card is attached to a Pokémon, it provides Colorless Energy.  When you attach this card from your hand to 1 of your Pokémon, heal 30 damage from that Pokémon.'),

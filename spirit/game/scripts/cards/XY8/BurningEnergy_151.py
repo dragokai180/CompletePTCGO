@@ -19,6 +19,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.FIRE,
     is_special=True,
+    outside_play_types=[],
     provides=[[PokemonTypes.FIRE]],
     passive=standard_passive('This card can only be attached to Fire Pokémon. This card provides Fire Energy only while this card is attached to a Fire Pokémon. If this card is discarded by an attack of the Fire Pokémon this card is attached to, attach this card from your discard pile to that Pokémon after attacking. (If this card is attached to anything other than a Fire Pokémon, discard this card.)'),
     attach_to=energy_attach_to('This card can only be attached to Fire Pokémon. This card provides Fire Energy only while this card is attached to a Fire Pokémon. If this card is discarded by an attack of the Fire Pokémon this card is attached to, attach this card from your discard pile to that Pokémon after attacking. (If this card is attached to anything other than a Fire Pokémon, discard this card.)'),

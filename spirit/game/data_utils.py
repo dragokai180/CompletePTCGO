@@ -138,6 +138,7 @@ def reprint(
             stage=PokemonStage(int(_attr_value(base, AttrID.STAGE, 0) or 0)),
             retreat_cost=int(_attr_value(base, AttrID.RETREAT_COST, 1)),
             weakness_type=PokemonTypes(weak_raw[0]) if weak_raw else PokemonTypes.UNSET,
+            weakness_types=[PokemonTypes(t) for t in weak_raw],
             weakness_amount=int(_attr_value(base, AttrID.WEAKNESS_AMOUNT, 2) or 2),
             resistance_type=PokemonTypes(int(_attr_value(base, AttrID.RESISTANCE_TYPES, PokemonTypes.UNSET.value))),
             resistance_amount=int(_attr_value(base, AttrID.RESISTANCE_AMOUNT, 30) or 30),

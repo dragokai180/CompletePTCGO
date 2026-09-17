@@ -54,9 +54,10 @@ class RepeatableEnergyAttachmentTests(unittest.IsolatedAsyncioTestCase):
                 events = self.record(rig)
                 seen = []
 
-                async def pick(pid, source_id, cards, count, minimum, prompt):
+                async def pick(pid, source_id, cards, count, minimum, prompt, **kwargs):
                     if is_energy_card(cards[0]):
                         self.assertEqual(minimum, 0)
+                        self.assertTrue(kwargs.get('submit_on_pick'))
                         for previous in seen:
                             for viewer in (P1, P2):
                                 self.assertIn(('move', previous, GameSequence.GROUPED_MOVE.value),
@@ -85,7 +86,7 @@ class RepeatableEnergyAttachmentTests(unittest.IsolatedAsyncioTestCase):
             events = self.record(rig)
             selected = 0
 
-            async def pick(pid, source_id, cards, count, minimum, prompt):
+            async def pick(pid, source_id, cards, count, minimum, prompt, **kwargs):
                 nonlocal selected
                 if is_energy_card(cards[0]):
                     self.assertEqual(minimum, 0)
@@ -127,7 +128,7 @@ class RepeatableEnergyAttachmentTests(unittest.IsolatedAsyncioTestCase):
                         self.add(rig, fixtures.definition('ME2.MegaCharizardXex_13'),
                                  P1, 'bench')
 
-                async def pick(pid, source_id, cards, count, minimum, prompt):
+                async def pick(pid, source_id, cards, count, minimum, prompt, **kwargs):
                     if not is_energy_card(cards[0]):
                         if title in ('Ice Dance', 'Excited Turbo'):
                             self.assertTrue(all(p in bench for p in cards))
@@ -146,7 +147,7 @@ class RepeatableEnergyAttachmentTests(unittest.IsolatedAsyncioTestCase):
         special = [self.add(rig, fixtures.definition('HGSS1.DoubleColorlessEnergy_103'),
                             P1, 'hand') for _ in range(2)]
         rig.session.prompt_entity_picker = AsyncMock(
-            side_effect=lambda pid, sid, cards, *args: [cards[0].entity_id])
+            side_effect=lambda pid, sid, cards, *args, **kwargs: [cards[0].entity_id])
         ctx = await resolve_activated_ability(rig.session, P1, source, ability)
         self.assertTrue(all(e in ctx.hand() for e in basic))
         self.assertTrue(all(e not in ctx.hand() for e in special))
@@ -155,7 +156,7 @@ class RepeatableEnergyAttachmentTests(unittest.IsolatedAsyncioTestCase):
         rig, source, ability, energies = self.setup_case(
             'HGSS2.Floatzel_16', 'Water Acceleration', PokemonTypes.WATER)
         rig.session.prompt_entity_picker = AsyncMock(
-            side_effect=lambda pid, sid, cards, *args: [cards[0].entity_id])
+            side_effect=lambda pid, sid, cards, *args, **kwargs: [cards[0].entity_id])
         ctx = await resolve_activated_ability(rig.session, P1, source, ability)
         self.assertEqual(sum(e in ctx.hand() for e in energies), 1)
         self.assertFalse(ctx.completed_attachment_loop)
@@ -164,7 +165,7 @@ class RepeatableEnergyAttachmentTests(unittest.IsolatedAsyncioTestCase):
         rig, source, ability, energies = self.setup_case(
             'BW7.Blastoise_31', 'Deluge', PokemonTypes.WATER)
         events = []
-        async def pick(pid, sid, cards, *args):
+        async def pick(pid, sid, cards, *args, **kwargs):
             if is_energy_card(cards[0]):
                 events.append('pick')
             return [cards[0].entity_id]
@@ -181,10 +182,63 @@ class RepeatableEnergyAttachmentTests(unittest.IsolatedAsyncioTestCase):
             'BW7.Blastoise_31', 'Deluge', PokemonTypes.WATER)
         fire = self.add(rig, def_for(self.energies[PokemonTypes.FIRE.value]), P1, 'hand')
         rig.session.prompt_entity_picker = AsyncMock(
-            side_effect=lambda pid, sid, cards, *args: [cards[0].entity_id])
+            side_effect=lambda pid, sid, cards, *args, **kwargs: [cards[0].entity_id])
         ctx = await resolve_activated_ability(rig.session, P1, source, ability)
         self.assertEqual(ctx.hand(), [fire])
         self.assertTrue(all(e not in ctx.hand() for e in energies))
+
+    async def test_native_energy_click_advances_to_target_and_done_still_exits(self):
+        from unittest.mock import patch
+        for owner, path, title, kind in (
+                (P1, 'BW1.Emboar_20', 'Inferno Fandango', PokemonTypes.FIRE),
+                (P2, 'BW1.Emboar_20', 'Inferno Fandango', PokemonTypes.FIRE),
+                (P1, 'BW7.Blastoise_31', 'Deluge', PokemonTypes.WATER),
+                (P2, 'BW7.Blastoise_31', 'Deluge', PokemonTypes.WATER)):
+            rig, source, ability, energies = self.setup_case(
+                path, title, kind, owner)
+            stages = []
+
+            async def reply(player, message, offer, **kwargs):
+                self.assertTrue(offer['ignoreFirst'])
+                node = offer['targetMap'][source.entity_id][0]
+                # The real client's ClickableObject waits for confirmation
+                # when min != max, even for optional root leaf selections.
+                self.assertEqual(node['minimumToSelect'], 1)
+                self.assertEqual(node['numberToSelect'], 1)
+                if not node['forced']:
+                    self.assertFalse(offer['forced'])
+                    if not stages:
+                        stages.append('energy')
+                        self.assertEqual(set(node['validTargets']), {e.entity_id for e in energies})
+                        return {'selection': {'targetResponses': [
+                            {'entityList': [energies[0].entity_id]}]}}
+                    stages.append('done')
+                    return {'selection': None}
+                stages.append('pokemon')
+                self.assertEqual(stages, ['energy', 'pokemon'])
+                target = node['validTargets'][0]
+                return {'selection': {'targetResponses': [{'entityList': [target]}]}}
+
+            with patch('spirit.game.session.game_session.AIPlayer', type('NotAI', (), {})), \
+                    patch.object(rig.session, 'prompt_selection_message', side_effect=reply):
+                ctx = await resolve_activated_ability(rig.session, owner, source, ability)
+            self.assertEqual(stages, ['energy', 'pokemon', 'done'])
+            self.assertNotIn(energies[0], ctx.hand())
+            self.assertIn(energies[1], ctx.hand())
+
+    async def test_immediate_picker_rejects_an_unoffered_card(self):
+        from unittest.mock import patch
+        rig, source, ability, energies = self.setup_case(
+            'BW1.Emboar_20', 'Inferno Fandango', PokemonTypes.FIRE)
+        responses = [{'selection': {'targetResponses': [{'entityList': [target]}]}}
+                     for target in (source.entity_id, energies[1].entity_id)]
+        with patch('spirit.game.session.game_session.AIPlayer', type('NotAI', (), {})), \
+                patch.object(rig.session, 'prompt_selection_message',
+                             AsyncMock(side_effect=responses)) as send:
+            picked = await rig.session.prompt_entity_picker(
+                P1, source.entity_id, energies, 1, 0, submit_on_pick=True)
+        self.assertEqual(picked, [energies[1].entity_id])
+        self.assertEqual(send.await_count, 2)
 
 
 if __name__ == '__main__':

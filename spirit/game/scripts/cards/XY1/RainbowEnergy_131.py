@@ -18,6 +18,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.GRASS,
     is_special=True,
+    outside_play_types=[PokemonTypes.COLORLESS],
     provides=[[PokemonTypes.GRASS], [PokemonTypes.FIRE], [PokemonTypes.WATER], [PokemonTypes.LIGHTNING], [PokemonTypes.PSYCHIC], [PokemonTypes.FIGHTING], [PokemonTypes.DARKNESS], [PokemonTypes.METAL], [PokemonTypes.FAIRY]],
     passive=standard_passive('This card provides Colorless Energy. While in play, this card provides every type of Energy but provides only 1 Energy at a time. When you attach this card from your hand to 1 of your Pokémon, put 1 damage counter on that Pokémon.'),
     on_attach=energy_on_attach('This card provides Colorless Energy. While in play, this card provides every type of Energy but provides only 1 Energy at a time. When you attach this card from your hand to 1 of your Pokémon, put 1 damage counter on that Pokémon.'),

@@ -4,15 +4,10 @@ from spirit.game.session.passives import Passive
 
 
 class _SeasonedSkillPassive(Passive):
-    """Attacks cost [C] less for each Prize card your opponent has taken.
+    """Discount Blood Moon, even when another effect has changed its cost."""
 
-    NOTE: Engine supports cost-modifying passives at the whole-card level,
-    so we approximate by only applying the discount to attacks that are paid
-    with exactly 5 Colorless ([C][C][C][C][C]).
-    """
-
-    def modify_attack_cost(self, cost, pokemon, carrier, board):
-        if carrier is not pokemon:
+    def modify_attack_cost_for_attack(self, cost, pokemon, carrier, board, attack):
+        if carrier is not pokemon or getattr(attack, "title", "") != "Blood Moon":
             return cost
         owner = carrier.owning_player_id
         opponent = next((p for p in board.player_ids if p != owner), None)
@@ -23,18 +18,12 @@ class _SeasonedSkillPassive(Passive):
         if discount <= 0:
             return cost
 
-        # Battle cost dictionaries use client-name keys (e.g. "Colorless").
-        if set(cost.keys()) != {"Colorless"}:
-            return cost
-        if cost.get("Colorless") != 5:
-            return cost
-
-        remaining = cost["Colorless"] - discount
+        remaining = cost.get("Colorless", 0) - discount
         if remaining > 0:
             cost["Colorless"] = remaining
             return cost
         # Remove empty cost component if fully discounted.
-        del cost["Colorless"]
+        cost.pop("Colorless", None)
         return cost
 
 
@@ -60,14 +49,13 @@ card = PokemonCardDef(
             title="Seasoned Skill",
             game_text=(
                 "Blood Moon used by this Pokémon costs [C] less for each "
-                "Prize card your opponent has taken.\n\nDuring your next "
-                "turn, this Pokémon can't attack."
+                "Prize card your opponent has taken."
             ),
             passive=_SeasonedSkillPassive(),
         ),
         Attack(
             title="Blood Moon",
-            game_text="",
+            game_text="During your next turn, this Pokémon can't attack.",
             cost={PokemonTypes.COLORLESS: 5},
             damage=240,
             locks_next_turn=True,

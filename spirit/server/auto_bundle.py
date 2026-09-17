@@ -3,13 +3,13 @@ import sys
 import logging
 import subprocess
 import json
-import importlib.util
 import math
 import re
 import shutil
 from PIL import Image, ImageFilter
 
 from spirit.game.attributes import AttrID, TrainerType
+from spirit.game.data_utils import def_for
 from spirit.game.scripts.cards import loader
 from spirit.server.auto_bundle_cosmetics import compile_all_cosmetics
 from spirit.server import dynamic_pages
@@ -415,58 +415,49 @@ def check_and_generate_bundles() -> int:
     sets = {} # set_code -> {coll_num_str: {asset_name: png_path}}
     foil_sets = {} # set_code -> {kind: {padded_num: png_path}}
 
-    scripts_dir = loader.scripts_dir
-    for root, _, files in os.walk(scripts_dir):
-        for file in files:
-            if file.endswith(".py") and file != "__init__.py":
-                rel_dir = os.path.relpath(root, scripts_dir)
-                base_name = file[:-3]
-                png_path = os.path.join(CARDS_IMG_DIR, rel_dir, f"{base_name}.png")
-                
-                try:
-                    file_path = os.path.join(root, file)
-                    module_name = "autobundle_" + rel_dir.replace(os.path.sep, "_") + "_" + base_name
-                    spec = importlib.util.spec_from_file_location(module_name, file_path)
-                    if spec is None or spec.loader is None:
-                        continue
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
-                    if not hasattr(module, 'card'):
-                        continue
-                    
-                    card_def = module.card
-                    set_code = card_def.set_code
-                    asset_name = str(card_def.collector_number).zfill(3)
-                    
-                    if set_code not in sets:
-                        sets[set_code] = {}
-                    
-                    card_assets = {asset_name: png_path}
+    # Loading a card executes its constructors and registers its rules globally.
+    # Never import scripts here: doing so overwrote normalized Abilities with
+    # their raw generated versions after the game catalog had already loaded.
+    for model in loader.cards:
+        file_path = loader.script_by_guid[model.guid]
+        rel_dir = os.path.dirname(os.path.relpath(file_path, loader.scripts_dir))
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
+        png_path = os.path.join(CARDS_IMG_DIR, rel_dir, f"{base_name}.png")
 
-                    # Foil masks live in their own {SET}_wp_{kind}_Foil2 bundles
-                    # with textures named by padded number: the client's request
-                    # "{SET}_wp_std_Foil2/127" strips to LoadAsset("127"), so a
-                    # mask inside the set bundle can never be reached.
-                    for suffix, kind in FOIL_KIND_SUFFIXES.items():
-                        foil_png_path = os.path.join(CARDS_IMG_DIR, rel_dir, f"{base_name}{suffix}.png")
-                        if os.path.exists(foil_png_path):
-                            foil_sets.setdefault(set_code, {}).setdefault(kind, {})[asset_name] = foil_png_path
+        try:
+            card_def = def_for(model.guid)
+            set_code = card_def.set_code
+            asset_name = model.get_attribute_value(AttrID.IMAGE_URL)
 
-                    if _is_special_energy(card_def) and os.path.exists(png_path):
-                        pip_path = generate_energy_pip_png(
-                            png_path, set_code, asset_name,
-                            units=_energy_units(card_def))
-                        if pip_path:
-                            card_assets[f"{asset_name}_energypip"] = pip_path
-                    elif _is_pokemon_tool(card_def) and os.path.exists(png_path):
-                        pip_path = generate_tool_pip_png(png_path, set_code, asset_name)
-                        if pip_path:
-                            card_assets[f"{asset_name}_toolpip"] = pip_path
+            if set_code not in sets:
+                sets[set_code] = {}
 
-                    sets[set_code][asset_name] = card_assets
+            card_assets = {asset_name: png_path}
 
-                except Exception as e:
-                    logging.error(f"[AutoBundle] Failed to parse {file}: {e}")
+            # Foil masks live in their own {SET}_wp_{kind}_Foil2 bundles
+            # with textures named by padded number: the client's request
+            # "{SET}_wp_std_Foil2/127" strips to LoadAsset("127"), so a
+            # mask inside the set bundle can never be reached.
+            for suffix, kind in FOIL_KIND_SUFFIXES.items():
+                foil_png_path = os.path.join(CARDS_IMG_DIR, rel_dir, f"{base_name}{suffix}.png")
+                if os.path.exists(foil_png_path):
+                    foil_sets.setdefault(set_code, {}).setdefault(kind, {})[asset_name] = foil_png_path
+
+            if _is_special_energy(card_def) and os.path.exists(png_path):
+                pip_path = generate_energy_pip_png(
+                    png_path, set_code, asset_name,
+                    units=_energy_units(card_def))
+                if pip_path:
+                    card_assets[f"{asset_name}_energypip"] = pip_path
+            elif _is_pokemon_tool(card_def) and os.path.exists(png_path):
+                pip_path = generate_tool_pip_png(png_path, set_code, asset_name)
+                if pip_path:
+                    card_assets[f"{asset_name}_toolpip"] = pip_path
+
+            sets[set_code][asset_name] = card_assets
+
+        except Exception as e:
+            logging.error(f"[AutoBundle] Failed to map {file_path}: {e}")
 
     generated_count = 0
 

@@ -29,7 +29,7 @@ card = PokemonCardDef(
         ),
         Attack(
             title="Virtuous Flame",
-            cost={PokemonTypes.FIRE: 1, PokemonTypes.LIGHTNING: 1, PokemonTypes.COLORLESS: 2},
+            cost={PokemonTypes.FIRE: 2, PokemonTypes.LIGHTNING: 1, PokemonTypes.COLORLESS: 1},
             damage=170,
         ),
     ],

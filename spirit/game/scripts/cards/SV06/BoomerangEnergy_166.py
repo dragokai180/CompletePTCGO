@@ -15,5 +15,6 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
+    outside_play_types=[],
     on_discarded_by_carrier_attack=boomerang_reattach,
 )

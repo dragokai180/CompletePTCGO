@@ -32,7 +32,6 @@ card = PokemonCardDef(
             game_text="If you have the same number of cards in your hand as your opponent, the attack cost of each of Yanmega's attacks is 0.",
             ability_type=AbilityTypes.POKE_BODY,
             effect=standard_ability,
-            usable_from='hand',
         ),
         Attack(
             title='Linear Attack',

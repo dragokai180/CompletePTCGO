@@ -66,7 +66,7 @@ card = PokemonCardDef(
         Attack(
             title="Magnetic Blast",
             game_text="",
-            cost={PokemonTypes.METAL: 2, PokemonTypes.COLORLESS: 1},
+            cost={PokemonTypes.METAL: 1, PokemonTypes.COLORLESS: 2},
             damage=100,
         ),
     ],

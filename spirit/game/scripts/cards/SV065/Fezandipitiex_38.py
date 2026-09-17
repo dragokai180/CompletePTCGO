@@ -53,7 +53,7 @@ card = PokemonCardDef(
         ),
         Attack(
             title="Cruel Arrow",
-            game_text="",
+            game_text="This attack does 100 damage to 1 of your opponent's Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)",
             cost={PokemonTypes.COLORLESS: 3},
             damage=100,
             effect=cruel_arrow,

@@ -30,7 +30,6 @@ card = PokemonCardDef(
             game_text='Once during your turn (before your attack), you may draw cards until you have 6 cards in your hand.',
             effect=standard_ability,
             activation=Activations.ONCE_PER_TURN,
-            usable_from='hand',
         ),
         Attack(
             title='Blaze Ball',

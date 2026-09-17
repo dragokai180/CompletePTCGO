@@ -195,6 +195,8 @@ def fallback_api_card(pobre_card: dict, api_stem: str) -> dict:
         subtypes = [pobre_card.get("stage") or "Basic"]
         if pobre_card.get("isEx"):
             subtypes.append("ex")
+        if pobre_card.get("isMegaEx"):
+            subtypes.extend(s for s in ("ex", "SV_Mega") if s not in subtypes)
         if pobre_card.get("isTera"):
             subtypes.append("Tera")
         if pobre_card.get("isAncient"):
@@ -394,11 +396,8 @@ def family_id(card: dict, by_name: Dict[str, dict]) -> Optional[int]:
 
 def trigger_expr(text: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
     normalized = " ".join(fix_text(text).lower().split())
-    usable_from = None
-    if "in your discard pile" in normalized:
-        usable_from = "discard"
-    elif "in your hand" in normalized and "play this pokémon" not in normalized:
-        usable_from = "hand"
+    from spirit.game.card_effects.standard_era import standard_ability_source_zone
+    usable_from = standard_ability_source_zone(normalized)
 
     trigger = None
     if "when you play this pokémon from your hand onto your bench" in normalized:
@@ -484,6 +483,15 @@ def attack_source(attack: dict, indent: str = "        ") -> list[str]:
 def render_pokemon(card: dict, set_code: str, by_name: Dict[str, dict]) -> str:
     name = fix_text(card["name"])
     subtypes = [fix_text(value) for value in card.get("subtypes") or []]
+    # Some promo data has a correct rule box but omits its ex/GX subtype.
+    # Read that explicit text rather than silently importing a one-Prize card.
+    rules = " ".join(card.get("rules") or [])
+    if "Mega Evolution ex Rule" in rules:
+        subtypes.extend(s for s in ("ex", "SV_Mega") if s not in subtypes)
+    elif "Pokémon ex rule" in rules and "ex" not in subtypes:
+        subtypes.append("ex")
+    if "Pokémon-GX rule" in rules and "GX" not in subtypes:
+        subtypes.append("GX")
     # Only the modern lower-case Pokemon ex use the three-prize SV_Mega rule.
     # XY's upper-case Pokemon-EX Mega Evolutions remain two-prize Pokemon-EX.
     if "MEGA" in subtypes and "ex" in subtypes and "SV_Mega" not in subtypes:
@@ -539,6 +547,9 @@ def render_pokemon(card: dict, set_code: str, by_name: Dict[str, dict]) -> str:
     if weakness_type:
         lines.append(f"    weakness_type={weakness_type},")
         lines.append(f"    weakness_amount={numeric(weak.get('value'), 2)},")
+        if len(card.get("weaknesses") or []) > 1:
+            types = [TYPE_MAP[fix_text(entry["type"])] for entry in card["weaknesses"]]
+            lines.append("    weakness_types=[" + ", ".join(types) + "],")
     if resistance_type:
         lines.append(f"    resistance_type={resistance_type},")
         lines.append(f"    resistance_amount={numeric(resist.get('value'), 30)},")

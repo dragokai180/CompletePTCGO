@@ -36,7 +36,7 @@ card = PokemonCardDef(
         Attack(
             title="Flamebody Cannon",
             game_text="Discard all Energy from this Pokémon, and this attack also does 90 damage to 1 of your opponent's Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)",
-            cost={PokemonTypes.FIRE: 1, PokemonTypes.COLORLESS: 2},
+            cost={PokemonTypes.FIRE: 2, PokemonTypes.COLORLESS: 1},
             damage=90,
             effect=self_energy_discard_attack(
                 all_energy=True,

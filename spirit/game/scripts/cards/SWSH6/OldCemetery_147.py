@@ -1,5 +1,6 @@
 from spirit.game.data_utils import StadiumCardDef, Ability, Triggers
 from spirit.game.attributes import Rarities, AttrID, PokemonTypes
+from spirit.game.session.passives import effective_pokemon_types
 
 
 async def old_cemetery_watch(ctx):
@@ -8,7 +9,7 @@ async def old_cemetery_watch(ctx):
     receiver = ctx.energy_receiver
     if receiver is None:
         return
-    types = receiver.get_attribute(AttrID.POKEMON_TYPES) or []
+    types = effective_pokemon_types(ctx.board, receiver)
     if PokemonTypes.PSYCHIC.value in types:
         return
     await ctx.deal_damage(20, target=receiver, apply_modifiers=False,

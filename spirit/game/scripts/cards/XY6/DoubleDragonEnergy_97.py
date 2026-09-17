@@ -63,6 +63,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.COLORLESS,
     is_special=True,
+    outside_play_types=[],
     attach_to=_is_dragon,
     discard_if_invalid=True,
     provides=ALL_TYPES_TWO_AT_A_TIME,

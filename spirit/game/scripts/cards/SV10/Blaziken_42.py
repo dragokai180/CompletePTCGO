@@ -30,7 +30,7 @@ card = PokemonCardDef(
         Attack(
             title="Inferno Kick Flurry",
             game_text="Discard 2 Energy from this Pokémon. This attack also does 120 damage to 1 of your opponent's Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)",
-            cost={PokemonTypes.FIRE: 1, PokemonTypes.COLORLESS: 2},
+            cost={PokemonTypes.FIRE: 2, PokemonTypes.COLORLESS: 1},
             damage=120,
             effect=self_energy_discard_attack(
                 count=2, before_damage=True,

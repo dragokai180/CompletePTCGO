@@ -32,7 +32,6 @@ card = PokemonCardDef(
             game_text="Once during your turn, if you played Janine's Secret Art from your hand this turn, you may draw cards until you have 8 cards in your hand.",
             effect=standard_ability,
             activation=Activations.ONCE_PER_TURN,
-            usable_from="hand",
         ),
         Attack(
             title="Poison Fang",

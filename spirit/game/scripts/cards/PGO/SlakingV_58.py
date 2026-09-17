@@ -1,16 +1,6 @@
+from spirit.game.card_effects.standard_era import standard_passive
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
-
-
-def _prizes_remaining(board, player_id):
-    area = board.find_player_area(player_id, "prizePile")
-    return len(area.children) if area else 0
-
-
-def _kinda_lazy_condition(board, player_id, pokemon):
-    from spirit.game.session.legal_actions import ability_locked
-    return ability_locked(board, pokemon, card.abilities[0]) or (
-        _prizes_remaining(board, player_id) not in (2, 4, 6))
 
 
 card = PokemonCardDef(
@@ -33,12 +23,12 @@ card = PokemonCardDef(
         Ability(
             title="Kinda Lazy",
             game_text="If you have exactly 2, 4, or 6 Prize cards remaining, this Pok\u00e9mon can't attack.",
+            passive=standard_passive("If you have exactly 2, 4, or 6 Prize cards remaining, this Pokémon can't attack."),
         ),
         Attack(
             title="Heavy Impact",
             cost={PokemonTypes.COLORLESS: 4},
             damage=260,
-            condition=_kinda_lazy_condition,
         ),
     ],
 )

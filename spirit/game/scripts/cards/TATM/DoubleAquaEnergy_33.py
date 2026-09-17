@@ -18,6 +18,7 @@ card = EnergyCardDef(
     rarity=Rarities.Uncommon,
     energy_type=PokemonTypes.WATER,
     is_special=True,
+    outside_play_types=[],
     provides=[[PokemonTypes.WATER, PokemonTypes.WATER]],
     passive=standard_passive('This card can only be attached to Team Aqua Pokémon. Discard this card at the end of the turn you attached it. This card provides WaterWater Energy only while it is attached to a Team Aqua Pokémon. (If this card is attached to anything other than a Team Aqua Pokémon, discard this card.)'),
     attach_to=energy_attach_to('This card can only be attached to Team Aqua Pokémon. Discard this card at the end of the turn you attached it. This card provides WaterWater Energy only while it is attached to a Team Aqua Pokémon. (If this card is attached to anything other than a Team Aqua Pokémon, discard this card.)'),

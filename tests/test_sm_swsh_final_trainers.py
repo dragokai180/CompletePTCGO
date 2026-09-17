@@ -256,7 +256,7 @@ class RemainingTrainerTests(unittest.IsolatedAsyncioTestCase):
         for card in cards: self.assertIn(card, ctx.hand(P2))
 
     async def test_slaking_v_prize_restriction_disappears_when_ability_is_suppressed(self):
-        from unittest.mock import patch
+        from spirit.game.session.passives import attacks_blocked
         for path in ('PGO.SlakingV_58', 'PGO.SlakingV_77'):
             rig, e = self.rig(path)
             d = fixtures.definition(path)
@@ -265,9 +265,12 @@ class RemainingTrainerTests(unittest.IsolatedAsyncioTestCase):
             prizes = rig.board.find_player_area(P1, 'prizePile')
             for count in (6, 5, 4, 3, 2, 1):
                 while len(prizes.children) > count: rig.to_area(prizes.children[-1], P1, 'hand')
-                self.assertEqual(attack.condition(rig.board, P1, pokemon), count % 2 == 1)
-                with patch('spirit.game.session.legal_actions.ability_locked', return_value=True):
-                    self.assertTrue(attack.condition(rig.board, P1, pokemon))
+                self.assertIsNone(attack.condition)
+                self.assertEqual(attacks_blocked(rig.board, pokemon), count % 2 == 0)
+                state = rig.session.turn_state
+                state.abilities_disabled_through_turn = state.turn_number
+                self.assertFalse(attacks_blocked(rig.board, pokemon))
+                state.abilities_disabled_through_turn = -1
 
     async def test_brocks_training_selects_named_pokemon_and_allows_special_energy(self):
         rig, ctx, d = self.setup_card('HF.BrocksTraining_55')
