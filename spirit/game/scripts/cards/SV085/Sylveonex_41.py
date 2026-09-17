@@ -3,38 +3,30 @@ from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
 from spirit.game.card_effects.passives_common import debuff_defender_attacks
 from spirit.game.card_effects.pokemon import TeraRulePassive
 from spirit.game.session.effects import full_stack
+from spirit.game.card_effects.attack_requirements import printed_attack_allowed
 
 
 def _angelite_condition(board, player_id, pokemon):
-    opponent = next((pid for pid in board.player_ids if pid != player_id), None)
-    if opponent is None:
-        return False
-    bench = board.find_player_area(opponent, "bench")
-    if bench is None or len(bench.children) < 2:
-        return False
-    ts = getattr(board, "turn_state", None)
-    if ts is None:
-        return True
-    for used_id, _archetype, title in ts.attacks_used_last_turn:
-        if title != "Angelite":
-            continue
-        entity = board.get_entity(used_id)
-        if entity is not None and entity.owning_player_id == player_id:
-            return False
-    return True
+    return printed_attack_allowed(
+        "If 1 of your Pokémon used Angelite during your last turn, this attack can't be used.",
+        board, player_id, pokemon)
 
 
 async def angelite(ctx):
     """Choose 2 of your opponent's Benched Pokémon. Shuffle those Pokémon
     and all attached cards into your opponent's deck."""
-    bench = [p for p in ctx.opponent_bench() if not ctx.effects_blocked(p)]
-    if len(bench) < 2:
+    if not _angelite_condition(ctx.board, ctx.player_id, ctx.attacker):
         return
+    bench = list(ctx.opponent_bench())
+    if not bench:
+        return
+    count = min(2, len(bench))
     picks = await ctx.choose_cards(
-        bench, 2, minimum=2,
-        prompt="Choose 2 of your opponent's Benched Pokémon",
+        bench, count, minimum=count,
+        prompt="Choose your opponent's Benched Pokémon",
     )
-    cards = [card for pokemon in picks for card in full_stack(pokemon)]
+    cards = [card for pokemon in picks if not ctx.effects_blocked(pokemon)
+             for card in full_stack(pokemon)]
     if cards:
         await ctx.shuffle_into_deck(cards, ctx.opponent_id)
 

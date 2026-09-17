@@ -25,6 +25,7 @@ card = FossilItemCardDef(
     unplayable_from_hand=True,
     abilities=[Ability(
         title="Discard Snorlax Doll",
+        is_rule_action=True,
         game_text=_TEXT,
         effect=standard_ability,
         activation=Activations.UNLIMITED,

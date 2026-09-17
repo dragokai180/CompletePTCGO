@@ -3,6 +3,9 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.standard_era import (
     standard_ability, standard_attack, standard_passive,
 )
+from spirit.game.scripts.cards.ME2.Toxtricity_68 import (
+    sinister_surge, _sinister_surge_condition,
+)
 
 
 card = PokemonCardDef(
@@ -27,7 +30,8 @@ card = PokemonCardDef(
         Ability(
             title="Sinister Surge",
             game_text="Once during your turn, you may use this Ability. Search your deck for a Basic [ [Darkness] ] Energy card and attach it to 1 of your Benched [ [Darkness] ] Pokémon. Then, shuffle your deck. If you attached Energy to a Pokémon in this way, place 2 damage counters on that Pokémon.",
-            effect=standard_ability,
+            effect=sinister_surge,
+            condition=_sinister_surge_condition,
             activation=Activations.ONCE_PER_TURN,
         ),
         Attack(

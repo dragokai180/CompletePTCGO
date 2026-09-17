@@ -22,6 +22,7 @@ card = FossilItemCardDef(
     passive=standard_passive(_TEXT),
     abilities=[Ability(
         title="Put Lillie's Poké Doll Away",
+        is_rule_action=True,
         game_text=_TEXT,
         effect=standard_ability,
         activation=Activations.UNLIMITED,

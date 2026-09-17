@@ -12,7 +12,9 @@ def _is_basic_darkness_energy(card):
 
 def _sinister_surge_condition(board, player_id, pokemon=None):
     bench = board.find_player_area(player_id, "bench")
-    return bool(bench) and any(is_darkness_pokemon(p) for p in bench.children)
+    deck = board.find_player_area(player_id, "deck")
+    return bool(deck and deck.children and bench) and any(
+        is_darkness_pokemon(p) for p in bench.children)
 
 
 async def sinister_surge(ctx):
@@ -35,10 +37,10 @@ async def sinister_surge(ctx):
             target = await ctx.choose_pokemon(
                 candidates, "Choose a Benched Darkness Pokémon to attach the Energy to"
             )
-            if target is not None:
-                await ctx.attach_energy(picks[0], target)
+            if target is not None and await ctx.attach_energy(picks[0], target):
                 await ctx.deal_damage(
-                    20, target=target, apply_modifiers=False, as_counters=True
+                    20, target=target, apply_modifiers=False, as_counters=True,
+                    is_attack=False,
                 )
     await ctx.shuffle_deck()
 

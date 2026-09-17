@@ -19,6 +19,10 @@ class CbrewEnergyInstallationTests(unittest.TestCase):
                      "bundles": 0, "written": 0, "unchanged": 0,
                  }) as menus, \
                  patch.object(installer, "seed_original_landing_pages", return_value=0), \
+                 patch.object(installer, "import_radiant_collections", return_value={
+                     "written": 0, "unchanged": 0, "masks_written": 0,
+                     "unavailable": 0,
+                 }), \
                  patch("spirit.tools.install_recent_card_art.install_native_energy",
                        return_value=list(failures)) as energies:
                 result = installer.main()

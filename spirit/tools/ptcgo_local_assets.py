@@ -33,6 +33,17 @@ EXTERNAL_CACHE_DIR = PROJECT_DIR / "spirit" / "assets" / "externalCache"
 DEFAULT_SOURCE_DIR = Path("A:/PTCGO")
 SOURCE_ENV = "PTCGO_ART_SOURCE_DIR"
 
+# Printed RC numbers differ from the numeric texture slots in native bundles.
+RADIANT_COLLECTIONS = {"BW11": (115, 25), "TWENTIETHANN": (100, 32)}
+
+
+def _native_collector(set_code: str, value: object) -> object:
+    match = re.fullmatch(r"RC0*(\d+)", str(value).strip(), re.IGNORECASE)
+    layout = RADIANT_COLLECTIONS.get(set_code.upper())
+    if match and layout and 1 <= int(match.group(1)) <= layout[1]:
+        return layout[0] + int(match.group(1))
+    return value
+
 
 # Exact archive titles avoid confusing identically named promo archives from
 # different eras.  Additional entries are useful when their scripts are added
@@ -125,10 +136,10 @@ def _find_archive(source: Path, suffix: str) -> Path | None:
 
 
 def _collector_from_script(set_code: str, stem: str) -> int | None:
-    # Legendary Treasures' Radiant Collection reuses 1..25 but its artwork is
-    # not present in the numbered main-set files of the local archive.
-    if re.search(r"_RC\d+$", stem, re.IGNORECASE):
-        return None
+    radiant = re.search(r"_(RC\d+)$", stem, re.IGNORECASE)
+    if radiant:
+        value = _native_collector(set_code, radiant.group(1))
+        return value if isinstance(value, int) else None
     promo_prefix = _PROMO_SET_PREFIX.get(set_code)
     pattern = rf"_{promo_prefix}(\d+)$" if promo_prefix else r"_(\d+)$"
     match = re.search(pattern, stem, re.IGNORECASE)
@@ -156,7 +167,7 @@ def _collector_key(value: object) -> str | None:
 def _collector_key_from_script(set_code: str, stem: str) -> str | None:
     radiant = re.search(r"_RC(\d+)$", stem, re.IGNORECASE)
     if radiant:
-        return f"RC{int(radiant.group(1))}"
+        return str(_native_collector(set_code, f"RC{int(radiant.group(1))}"))
     number = _collector_from_script(set_code, stem)
     return str(number) if number is not None else None
 
@@ -327,6 +338,7 @@ def install_card_art(
 ) -> bool:
     """Install one native card texture; return False if no local art exists."""
     set_code = str(set_code).upper()
+    collector_number = _native_collector(set_code, collector_number)
     suffix = CARD_ARCHIVES.get(set_code)
     number = _collector_value(collector_number)
     local_source = source_directory(source)
@@ -350,6 +362,74 @@ def install_card_art(
         return False
     _atomic_write(destination, payload)
     return True
+
+
+def import_radiant_collections(source: Path) -> dict[str, int]:
+    """Install native RC artwork and the original per-card masks, if present.
+
+    No masks are synthesized: cards without a native per-card mask retain
+    their existing material metadata/shared client shader.
+    """
+    from spirit.tools.import_foil_masks import extract_set
+
+    totals = {"written": 0, "unchanged": 0, "unavailable": 0,
+              "masks_written": 0, "masks_unchanged": 0}
+    # Mask import overlays oldest to newest (art lookup prefers SM first).
+    caches = [str(path) for path in reversed(_cache_archives(source))]
+    for scripts in sorted(CARD_SCRIPT_DIR.iterdir()):
+        layout = RADIANT_COLLECTIONS.get(scripts.name.upper())
+        if not scripts.is_dir() or layout is None:
+            continue
+        offset, count = layout
+        for script in sorted(scripts.glob("*.py")):
+            number = _collector_from_script(scripts.name.upper(), script.stem)
+            if number is None or not offset < number <= offset + count:
+                continue
+            destination = CARD_ASSET_DIR / scripts.name / f"{script.stem}.png"
+            previous = destination.read_bytes() if destination.is_file() else None
+            if not install_card_art(scripts.name, number, destination, source):
+                totals["unavailable"] += 1
+            elif previous == destination.read_bytes():
+                totals["unchanged"] += 1
+            else:
+                totals["written"] += 1
+        if caches:
+            written, unchanged = extract_set(
+                scripts.name, caches, force=True,
+                only_cards=list(range(offset + 1, offset + count + 1)),
+            )
+            totals["masks_written"] += written
+            totals["masks_unchanged"] += unchanged
+    return totals
+
+
+def import_premium_xy_foils(source: Path) -> dict:
+    """Refresh exact Premium XY prints, never their regular-print masks."""
+    from spirit.game.foil_variants import PREMIUM_XY_FOIL_VARIANTS
+    from spirit.tools import import_foil_masks as masks
+
+    directories = {path.name.upper(): path.name for path in CARD_SCRIPT_DIR.iterdir()
+                   if path.is_dir()}
+    sets = [(directories.get(code, code), variants)
+            for code, variants in PREMIUM_XY_FOIL_VARIANTS.items()]
+    caches = [str(path) for path in reversed(_cache_archives(source))]
+    # Also support an extracted cache, with its revisions applied last.
+    if any(masks._bundle_payloads(str(source), code, 'std')
+           for code, variants in sets):
+        caches.append(str(source))
+    if not caches:
+        return {'written': 0, 'missing': [], 'available': False}
+    written, missing = 0, []
+    for code, variants in sets:
+        count, _ = masks.extract_set(code, caches, force=True,
+                                     only_cards=list(variants))
+        written += count
+        stems = masks._set_card_stems(code)
+        for slot in variants:
+            stem = stems.get(slot.zfill(3))
+            if not stem or not (CARD_ASSET_DIR / code / f'{stem}_foil.png').is_file():
+                missing.append(f'{code}/{slot}')
+    return {'written': written, 'missing': missing, 'available': True}
 
 
 def import_card_art(source: Path) -> dict[str, int]:
@@ -559,6 +639,10 @@ def main() -> int:
     )
     parser.add_argument("--cards-only", action="store_true")
     parser.add_argument("--ui-only", action="store_true")
+    parser.add_argument("--radiant-only", action="store_true",
+                        help="Import only native Radiant Collection artwork and masks")
+    parser.add_argument("--premium-xy-only", action="store_true",
+                        help="Refresh only the 14 exact Premium Trainer's XY foil masks")
     parser.add_argument(
         "--replace-landing-pages",
         action="store_true",
@@ -571,6 +655,33 @@ def main() -> int:
         parser.error(f"PTCGO asset directory does not exist: {source}")
     if args.cards_only and args.ui_only:
         parser.error("--cards-only and --ui-only cannot be combined")
+    if args.radiant_only and args.ui_only:
+        parser.error("--radiant-only and --ui-only cannot be combined")
+    if args.premium_xy_only and (args.ui_only or args.radiant_only):
+        parser.error("--premium-xy-only cannot be combined with --ui-only or --radiant-only")
+
+    premium_failed = False
+    if not args.ui_only and not args.radiant_only:
+        premium = import_premium_xy_foils(source)
+        if not premium['available']:
+            print('[premium-xy] No native cache found; exact foil masks were not installed.')
+        else:
+            print(f"[premium-xy] {premium['written']} masks installed; "
+                  f"{len(premium['missing'])} exact prints unavailable.")
+            for card in premium['missing']:
+                print(f'[premium-xy] Missing exact mask: {card}')
+        premium_failed = bool(premium['missing'])
+        if args.premium_xy_only:
+            return 2 if premium_failed or not premium['available'] else 0
+
+    if not args.ui_only:
+        radiant = import_radiant_collections(source)
+        print(f"[radiant] {radiant['written']} artwork updated, "
+              f"{radiant['unchanged']} unchanged, "
+              f"{radiant['masks_written']} native masks imported, "
+              f"{radiant['unavailable']} artwork without a local match")
+        if args.radiant_only:
+            return 2 if radiant['unavailable'] else 0
 
     energy_failures = []
     if not args.ui_only:
@@ -599,7 +710,7 @@ def main() -> int:
         )
         created = seed_original_landing_pages(args.replace_landing_pages)
         print(f"[menus] {created} original home landing page(s) created")
-    return 2 if energy_failures else 0
+    return 2 if energy_failures or premium_failed else 0
 
 
 if __name__ == "__main__":

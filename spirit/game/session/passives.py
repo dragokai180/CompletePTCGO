@@ -674,7 +674,8 @@ def _collect_passives(board: BoardState) -> List[Tuple[Passive, BoardEntity, boo
                 if ability is not None and ability.passive is not None:
                     # A Tool-granted ability's passive rides the tool, not the
                     # Pokemon, so Path to the Peak can't switch it off.
-                    triples.append((ability.passive, pokemon, not ability.is_granted))
+                    triples.append((ability.passive, pokemon,
+                                    not (ability.is_granted or ability.is_rule_action)))
             for attachment in _descendants(pokemon):
                 if isinstance(attachment, PokemonEntity):
                     # Some Pokemon turn themselves into attached Energy or a
@@ -768,7 +769,9 @@ def ability_locked(
     """
     # Trainer/Stadium callbacks reuse Ability for dispatch, but are not
     # Pokemon Abilities. Locks must never suppress these card effects.
-    if not isinstance(pokemon, PokemonEntity) or getattr(ability, "is_granted", False):
+    if not isinstance(pokemon, PokemonEntity) \
+            or getattr(ability, "is_granted", False) \
+            or getattr(ability, "is_rule_action", False):
         return False
     state = getattr(board, "turn_state", None)
     if state is not None and state.turn_number <= getattr(

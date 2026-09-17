@@ -272,7 +272,7 @@ class EffectContext:
         """Whether this ctx resolves a Pokemon Ability (not an attack/trainer)."""
         return isinstance(self.source, PokemonEntity) and self.ability is not None \
             and not self.is_attack_effect() and not self.is_trainer_effect \
-            and not self.ability.is_granted
+            and not self.ability.is_granted and not self.ability.is_rule_action
 
     def effects_blocked(self, target: PokemonEntity) -> bool:
         """Whether an opposing attack/Ability EFFECT on `target` is shielded
@@ -503,6 +503,8 @@ class EffectContext:
                 # wins so the pre-hit HP is the true pre-attack value.
                 if dealt > 0 and is_attack:
                     self.attack_damage.setdefault(target.entity_id, (dealt, current))
+                    if self.board.active_pokemon(target.owning_player_id) is target:
+                        self.session.turn_state.active_attack_damage_taken.add(target.entity_id)
             if dealt > 0:
                 taken = self.session.turn_state.damage_taken
                 taken[target.entity_id] = taken.get(target.entity_id, 0) + dealt
@@ -999,6 +1001,9 @@ class EffectContext:
                 f"'{ability.title}' blocked: player {self.player_id} already "
                 f"used a VSTAR Power this game."
             )
+            return False
+        if ability.condition is not None and not ability.condition(
+                self.board, self.player_id, self.attacker):
             return False
         self._copy_chain.append(ability.title)
         self.ability = ability
@@ -2386,9 +2391,12 @@ class EffectContext:
         """
         if card is None or pokemon is None:
             return False
+        from_hand = card.parent is self.board.find_player_area(card.owning_player_id, 'hand')
         position = len(pokemon.children)
         if not self.board.attach_card(card.entity_id, pokemon.entity_id):
             return False
+        if from_hand and is_pokemon_tool(card):
+            self.session.turn_state.tools_attached_from_hand.add(pokemon.entity_id)
         self._queue_intro_and_move(card, pokemon.entity_id, position)
         return True
 
@@ -3052,6 +3060,17 @@ async def _send_ability_brackets(session, ctx: EffectContext,
     """Shared ability choreography: an "Attack" bracket pulls the source out
     and shoots the orb-of-light at the visual targets; the "PokeAbility"
     bracket tucks the source home and plays the effect messages."""
+    if ability.is_rule_action:
+        # Keep movement/KO choreography, without announcing a Pokemon Ability.
+        for pid, viewer in session.players.items():
+            for name, msgs in ctx.bracket_runs_for(pid, GameSequence.POKE_ABILITY.value):
+                if msgs:
+                    await session.send_game_sequence([viewer], name, msgs)
+        await session.resolve_knockouts(ctx, _ko_depth=_ko_depth)
+        for hook in ctx.deferred_actions:
+            await hook()
+        await session.enforce_bench_capacity()
+        return
     head = session._build_msg(
         OutboundMsg.ABILITY_PLAYED_EFFECT.value,
         {

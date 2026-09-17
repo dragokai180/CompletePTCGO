@@ -3,6 +3,9 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.standard_era import (
     standard_ability, standard_attack, standard_passive,
 )
+from spirit.game.scripts.cards.ME1.MegaVenusaurex_3 import (
+    solar_transfer, _solar_transfer_condition,
+)
 
 
 card = PokemonCardDef(
@@ -27,7 +30,8 @@ card = PokemonCardDef(
         Ability(
             title="Solar Transfer",
             game_text="As often as you like during your turn, you may use this Ability. Move a Basic [ [Grass] ] Energy from 1 of your Pokémon to another of your Pokémon.",
-            effect=standard_ability,
+            effect=solar_transfer,
+            condition=_solar_transfer_condition,
             activation=Activations.UNLIMITED,
         ),
         Attack(

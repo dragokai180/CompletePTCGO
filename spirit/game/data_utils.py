@@ -4,7 +4,7 @@ import os
 import uuid
 from typing import Any, Callable, Optional, List, Dict, Tuple
 from spirit.game.attributes import AttrID, CardType, TrainerType, PokemonStage, PokemonTypes, ProductType, AbilityTypes, Rarities, CLIENT_POKEMON_TYPE_NAMES, FoilMasks, FoilEffects
-from spirit.game.foil_corrections import apply_foil_corrections
+from spirit.game.foil_corrections import apply_foil_corrections, foil_disabled_for_set
 from spirit.game.text_encoding import fix_mojibake, fix_mojibake_list, with_ascii_aliases
 
 _ABILITY_ID_NAMESPACE = uuid.UUID("a3f2c6e8-9d41-4d7a-8b5f-2e7c90d13a64")
@@ -80,6 +80,7 @@ def _clone_ability(ability: "Ability") -> "Ability":
             usable_from=ability.usable_from,
         )
     clone.is_granted = ability.is_granted
+    clone.is_rule_action = ability.is_rule_action
     return clone
 
 
@@ -462,9 +463,13 @@ class Ability:
         condition: Optional[Callable] = None,
         shared_once_per_turn: Optional[str] = None,
         ends_turn: bool = False,
-        usable_from: Optional[str] = None
+        usable_from: Optional[str] = None,
+        is_rule_action: bool = False,
     ):
         self.title = title
+        # Clickable printed rules (Dolls/fossil removal) share the client
+        # action panel, but are not Pokemon Abilities and cannot be suppressed.
+        self.is_rule_action = is_rule_action
         # 'hand' | 'discard': offered while the card sits in that zone instead
         # of in play (Pyukumuku, Beedrill, Gengar). Hand gets AbilitySelection
         # + OutOfPlay; discard uses OutOfPlay.
@@ -705,6 +710,8 @@ def _print_foil(
     the imported catalog. Both remain non-foil unless a script explicitly
     supplies a Foil definition.
     """
+    if foil_disabled_for_set(set_code):
+        return True, None
     cards = _PRINT_FOIL_METADATA.get((set_code or "").upper())
     if cards is None:
         return False, None
@@ -807,6 +814,13 @@ class CardDefinition:
         # Apply card-type specific attributes from subclasses or extra_attributes
         for k, v in self.extra_attributes.items():
             attrs[str(k)] = v
+
+        # Also suppress raw attributes supplied by scripts/reprints, not only
+        # generated Foil objects. Leave art, rarity and card rules untouched.
+        if foil_disabled_for_set(self.set_code):
+            for attr in (AttrID.FOIL_EFFECT, AttrID.FOIL_EFFECTS,
+                         AttrID.FOIL_MASK, AttrID.FOIL_INTENSITY):
+                attrs.pop(str(attr.value), None)
 
         # Ensure Card Logic Name (200630 / EVOLUTION_LOGIC_NAME) is ALWAYS populated to prevent client null key crashes on attachments
         if str(AttrID.EVOLUTION_LOGIC_NAME.value) not in attrs:

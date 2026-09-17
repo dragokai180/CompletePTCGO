@@ -1546,6 +1546,8 @@ class GameSession:
         # retreated_entities is deliberately kept: the retreat executor stamps
         # it right after calling this on the retreating Pokemon.
         for entity_set in (state.healed_entities, state.healed_entities_last_turn,
+                           state.active_attack_damage_taken,
+                           state.active_attack_damage_taken_last_turn,
                            state.turn_draw_entity_ids,
                            state.turn_draw_entity_ids_last_turn):
             entity_set.discard(entity_id)
@@ -1576,6 +1578,7 @@ class GameSession:
         fresh card: restore HP to the printed max so no damage counters survive
         to be re-rendered or replayed. NOT for leave-Active moves (retreat/
         switch keep their damage)."""
+        self.turn_state.tools_attached_from_hand.discard(pokemon.entity_id)
         printed_max = pokemon.attribute_originals.get(
             AttrID.HP.value, pokemon.get_attribute(AttrID.HP, 0)
         )
@@ -2336,9 +2339,16 @@ class GameSession:
         # Prize counts/destinations evaluate BEFORE any stack moves so the
         # KO'd Pokemon's own passives and Special Conditions still count.
         passive_pairs = active_passives(self.board_state)
-        from spirit.game.session.passives import effective_pokemon_types
+        from spirit.game.session.passives import effective_pokemon_types, energy_provided_options
         knockout_types = {pokemon.entity_id: list(effective_pokemon_types(self.board_state, pokemon))
                           for pokemon in ctx.knockouts}
+        knockout_retreat_costs = {
+            pokemon.entity_id: effective_retreat_cost(self.board_state, pokemon)
+            for pokemon in ctx.knockouts}
+        knockout_energy_types = {
+            energy.entity_id: {kind for option in energy_provided_options(self.board_state, energy)
+                               for kind in option}
+            for pokemon in ctx.knockouts for energy in self.board_state.attached_energies(pokemon)}
         prize_plans: List[Tuple[str, int, str]] = []
         prize_bonus_eligible = set()
         ally_triggers: List[Tuple[PokemonEntity, str, Ability, PokemonEntity, bool]] = []
@@ -2529,6 +2539,7 @@ class GameSession:
             entry = {
                 "archetype_id": pokemon.archetype_id,
                 "subtypes": list(subtypes_for(pokemon.archetype_id)),
+                "pokemon_types": knockout_types[pokemon.entity_id],
             }
             # Fezandipiti ex / Oricorio-GX count Ability and Trainer KOs too,
             # but only DURING a turn. Poison, Sand Slammer and other Checkup
@@ -2567,6 +2578,8 @@ class GameSession:
             hook_ctx.knocked_out_stack = stack
             hook_ctx.knocked_out_attachments = stack[1:]
             hook_ctx.knocked_out_types = knockout_types[pokemon.entity_id]
+            hook_ctx.knocked_out_retreat_cost = knockout_retreat_costs[pokemon.entity_id]
+            hook_ctx.knocked_out_energy_types = knockout_energy_types
             hook_ctx.was_active_at_ko = was_active
             hook_ctx.ko_from_attack = from_attack
             hook_ctx.ko_attacker = ctx.attacker if from_attack else None
@@ -5063,6 +5076,7 @@ class GameSession:
         position = len(target.children)
         if not self.board_state.attach_card(card.entity_id, target_id):
             return
+        self.turn_state.tools_attached_from_hand.add(target_id)
         logging.info(
             f"[Session {self.game_id}] {self.players[player_id].screen_name} "
             f"attached tool {card.entity_id} to {target_id}."
@@ -5916,6 +5930,9 @@ class GameSession:
         action_id = entry["selectableAction"]["actionID"]
         ability = ABILITIES_BY_ID.get(action_id)
         # Revalidate the match-wide budget even for a stale/replayed action.
+        if ability is not None and ability.condition is not None and not ability.condition(
+                self.board_state, player_id, card):
+            return False
         if ability is not None and ability.vstar \
                 and player_id in self.turn_state.vstar_used:
             return False

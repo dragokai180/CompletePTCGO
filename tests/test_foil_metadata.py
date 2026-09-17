@@ -8,6 +8,13 @@ from spirit.tools.sync_foil_metadata import _compact_record
 
 
 class FoilMetadataTests(unittest.TestCase):
+    def test_crown_zenith_signed_bede_is_an_illustration_holo(self):
+        known, foil = data_utils._print_foil('CZ', 124, Rarities.RareHolo, ['Supporter'])
+        self.assertTrue(known)
+        self.assertIsNotNone(foil)
+        self.assertEqual(foil.style, 'window')
+        self.assertEqual(foil.effects, [FoilEffects.SWHOLO])
+
     def test_compact_record_retains_secondary_effect_order(self):
         record = _compact_record({
             "200610": "SwSecret",

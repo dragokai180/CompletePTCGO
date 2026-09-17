@@ -10,7 +10,7 @@ from spirit.game.session.passives import Passive, effective_attack_cost, effecti
 
 def extra_energy_satisfied(ctx, text):
     clause = re.search(
-        r"if this pok[eé]mon has at least (.+?) attached to it "
+        r"if this pok[eé]mon has at least (.+?) attached(?: to it)? "
         r"\(in addition to this attack's cost\)", text.lower())
     if not clause:
         return False

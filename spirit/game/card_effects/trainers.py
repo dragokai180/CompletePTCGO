@@ -1326,6 +1326,7 @@ def fossil_discard_ability() -> Ability:
         "At any time during your turn, you may discard this card from play.",
         activation=Activations.ONCE_PER_TURN,
         effect=fossil_discard,
+        is_rule_action=True,
     )
 
 

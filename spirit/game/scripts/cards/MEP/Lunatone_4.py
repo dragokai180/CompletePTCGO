@@ -3,6 +3,9 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.standard_era import (
     standard_ability, standard_attack, standard_passive,
 )
+from spirit.game.scripts.cards.ME1.Lunatone_74 import (
+    lunar_cycle, lunar_cycle_condition,
+)
 
 
 card = PokemonCardDef(
@@ -26,7 +29,9 @@ card = PokemonCardDef(
         Ability(
             title="Lunar Cycle",
             game_text="Once during your turn, if you have Solrock in play, you may discard a Basic [ [Fighting] ] Energy card from your hand in order to use this Ability. Draw 3 cards. You can't use more than 1 Lunar Cycle Ability each turn.",
-            effect=standard_ability,
+            effect=lunar_cycle,
+            condition=lunar_cycle_condition,
+            shared_once_per_turn="Lunar Cycle",
             activation=Activations.ONCE_PER_TURN,
         ),
         Attack(

@@ -89,6 +89,9 @@ def normalize_standard_card_definition(definition) -> None:
     """
     for ability in getattr(definition, "abilities", ()) or ():
         if isinstance(ability, Attack):
+            if ability.effect is bw_legacy_attack:
+                from spirit.game.card_effects.attack_requirements import install_attack_requirement
+                install_attack_requirement(ability)
             continue
         shared_effect = ability.effect is bw_legacy_ability
         shared_passive = ability.effect is None and ability.passive is not None \
@@ -96,6 +99,14 @@ def normalize_standard_card_definition(definition) -> None:
         if not shared_effect and not shared_passive:
             continue
         text = _norm(ability.game_text)
+        # Imported printings must share the same per-player cap as authored
+        # printings, not just a once-per-turn flag on each individual card.
+        shared_limit = re.search(
+            r"you (?:can't|cannot) use more than (?:1|one) (.+?) ability "
+            r"(?:each|during your) turn", text,
+        )
+        if shared_limit and shared_limit.group(1) == _norm(ability.title):
+            ability.shared_once_per_turn = ability.title
         continuous = any(phrase in text for phrase in (
             "damage counters instead of", "more damage counters on your opponent's poisoned",
             "more damage counter on your opponent's poisoned",
@@ -407,6 +418,22 @@ def standard_ability_condition(game_text: str):
 
         if "search your deck" in text and (deck_area is None or not deck_area.children):
             return False
+
+        # Excited Heal requires a modern Mega Evolution ex in play, not a
+        # legacy Mega EX or just any Grass Pokemon. Check live types as well.
+        mega_requirement = re.search(
+            r"if you have any (grass|fire|water|lightning|psychic|fighting|"
+            r"darkness|metal|fairy|dragon|colorless) mega evolution pokémon ex in play",
+            activation_clause,
+        )
+        if mega_requirement:
+            wanted = getattr(PokemonTypes, mega_requirement.group(1).upper())
+            if not any(
+                "SV_Mega" in (getattr(def_for(p.archetype_id), "subtypes", ()) or ())
+                and wanted.value in effective_pokemon_types(board, p)
+                for p in own
+            ):
+                return False
 
         draw_until = re.search(r"draw cards until you have (\d+) cards", text)
         if draw_until:

@@ -953,20 +953,26 @@ class _BWTextPassive(Passive):
         """Coin-based prevention/reduction that cannot be represented by a
         synchronous damage hook (Carracosta's Solid Rock)."""
         holder = carrier_pokemon(carrier)
-        if holder is not target or not calc.is_attack or not calc.is_opposing \
-                or calc.amount <= 0:
+        if holder is not target or not calc.is_attack or calc.amount <= 0:
             return None
         t = self.text
+        if not calc.is_opposing and "opponent" in t:
+            return None
         attacker = calc.attacker
         attacker_types = set(effective_pokemon_types(calc.board, attacker))
         holder_types = set(effective_pokemon_types(calc.board, holder))
-        lethal_hit = calc.amount >= holder.get_attribute(AttrID.HP, 0)
 
         # Echolocation / Drifting Dodge / Fluffy Cotton.  This is evaluated
         # after every ordinary modifier, just before HP changes, exactly once
         # for the hit.  The prevention animation is driven by calc.prevented.
-        if "if any damage is done to this pokémon by attacks" in t \
-                and "if heads, prevent that damage" in t:
+        if "if heads, prevent that damage" in t:
+            if "if this pokémon is confused" in t and "Confused" not in (
+                    holder.get_attribute(AttrID.SPECIAL_CONDITIONS) or []):
+                return None
+            required_energy = re.search(r"has any (\w+) energy attached", t)
+            if required_energy and not _has_energy_type(
+                    holder, getattr(PokemonTypes, required_energy.group(1).upper())):
+                return None
             if (await ctx.flip_coins(1, "Damage prevention"))[0]:
                 calc.prevented = True
                 return 0
@@ -990,12 +996,17 @@ class _BWTextPassive(Passive):
                 return None
             hp = holder.get_attribute(AttrID.HP, 0)
             if hp >= effective_max_hp(calc.board, holder) and calc.amount >= hp:
-                async def discard_survival_tool():
-                    if getattr(carrier, "parent", None) is not None:
-                        await ctx.discard_cards([carrier])
-                ctx.deferred_actions.append(discard_survival_tool)
+                if "discard this card" in t and is_pokemon_tool(carrier):
+                    async def discard_survival_tool():
+                        if getattr(carrier, "parent", None) is not None:
+                            await ctx.discard_cards([carrier])
+                    ctx.deferred_actions.append(discard_survival_tool)
                 return max(0, hp - 10)
 
+        if not calc.is_opposing:
+            if "reduce that damage by 50" in t and "flip a coin" in t:
+                return max(0, calc.amount - 50) if (await ctx.flip_coins(1, "Solid Rock"))[0] else None
+            return None
         deferred = []
         # Type Berries reduce synchronously; this hook consumes the Berry.
         berry = re.search(
@@ -1019,8 +1030,8 @@ class _BWTextPassive(Passive):
         )
         if counter_match:
             counters = int(counter_match.group(1))
-            if "is knocked out by damage" in t and "even if" not in t \
-                    and not lethal_hit:
+            # Actual-KO reactions run after survival/prevention has resolved.
+            if "is knocked out by damage" in t and "even if" not in t:
                 counters = 0
             if "dragon pokémon this card is attached to" in t \
                     and PokemonTypes.DRAGON.value not in holder_types:
@@ -1030,7 +1041,7 @@ class _BWTextPassive(Passive):
                 counters = 0
             if "attacking pokémon-ex" in t and not _pokemon_ex(attacker):
                 counters = 0
-            if "is your active pokémon" in t and not _is_active(holder):
+            if ("is your active pokémon" in t or "is in the active spot" in t) and not _is_active(holder):
                 counters = 0
             threshold = re.search(r"takes (\d+) or more damage", t)
             if threshold and calc.amount < int(threshold.group(1)):
@@ -1052,7 +1063,7 @@ class _BWTextPassive(Passive):
             status = SpecialConditions.ASLEEP
         elif "attacking pokémon is now burned" in t:
             status = SpecialConditions.BURNED
-        if status is not None and "is your active pokémon" in t and not _is_active(holder):
+        if status is not None and ("is your active pokémon" in t or "is in the active spot" in t) and not _is_active(holder):
             status = None
         if status is not None and "team rocket's pokémon this card is attached to" in t \
                 and not _name(holder).casefold().startswith("team rocket's "):
@@ -1086,6 +1097,7 @@ class _BWTextPassive(Passive):
             deferred.append(draw_three)
 
         if "discard a random card from your opponent's hand" in t \
+                and "is damaged by" in t \
                 and _is_active(holder):
             async def discard_random():
                 hand = ctx.hand(attacker.owning_player_id)
@@ -2468,6 +2480,13 @@ class _BWTextPassive(Passive):
         return len(uses) == 1
 
     def may_evolve_early(self, pokemon, carrier):
+        # Forest of Giant Plants waives BOTH timing gates. The separate
+        # same-turn hook deliberately retains the first-turn restriction
+        # (e.g. Forest of Vitality), so it cannot implement this Stadium.
+        if "grass pokémon can evolve during" in self.text \
+                and "first turn" in self.text:
+            return PokemonTypes.GRASS.value in effective_pokemon_types(
+                _board_for(pokemon), pokemon)
         return "you may play this card from your hand to evolve a pokémon" \
             in self.text
 
@@ -3406,13 +3425,22 @@ class _BWTextPassive(Passive):
         if "1 of your" in t or "when 1 of your pokémon" in t:
             if not allied:
                 return
-            if "water pokémon" in t and PokemonTypes.WATER.value not in \
-                    effective_pokemon_types(ctx.board, pokemon):
+            victim_types = getattr(ctx, 'knocked_out_types', None)
+            if victim_types is None:
+                victim_types = effective_pokemon_types(ctx.board, pokemon)
+            if "water pokémon" in t and PokemonTypes.WATER.value not in victim_types:
                 return
         elif pokemon is not holder:
             return
         if "is your active pokémon" in t or "is in the active spot" in t:
             if not getattr(ctx, "was_active_at_ko", False):
+                return
+        retreat_requirement = re.search(r"has a retreat cost of exactly (\d+)", t)
+        if retreat_requirement:
+            retreat = getattr(ctx, "knocked_out_retreat_cost", None)
+            if retreat is None:
+                retreat = effective_retreat_cost(ctx.board, pokemon)
+            if retreat != int(retreat_requirement.group(1)):
                 return
 
         attachments = list(getattr(ctx, "knocked_out_attachments", []) or [])
@@ -3421,7 +3449,7 @@ class _BWTextPassive(Passive):
         random_discard = re.search(
             r"discard (\d+|a) random cards? from your opponent's hand", t
         )
-        if random_discard:
+        if random_discard and "knocked out by damage" in t and "even if" not in t:
             count = 1 if random_discard.group(1) == "a" \
                 else int(random_discard.group(1))
             hand = ctx.hand(ctx.opponent_id)
@@ -3454,16 +3482,22 @@ class _BWTextPassive(Passive):
 
         move_match = re.search(r"move up to (\d+) (?:basic )?(?:\[ \[)?"
                                r"(water|lightning)?(?:\] \])? ?energy cards?", t)
-        grounding = "energy grounding" in t or "electrical grounding" in t or bool(re.search(
-            r"move a basic (?:lightning )?energy card from that pokémon to this pokémon", t))
+        grounding = re.search(
+            r"move (?:a|an) (basic )?(?:(\w+) )?energy(?: card)? "
+            r"from that pokémon to this pokémon", t)
         if move_match or grounding:
             count = int(move_match.group(1)) if move_match else 1
             type_word = move_match.group(2) if move_match else (
-                "lightning" if "electrical grounding" in t or "basic lightning energy" in t else None)
+                grounding.group(2))
+            def provided_before_ko(energy, wanted):
+                snapshot = getattr(ctx, "knocked_out_energy_types", {})
+                if energy.entity_id in snapshot:
+                    return wanted in snapshot[energy.entity_id]
+                return energy_provides_type(energy, wanted)
             candidates = [energy for energy in energies
-                          if (not type_word or energy_provides_type(
+                          if (not type_word or provided_before_ko(
                               energy, getattr(PokemonTypes, type_word.upper()).value))]
-            if "basic energy" in t or "basic lightning energy" in t:
+            if re.search(r"basic (?:\w+ )?energy", t):
                 candidates = [energy for energy in candidates if is_basic_energy(energy)]
             # A previous observer may already have recovered or moved it.
             discard = ctx.board.find_player_area(pokemon.owning_player_id, 'discard')
@@ -3515,6 +3549,12 @@ class _BWTextPassive(Passive):
             if "flip a coin" not in t \
                     or (await ctx.flip_coins(1, "Knock Out the attacker"))[0]:
                 await ctx.knock_out(attacker)
+        retaliation = re.search(r"put (\d+) damage counters on the attacking pokémon", t)
+        if attacker is not None and retaliation and "is knocked out by damage" in t \
+                and "even if" not in t:
+            if "flip a coin" not in t or (await ctx.flip_coins(1, "Knock Out reaction"))[0]:
+                await ctx.deal_damage(int(retaliation[1]) * 10, target=attacker,
+                                      as_counters=True, apply_modifiers=False, is_attack=False)
 
 
 def bw_legacy_passive(text: str) -> Passive:
@@ -3833,7 +3873,9 @@ def _formula_damage(ctx, text: str) -> Optional[int]:
             return printed + per * len(ctx.opponent_bench())
         if "nidoqueen on your bench" in subject:
             return printed + per * sum(_name(p) == "Nidoqueen" for p in ctx.my_bench())
-        if "benched pokémon" in subject:
+        # Despair Ray counts the chosen discards in its pre-damage step,
+        # not the Pokemon that remain on the Bench after that step.
+        if "benched pokémon" in subject and "discarded" not in subject:
             return printed + per * len(ctx.my_bench())
         if "prize card your opponent has taken" in subject:
             return printed + per * ctx.prizes_taken(ctx.opponent_id)
@@ -4681,6 +4723,11 @@ def _attack_discard_predicate(descriptor: str, board=None):
 def _attack_clause_allowed(ctx, text, position, heads, coin_count):
     """Check the prerequisites of this sentence, not unrelated clauses."""
     clause = text[text.rfind(".", 0, position) + 1:position]
+    public_clause = re.search(r"if (.+?),", clause)
+    if public_clause:
+        from spirit.game.card_effects.attack_state_clauses import public_attack_condition
+        if public_attack_condition(ctx, public_clause[1]) is False:
+            return False
     if "if both of them are tails" in clause and heads != 0:
         return False
     if "if both of them are heads" in clause and heads != coin_count:
@@ -4704,6 +4751,8 @@ def _attack_clause_allowed(ctx, text, position, heads, coin_count):
         return False
     if "if this pokémon has full hp" in clause and _damaged(ctx, ctx.attacker):
         return False
+    if "if this pokémon has any damage counters on it" in clause and not _damaged(ctx, ctx.attacker):
+        return False
     if "if the defending pokémon is poisoned" in clause and CLIENT_SPECIAL_CONDITION_NAMES[SpecialConditions.POISONED] not in (ctx.defender.get_attribute(AttrID.SPECIAL_CONDITIONS) or []):
         return False
     named = re.search(r"if ([a-z0-9 .'-]+) is on your bench", clause)
@@ -4726,6 +4775,10 @@ async def bw_legacy_attack(ctx):
     It deliberately executes choices on the real board (not dialogs containing
     copies), so it follows the simulator's current interaction convention.
     """
+    from spirit.game.card_effects.attack_requirements import printed_attack_allowed, requirements
+    if requirements(ctx.ability.game_text)[0] and not printed_attack_allowed(
+            ctx.ability.game_text, ctx.board, ctx.player_id, ctx.attacker):
+        return
     text = _norm(getattr(ctx.ability, "game_text", ""))
     from spirit.game.card_effects.sm_tag_team_gx import resolve_tag_team_gx
     if await resolve_tag_team_gx(ctx):
@@ -4743,6 +4796,50 @@ async def bw_legacy_attack(ctx):
     text = text.replace("new defending pokémon", "new active pokémon")
     printed = getattr(ctx.ability, "damage", 0) or 0
     primary_damage_dealt = 0
+    from spirit.game.card_effects.attack_state_clauses import resolve_public_conditional_damage
+    if await resolve_public_conditional_damage(ctx, text, printed):
+        return
+    # Transactional self-status clauses must resolve AFTER their prerequisite,
+    # not in the broad status pass (which precedes draws and deck searches).
+    draw_status = re.fullmatch(
+        r"draw (a|\d+) cards?\. if you do, this pokémon is now "
+        r"(asleep|burned|confused|paralyzed|poisoned)\.?", text)
+    if draw_status:
+        if printed:
+            await ctx.deal_damage(printed)
+        count = 1 if draw_status.group(1) == "a" else int(draw_status.group(1))
+        if await ctx.draw_cards(count):
+            await ctx.apply_special_condition(
+                ctx.attacker, getattr(SpecialConditions, draw_status.group(2).upper()))
+        return
+    bonus_status = re.fullmatch(
+        r"you may do (\d+) more damage\. if you do, this pokémon is now "
+        r"(asleep|burned|confused|paralyzed|poisoned)\.?", text)
+    if bonus_status:
+        accepted = await ctx.ask_yes_no(f"Add {bonus_status.group(1)} damage?")
+        await ctx.deal_damage(printed + (int(bonus_status.group(1)) if accepted else 0))
+        if accepted:
+            await ctx.apply_special_condition(
+                ctx.attacker, getattr(SpecialConditions, bonus_status.group(2).upper()))
+        return
+    attach_status = re.fullmatch(
+        r"search your deck for up to (\d+) basic (\w+) energy cards and attach "
+        r"them to this pokémon\. then, shuffle your deck\. if you attached energy "
+        r"to a pokémon in this way, this pokémon is now "
+        r"(asleep|burned|confused|paralyzed|poisoned)\.?", text)
+    if attach_status:
+        wanted = getattr(PokemonTypes, attach_status.group(2).upper())
+        picks = await ctx.search_deck(
+            lambda card: is_basic_energy(card) and energy_provides_type(card, wanted.value),
+            int(attach_status.group(1)), minimum=0, prompt="Choose Basic Energy cards")
+        attached = False
+        for energy in picks:
+            attached = bool(await ctx.attach_energy(energy, ctx.attacker)) or attached
+        await ctx.shuffle_deck()
+        if attached:
+            await ctx.apply_special_condition(
+                ctx.attacker, getattr(SpecialConditions, attach_status.group(3).upper()))
+        return
     # Red Banquet and equivalent simple damage/Prize attacks. This is an
     # attack-local bonus, not a persistent player passive (Altered Creation).
     # Register it only for a KO caused by this hit; prize-prevention effects
@@ -6113,6 +6210,9 @@ async def bw_legacy_attack(ctx):
     if bonus and "this pokémon has fewer remaining hp than the defending pokémon" in text \
             and ctx.attacker.get_attribute(AttrID.HP, 0) < ctx.defender.get_attribute(AttrID.HP, 0):
         amount += bonus
+    if bonus and "if this pokémon has any damage counters on it" in text \
+            and _damaged(ctx, ctx.attacker):
+        amount += bonus
     for word, ptype in (
         ("grass", PokemonTypes.GRASS), ("fire", PokemonTypes.FIRE),
         ("water", PokemonTypes.WATER), ("lightning", PokemonTypes.LIGHTNING),
@@ -6261,7 +6361,8 @@ async def bw_legacy_attack(ctx):
             ignore_resistance=ignore_wr,
             ignore_target_effects=ignore_all,
         )
-    snipe_allowed = snipe is not None
+    snipe_allowed = snipe is not None and _attack_clause_allowed(
+        ctx, text, snipe.start(), heads, coin_count)
     if snipe_allowed and heads == 0 and "attack does nothing" in text:
         snipe_allowed = False
     if snipe_allowed and "if heads, this attack does" in text and not heads:
@@ -6296,6 +6397,8 @@ async def bw_legacy_attack(ctx):
             r"does (\d+) damage to each of your (opponent's )?benched pokémon", text):
         gate, damage, opposing = spread.groups()
         if gate == "if heads" and not heads or gate == "if tails" and heads:
+            continue
+        if not _attack_clause_allowed(ctx, text, spread.start(), heads, coin_count):
             continue
         targets = ctx.opponent_bench() if opposing else ctx.my_bench()
         suffix = text[spread.end():].split('.', 1)[0]
@@ -6649,12 +6752,14 @@ async def bw_legacy_attack(ctx):
             confusion_damage=confusion_damage,
         )
     for word, condition in condition_map.items():
-        if f"this pokémon is now {word}" in text:
+        own_status = re.search(rf"this pokémon is now {word}", text)
+        if own_status and _attack_clause_allowed(ctx, text, own_status.start(), heads, coin_count):
             await ctx.apply_special_condition(ctx.attacker, condition)
         source_name = _name(ctx.attacker).casefold()
         if source_name and f"{source_name} is now {word}" in text:
             await ctx.apply_special_condition(ctx.attacker, condition)
-        if f"both active pokémon are now {word}" in text:
+        both_status = re.search(rf"both active pokémon are now {word}", text)
+        if both_status and _attack_clause_allowed(ctx, text, both_status.start(), heads, coin_count):
             for target in (ctx.attacker, ctx.defender):
                 if target is not None:
                     await ctx.apply_special_condition(target, condition)
@@ -8785,7 +8890,8 @@ async def bw_legacy_attack(ctx):
             bench, min(2, len(bench)), minimum=min(2, len(bench)),
             prompt="Choose Benched Pokémon") if bench else []
         await ctx.shuffle_into_deck(
-            [card for pokemon in picked for card in full_stack(pokemon)],
+            [card for pokemon in picked if not ctx.effects_blocked(pokemon)
+             for card in full_stack(pokemon)],
             player_id=ctx.opponent_id)
     if "choose 1 of your opponent's benched pokémon" in text \
             and ("shuffle that pokémon and all" in text
@@ -11867,15 +11973,17 @@ async def bw_legacy_ability(ctx):
             targets = [ctx.source]
         type_match = re.search(
             r"move (?:a|an|any amount of|as many)? ?"
+            r"(?:basic )?"
             r"(grass|fire|water|lightning|psychic|fighting|darkness|metal) energy",
             text,
         )
-        predicate = None
+        basic_only = bool(re.search(r"move (?:a |an |any amount of |as many )?basic ", text))
+        predicate = is_basic_energy if basic_only else None
         if type_match:
             ptype = getattr(PokemonTypes, type_match.group(1).upper())
-            predicate = lambda energy, ptype=ptype: energy_provides_type(
-                energy, ptype.value
-            )
+            predicate = lambda energy, ptype=ptype: (
+                (not basic_only or is_basic_energy(energy))
+                and energy_provides_type(energy, ptype.value))
         await ctx.move_energy_freely(
             [p for p in sources if p is not None],
             [p for p in targets if p is not None], predicate=predicate,
@@ -12239,9 +12347,19 @@ async def bw_legacy_ability(ctx):
             target = await ctx.choose_pokemon(ctx.my_pokemon_in_play(),
                                               "Choose a Pokémon")
             if target is not None:
-                await ctx.attach_energy(picks[0], target)
-                await ctx.deal_damage(10, target=target, apply_modifiers=False,
-                                      as_counters=True)
+                attached = await ctx.attach_energy(picks[0], target)
+                # Flare Navigate pays a counter; Flare Witch does not.
+                # Matching their shared search clause is not enough to add
+                # the former's secondary effect to every Fire search.
+                counters = re.search(
+                    r"if you do, (?:put|place) (\d+) damage counters? on that pokémon",
+                    text,
+                )
+                if attached and counters:
+                    await ctx.deal_damage(
+                        int(counters.group(1)) * 10, target=target,
+                        apply_modifiers=False, as_counters=True, is_attack=False,
+                    )
         await ctx.shuffle_deck()
         return
 

@@ -14,6 +14,8 @@ This folder collects the project's audit reports and local investigation results
 - [Standard format](reports/STANDARD_RULES_AUDIT.md)
 - [Trainer follow-up](reports/TRAINER_FOLLOWUP_AUDIT.md)
 - [Full-catalog semantic audit](reports/FULL_CATALOG_SEMANTIC_AUDIT.md)
+- [Generic text and reprint follow-up](reports/GENERIC_TEXT_AND_REPRINT_FOLLOWUP.md)
+- [Generic conditional clauses and KO reactions](reports/GENERIC_CONDITIONAL_CLAUSES.md)
 - [Deck searches and Ability suppression](reports/SEARCH_AND_ABILITY_SUPPRESSION_AUDIT.md)
 - [Sun & Moon / Sword & Shield](reports/SM_SWSH_RULES_AUDIT.md)
 - [Sun & Moon / Sword & Shield follow-up coverage](reports/SM_SWSH_AUDIT_COVERAGE.md)

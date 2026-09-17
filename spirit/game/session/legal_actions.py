@@ -178,6 +178,9 @@ class TurnState:
     prizes_taken: Dict[str, int] = field(default_factory=dict)
     retreated_entities: Set[str] = field(default_factory=set)
     healed_entities: Set[str] = field(default_factory=set)
+    tools_attached_from_hand: Set[str] = field(default_factory=set)
+    active_attack_damage_taken: Set[str] = field(default_factory=set)
+    active_attack_damage_taken_last_turn: Set[str] = field(default_factory=set)
     turn_draw_entity_ids: Set[str] = field(default_factory=set)
     trainers_played_last_turn: List[Tuple[str, str, int]] = field(default_factory=list)
     attacks_used_last_turn: List[Tuple[str, str, str]] = field(default_factory=list)
@@ -295,6 +298,9 @@ class TurnState:
         self.retreated_entities = set()
         self.healed_entities_last_turn = self.healed_entities
         self.healed_entities = set()
+        self.tools_attached_from_hand = set()
+        self.active_attack_damage_taken_last_turn = self.active_attack_damage_taken
+        self.active_attack_damage_taken = set()
         self.turn_draw_entity_ids_last_turn = self.turn_draw_entity_ids
         self.turn_draw_entity_ids = set()
         self.on_move_to_active_fired = set()

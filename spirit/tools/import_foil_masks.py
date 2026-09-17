@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Union
 
+from spirit.game.foil_variants import PREMIUM_XY_FOIL_VARIANTS
+
 DEFAULT_CACHE_DIR = os.path.join(
     "original_game_cache",
     "The Pokemon Company International",
@@ -63,19 +65,13 @@ CACHE_SET_ALIASES = {
 }
 
 INTERNAL_FOIL_ALIASES = {
-    "XY2": {"111": "88"},
     "XY3": {"114": "55"},
-    "XY4": {"125": "24", "126": "65"},
-    "XY6": {"113": "77", "114": "92"},
-    "XY7": {"102": "75"},
+    "XY4": {"125": "24"},
+    "XY6": {"114": "92"},
     "XY8": {"166": "146"},
-    "XY9": {"127": "98", "128": "98", "129": "107"},
-    "TWENTIETHANN": {"133": "28", "134": "73"},
-    "XY10": {"130": "43", "131": "54", "132": "105", "133": "111"},
-    "PROMO_XY": {
-        "212": "67", "213": "150", "214": "177",
-        "215": "198", "216": "200",
-    },
+    "XY9": {"127": "98", "129": "107"},
+    "TWENTIETHANN": {"133": "28"},
+    "XY10": {"131": "54"},
 }
 
 
@@ -218,14 +214,18 @@ def _variant_aliases(set_code: str) -> dict:
         with open(path, encoding="utf-8") as source:
             aliases = json.load(source)
     except (OSError, ValueError, TypeError):
-        return {}
+        aliases = {}
+    # Built-in identities also work on clean installs without a generated
+    # foil_aliases.json. Exact verified mappings win over older local aliases.
+    aliases.update(PREMIUM_XY_FOIL_VARIANTS.get(set_code.upper(), {}))
     return {
         str(native).strip().casefold(): str(internal).zfill(3)
         for internal, native in aliases.items()
     }
 
 
-def extract_set(set_code: str, cache_sources, force: bool = False, only_cards=None) -> tuple:
+def extract_set(set_code: str, cache_sources, force: bool = False, only_cards=None,
+                strict: bool = False, container_only: bool = False) -> tuple:
     import UnityPy
 
     stems = _set_card_stems(set_code)
@@ -236,23 +236,38 @@ def extract_set(set_code: str, cache_sources, force: bool = False, only_cards=No
         print(f"[{set_code}] no matching card scripts found, skipping")
         return (0, 0)
     variant_aliases = _variant_aliases(set_code)
+    exact_variants = {
+        internal.zfill(3): native.casefold()
+        for internal, native in PREMIUM_XY_FOIL_VARIANTS.get(set_code.upper(), {}).items()
+    }
 
     written_paths = set()
     skipped_paths = set()
     for kind, suffix in KIND_SUFFIXES.items():
         found = matched = 0
+        payload_count = 0
         # Each successive bundle revision and cache source may replace an
         # earlier texture.  Files created during this invocation are therefore
         # intentionally overwritten; pre-existing files require --force.
         for cache_source in cache_sources:
             for cache_set_code in _cache_set_codes(set_code):
                 for payload in _bundle_payloads(cache_source, cache_set_code, kind):
+                    payload_count += 1
                     try:
                         env = UnityPy.load(payload.load_arg())
                     except Exception as e:
+                        if strict:
+                            raise ValueError(f"Cannot read {payload.label}: {e}") from e
                         print(f"[{set_code}] failed to load {payload.label}: {e}")
                         continue
-                    for obj in env.objects:
+                    objects = env.objects
+                    if container_only:
+                        # Generated bundles retain unused template objects.
+                        # Only container references are actually served; raw
+                        # object traversal can install another card's mask.
+                        objects = list({(obj.file_id, obj.path_id): obj
+                                        for obj in env.container.values()}.values())
+                    for obj in objects:
                         if obj.type.name != "Texture2D":
                             continue
                         data = obj.read()
@@ -260,6 +275,10 @@ def extract_set(set_code: str, cache_sources, force: bool = False, only_cards=No
                         number = variant_aliases.get(
                             str(data.m_Name).strip().casefold()
                         ) or _collector_texture_number(data.m_Name)
+                        # A native numeric mask can coincide with a server-only
+                        # alternate slot (XY9/128). It is not that alternate.
+                        if number in exact_variants and str(data.m_Name).strip().casefold() != exact_variants[number]:
+                            continue
                         stem = stems.get(number) if number else None
                         if not stem:
                             continue
@@ -280,13 +299,36 @@ def extract_set(set_code: str, cache_sources, force: bool = False, only_cards=No
                             written_paths.add(out_path)
                             skipped_paths.discard(out_path)
                         except Exception as e:
+                            if strict:
+                                raise ValueError(f"Cannot save {out_path}: {e}") from e
                             print(f"[{set_code}] failed to save {out_path}: {e}")
                     del env
+        if strict and payload_count and not matched:
+            raise ValueError(f"{set_code}/wp_{kind}: no matching native masks found")
         if found:
             print(
                 f"[{set_code}] wp_{kind}: {found} masks inspected, "
                 f"{matched} matching textures"
             )
+
+    # A forced refresh of these exact prints must also remove old regular /
+    # reverse masks for which the selected archives contain no variant mask.
+    # Never fall back to the regular artwork's mask.
+    if force:
+        asset_root = os.path.realpath(CARDS_IMG_DIR)
+        for internal in PREMIUM_XY_FOIL_VARIANTS.get(set_code.upper(), {}):
+            stem = stems.get(internal.zfill(3))
+            if stem is None:
+                continue
+            for suffix in KIND_SUFFIXES.values():
+                path = os.path.join(CARDS_IMG_DIR, set_code, f"{stem}{suffix}.png")
+                resolved = os.path.realpath(path)
+                if os.path.commonpath([asset_root, resolved]) != asset_root:
+                    raise ValueError(f"Mask path is outside card assets: {path}")
+                if path not in written_paths and os.path.isfile(path):
+                    os.remove(path)
+                    skipped_paths.discard(path)
+                    print(f"[{set_code}] removed unmatched alternate-print mask: {stem}{suffix}.png")
 
     # Physical promo variants can share the original collector number even
     # though the server assigns them a unique internal slot.  Reuse the base
