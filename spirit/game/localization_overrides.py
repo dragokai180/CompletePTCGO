@@ -88,7 +88,12 @@ SET_NAME_LOCALIZATION_OVERRIDES = {
 
 
 CARD_FILTER_LOCALIZATION_OVERRIDES = {
-
+    "deckbuilder.cardfilters.attributes.nonfoil": "Non-Foil",
+    "deckbuilder.cardfilters.attributes.parallelfoil": "Reverse Holo",
+    "deckbuilder.cardfilters.attributes.specialfoil": "Regular Holo",
+    "deckbuilder.cardfilters.attributes.shinypokemon": "Shining Pokémon",
+    "deckbuilder.cardfilters.attributes.tag_team": "TAG TEAM",
+    "deckbuilder.cardfilters.attributes.pokemon_v": "Pokémon V",
     # Battle Style attributes added by the GX-support client fork.
     "deckbuilder.cardfilters.attributes.single_strike": "Single Strike",
     "deckbuilder.cardfilters.attributes.rapid_strike": "Rapid Strike",

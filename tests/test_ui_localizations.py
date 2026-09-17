@@ -13,6 +13,26 @@ LOCALIZATION_DB = ROOT / "spirit" / "database" / "game_data" / "LocalizationDB-U
 
 
 class UiLocalizationTests(unittest.TestCase):
+    def test_every_native_attribute_filter_has_a_label(self):
+        # All 32 entries in the GX-support client's FilterAttributes enum.
+        names = ('pokemon_ex legend ace full_art league foil team_plasma megaevolution '
+                 'nonfoil parallelfoil specialfoil team_aqua team_magma prime hasability '
+                 'haspokepower haspokebody secret hasancienttrait pokemon_gx shinypokemon '
+                 'ultrabeast yellow_a prism basic_energy special_energy team tag_team '
+                 'pokemon_v single_strike rapid_strike fusion_strike').split()
+        with sqlite3.connect(LOCALIZATION_DB) as connection:
+            known = {k.lower() for (k,) in connection.execute('SELECT key FROM Lookup')}
+        known.update(UI_LOCALIZATION_OVERRIDES)
+        self.assertEqual([n for n in names if 'deckbuilder.cardfilters.attributes.' + n not in known], [])
+
+    def test_classic_collection_hidden_without_hiding_celebrations(self):
+        import json
+        sets = json.loads((ROOT / 'spirit/database/json_data/sets.json').read_text(encoding='utf8'))
+        by_name = {s['name']: s for s in sets}
+        self.assertFalse(by_name['Ann25thR']['filter'])
+        self.assertFalse(by_name['Ann25thR']['visibleUnfilterable'])
+        self.assertTrue(by_name['CEL25']['filter'])
+
     def test_custom_filter_keys_are_localized(self):
         expected = {
             "collection.filter.series.swsh": "<i>Sword & Shield</i> Series",

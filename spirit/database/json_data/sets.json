@@ -619,7 +619,7 @@
     "externalId": "N/A",
     "number": 1020,
     "count": 25,
-    "filter": true,
+    "filter": false,
     "block": "SWSH",
     "legalFormats": [],
     "featuredArchetypes": [],

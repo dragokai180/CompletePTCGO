@@ -815,6 +815,12 @@ class CardDefinition:
         for k, v in self.extra_attributes.items():
             attrs[str(k)] = v
 
+        # Collection filters consume native facets, not Python-only subtypes.
+        from spirit.game.collection_attributes import collection_attributes
+        print_metadata = _PRINT_FOIL_METADATA.get(self.set_code.upper(), {}).get(str(self.collector_number))
+        for k, v in collection_attributes(self, print_metadata).items():
+            attrs.setdefault(k, v)
+
         # Also suppress raw attributes supplied by scripts/reprints, not only
         # generated Foil objects. Leave art, rarity and card rules untouched.
         if foil_disabled_for_set(self.set_code):
