@@ -4028,8 +4028,10 @@ class GameSession:
             f"begins for {player.screen_name}."
         )
 
-        drawn = self.board_state.draw_cards(active_id, 1)
-        if not drawn:
+        skip_draw = any(passive.blocks_turn_draw(active_id, carrier)
+                        for passive, carrier in active_passives(self.board_state))
+        drawn = [] if skip_draw else self.board_state.draw_cards(active_id, 1)
+        if not drawn and not skip_draw:
             # Failing the mandatory turn draw loses the game (deck out).
             await self.end_game(
                 self._opponent_id(active_id),

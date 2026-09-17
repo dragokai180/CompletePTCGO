@@ -4793,6 +4793,7 @@ async def bw_legacy_attack(ctx):
         "your opponent's active pokémon", "the defending pokémon"
     )
     text = text.replace("damage damage", "damage")
+    text = text.replace("flips a coin", "flip a coin")
     text = text.replace("new defending pokémon", "new active pokémon")
     printed = getattr(ctx.ability, "damage", 0) or 0
     primary_damage_dealt = 0
@@ -4926,6 +4927,9 @@ async def bw_legacy_attack(ctx):
     # Multi-target deck acceleration needs both the printed target count and
     # its distribution rules.  A plain "search ... for a ... Energy" parser
     # sees only one card and loses the preceding Choose-N clause.
+    from spirit.game.card_effects.attack_draw_transactions import resolve_draw_transaction
+    if await resolve_draw_transaction(ctx, text, printed):
+        return
     geomancy = re.search(
         r"choose (\d+) of your benched pokémon\. for each of those pokémon, "
         r"search your deck for an? "
@@ -5605,6 +5609,13 @@ async def bw_legacy_attack(ctx):
         coin_count = int(m.group(1))
     if "flip a coin for each energy attached to this pokémon" in text:
         coin_count = _energy_count(ctx, ctx.attacker)
+    if "flip a coin for each energy attached to both active pokémon" in text:
+        coin_count = _energy_count(ctx, ctx.attacker) + _energy_count(ctx, ctx.defender)
+    tool_coins = re.search(
+        r"if this pokémon has a pokémon tool card attached to it, flip (\d+) coins instead",
+        text)
+    if tool_coins and _has_tool(ctx.attacker):
+        coin_count = int(tool_coins[1])
     typed_coins = re.search(r"flip a coin for each (\w+) energy attached to", text)
     if typed_coins:
         coin_count = _energy_count(ctx, ctx.attacker, typed_coins.group(1))
@@ -6751,13 +6762,20 @@ async def bw_legacy_attack(ctx):
             ctx.defender, condition, poison_counters=poison,
             confusion_damage=confusion_damage,
         )
+    deferred_self_conditions = []
     for word, condition in condition_map.items():
         own_status = re.search(rf"this pokémon is now {word}", text)
         if own_status and _attack_clause_allowed(ctx, text, own_status.start(), heads, coin_count):
-            await ctx.apply_special_condition(ctx.attacker, condition)
+            if "shuffle your hand into your deck" in text:
+                deferred_self_conditions.append(condition)
+            else:
+                await ctx.apply_special_condition(ctx.attacker, condition)
         source_name = _name(ctx.attacker).casefold()
         if source_name and f"{source_name} is now {word}" in text:
-            await ctx.apply_special_condition(ctx.attacker, condition)
+            if "shuffle your hand into your deck" in text:
+                deferred_self_conditions.append(condition)
+            else:
+                await ctx.apply_special_condition(ctx.attacker, condition)
         both_status = re.search(rf"both active pokémon are now {word}", text)
         if both_status and _attack_clause_allowed(ctx, text, both_status.start(), heads, coin_count):
             for target in (ctx.attacker, ctx.defender):
@@ -6864,12 +6882,6 @@ async def bw_legacy_attack(ctx):
             ctx.hand_size(ctx.opponent_id) * 10, target=ctx.defender,
             apply_modifiers=False, as_counters=True,
         )
-    if re.search(
-        r"put damage counters on (?:the )?defending pokémon until its remaining hp is 10",
-        text,
-    ):
-        await ctx.set_damage_counters(
-            ctx.defender, max(0, (ctx.max_hp(ctx.defender) - 10) // 10))
 
     spread_counters = re.search(
         r"(?:put|place) (\d+) damage counters? on each of your opponent's pokémon",
@@ -6907,7 +6919,8 @@ async def bw_legacy_attack(ctx):
         r"put damage counters on (?:your opponent's active|(?:the )?defending) pokémon "
         r"until its remaining hp is (\d+)", text,
     )
-    if until_hp and ctx.defender is not None:
+    if until_hp and ctx.defender is not None and _attack_clause_allowed(
+            ctx, text, until_hp.start(), heads, coin_count):
         remaining = int(until_hp.group(1))
         await ctx.set_damage_counters(
             ctx.defender,
@@ -6920,7 +6933,8 @@ async def bw_legacy_attack(ctx):
         r"put damage counters on each of your opponent's benched pokémon "
         r"until its remaining hp is (\d+)", text,
     )
-    if until_each_bench:
+    if until_each_bench and _attack_clause_allowed(
+            ctx, text, until_each_bench.start(), heads, coin_count):
         remaining = int(until_each_bench.group(1))
         for target in list(ctx.opponent_bench()):
             await ctx.set_damage_counters(
@@ -6931,7 +6945,8 @@ async def bw_legacy_attack(ctx):
         r"put damage counters on 1 of your opponent's pokémon until its "
         r"remaining hp is (\d+)", text,
     )
-    if until_any:
+    if until_any and _attack_clause_allowed(
+            ctx, text, until_any.start(), heads, coin_count):
         targets = list(ctx.opponent_pokemon_in_play())
         target = await ctx.choose_pokemon(targets, "Choose a Pokémon") \
             if targets else None
@@ -7018,10 +7033,6 @@ async def bw_legacy_attack(ctx):
         )
     if "heal all damage from this pokémon" in text:
         await ctx.heal(ctx.max_hp(ctx.attacker), ctx.attacker)
-    if "heal all damage from each of your tera pokémon" in text:
-        for target in ctx.my_pokemon_in_play():
-            if "Tera" in (subtypes_for(target.archetype_id) or []):
-                await ctx.heal(ctx.max_hp(target), target)
     heal_one_allowed = not (
         "if both of them are heads" in text and heads != coin_count
     )
@@ -7361,7 +7372,8 @@ async def bw_legacy_attack(ctx):
         r"fairy) )?energy(?: cards?)? (?:attached to|from) this pokémon",
         text,
     )
-    if m and not prepaid_discard:
+    if m and not prepaid_discard and _attack_clause_allowed(
+            ctx, text, m.start(), heads, coin_count):
         raw_count, type_word = m.group(2), m.group(3)
         ptype = getattr(PokemonTypes, (type_word or "").upper(), None)
         pred = is_basic_energy if type_word == "basic" else \
@@ -7375,9 +7387,6 @@ async def bw_legacy_attack(ctx):
             await ctx.discard_energy_units_from(
                 ctx.attacker, count, predicate=pred, partial=True,
             )
-    elif "discard all energy attached to this pokémon" in text \
-            or "discard all energy from this pokémon" in text:
-        await ctx.discard_cards(ctx.attached_energies(ctx.attacker))
     else:
         named_energy = re.search(
             r"discard (\d+|an|a|all) "
@@ -7385,8 +7394,9 @@ async def bw_legacy_attack(ctx):
             r"fairy) )?energy(?: cards?)? (?:attached to|from) "
             r"([a-z0-9 &'’-]+?)(?= and (?:heal|remove|discard)|\.|$)", text,
         )
-        if named_energy and named_energy.group(3).strip(" .").casefold() \
-                == _name(ctx.attacker).casefold():
+        if named_energy and not prepaid_discard and _attack_clause_allowed(
+                ctx, text, named_energy.start(), heads, coin_count) \
+                and named_energy.group(3).strip(" .").casefold() == _name(ctx.attacker).casefold():
             if named_energy.group(1) == "all":
                 predicate = _energy_predicate(named_energy.group(2)) \
                     if named_energy.group(2) else is_energy_card
@@ -7403,14 +7413,20 @@ async def bw_legacy_attack(ctx):
                     ctx.attacker, count, predicate=predicate, partial=True,
                 )
 
-    first_instruction = text.split(".", 1)[0]
+    mixed_discard = re.search(
+        r"discard (?:a|an) (?:grass|fire|water|lightning|psychic|fighting|darkness|metal|fairy) "
+        r"energy and (?:a|an) (?:grass|fire|water|lightning|psychic|fighting|darkness|metal|fairy) "
+        r"energy (?:attached to|from) this pokémon", text)
+    first_instruction = mixed_discard[0] if mixed_discard else text.split(".", 1)[0]
     combined_types = [word for word in (
         "grass", "fire", "water", "lightning", "psychic", "fighting",
         "darkness", "metal", "fairy",
     ) if re.search(rf"\b{word}\b", first_instruction)]
     if first_instruction.startswith("discard ") and len(combined_types) >= 2 \
             and "energy" in first_instruction \
-            and "from your hand" not in first_instruction:
+            and "from your hand" not in first_instruction and not prepaid_discard \
+            and _attack_clause_allowed(ctx, text, mixed_discard.start() if mixed_discard else 0,
+                                       heads, coin_count):
         for word in combined_types:
             await ctx.discard_energy_units_from(
                 ctx.attacker, 1, predicate=_energy_predicate(word), partial=True,
@@ -7422,12 +7438,10 @@ async def bw_legacy_attack(ctx):
         r"special) )?energy(?: cards?)? (?:attached to|from) "
         r"(?:the )?defending pokémon(?: ex)?", text,
     )
-    if direct_defender_energy and _attack_clause_allowed(
+    defender_ex_allowed = not direct_defender_energy or not direct_defender_energy[0].endswith("pokémon ex") \
+        or (ctx.defender is not None and _has_exact_subtype(ctx.defender, "ex"))
+    if direct_defender_energy and defender_ex_allowed and _attack_clause_allowed(
         ctx, text, direct_defender_energy.start(), heads, coin_count
-    ) and not (
-        "if heads" in text and not heads
-    ) and not (
-        "if tails" in text and heads
     ) and not (
         "if you do" in text and "you may discard" in text
         and not optional_source_paid
@@ -7440,6 +7454,9 @@ async def bw_legacy_attack(ctx):
                     if predicate(energy)]
         count = len(matching) if raw_count == "all" else \
             1 if raw_count in ("a", "an") else int(raw_count)
+        prefix = text[text.rfind(".", 0, direct_defender_energy.start()) + 1:direct_defender_energy.start()]
+        if "for each heads" in prefix:
+            count *= heads or 0
         if matching and count:
             await ctx.discard_energy_from(
                 ctx.defender, min(count, len(matching)), predicate=predicate,
@@ -7506,8 +7523,6 @@ async def bw_legacy_attack(ctx):
         if chosen is not None:
             await ctx.discard_cards([chosen])
 
-    if "discard all energy from the defending pokémon" in text:
-        await ctx.discard_cards(list(ctx.attached_energies(ctx.defender)))
 
     # Plain self-mill after-effects (Dragon Pulse and similar). Attacks that
     # inspect and attach from the milled cards are handled below as one atomic
@@ -7515,7 +7530,8 @@ async def bw_legacy_attack(ctx):
     self_top_discard = re.search(
         r"discard the top (?:(\d+) cards?|card) of your deck", text,
     )
-    if self_top_discard and "attach" not in text and not prepaid_top_discard:
+    if self_top_discard and "attach" not in text and not prepaid_top_discard \
+            and _attack_clause_allowed(ctx, text, self_top_discard.start(), heads, coin_count):
         count = int(self_top_discard.group(1) or 1)
         await ctx.discard_cards(ctx.deck_top(count))
 
@@ -7540,11 +7556,25 @@ async def bw_legacy_attack(ctx):
             await ctx.discard_cards(attachments)
 
     # Draw/mill/recovery.
-    m = re.search(r"draw (\d+|a) cards?", text)
     conditional_hand_draw = "if you do, draw" in text \
         and "discard" in text and "from your hand" in text
-    if m and (not conditional_hand_draw or hand_discard_paid):
-        await ctx.draw_cards(1 if m.group(1) == "a" else int(m.group(1)))
+    for m in re.finditer(r"\bdraw (\d+|a)(?: more)? cards?", text):
+        if "shuffle your hand into your deck" in text or (
+                conditional_hand_draw and not hand_discard_paid):
+            continue
+        if not _attack_clause_allowed(ctx, text, m.start(), heads, coin_count):
+            continue
+        clause = text[text.rfind(".", 0, m.start()) + 1:m.start()]
+        # Mentions of another player's draw, or a prohibition, are not our draw.
+        if re.search(r"(?:can't|cannot|opponent(?: may)?)\s+$", clause):
+            continue
+        if "you may " in clause and not await ctx.ask_yes_no("Draw cards?"):
+            continue
+        count = 1 if m.group(1) == "a" else int(m.group(1))
+        if "for each heads" in clause:
+            count *= heads or 0
+        if count:
+            await ctx.draw_cards(count)
     if "put a card from your hand on the bottom of your deck" in text:
         hand = list(ctx.hand())
         chosen = await _choose_one(
@@ -7570,7 +7600,7 @@ async def bw_legacy_attack(ctx):
         r"discard the top (?:(\d+) cards?|card) (?:of|from) your opponent's deck",
         text,
     )
-    if m:
+    if m and _attack_clause_allowed(ctx, text, m.start(), heads, coin_count):
         count = int(m.group(1) or 1)
         await ctx.discard_cards(ctx.deck_top(count, ctx.opponent_id))
 
@@ -7677,12 +7707,13 @@ async def bw_legacy_attack(ctx):
                 await ctx.put_on_top_of_deck(card)
         else:
             await ctx.put_in_hand(picks, reveal="show" in text)
-    m = re.search(
+    item_recovery = re.search(
         r"put (\d+|an|a) item cards? from your discard pile into your hand", text
     )
-    if m:
+    if item_recovery and not (
+            arbitrary_recovery and arbitrary_recovery.start() == item_recovery.start()):
         cards = [c for c in ctx.discard_pile() if is_item_card(c)]
-        requested = 1 if m.group(1) in ("a", "an") else int(m.group(1))
+        requested = 1 if item_recovery.group(1) in ("a", "an") else int(item_recovery.group(1))
         picks = await ctx.choose_cards(
             cards, min(requested, len(cards)), prompt="Choose Item cards"
         ) if cards else []
@@ -7693,7 +7724,8 @@ async def bw_legacy_attack(ctx):
         r"(pokémon|supporter|trainer|basic energy|energy) cards? from your discard pile into your hand",
         text,
     )
-    if recovered:
+    if recovered and not (
+            arbitrary_recovery and arbitrary_recovery.start() == recovered.start()):
         count = 1 if recovered.group(1) in ("a", "an") else int(recovered.group(1))
         type_word, kind = recovered.group(2), recovered.group(3)
 
@@ -7954,10 +7986,14 @@ async def bw_legacy_attack(ctx):
     # Deck-search attacks. Searches preserve private information unless the
     # card explicitly says to reveal the result.
     if "search your deck for" in text:
-        search_allowed = not ("if heads" in text and not heads)
-        if "if both of them are heads, search" in text:
-            search_allowed = coin_count is not None and heads == coin_count
+        search_position = text.index("search your deck for")
+        search_allowed = _attack_clause_allowed(ctx, text, search_position, heads, coin_count)
+        search_per_head = "for each heads" in text[
+            text.rfind(".", 0, search_position) + 1:search_position]
         search_count = _ability_search_count(text)
+        if search_per_head:
+            search_count *= heads or 0
+            search_allowed = search_allowed and search_count > 0
         if "up to the number of heads" in text:
             search_count = heads or 0
             search_allowed = search_allowed and search_count > 0
@@ -8056,6 +8092,9 @@ async def bw_legacy_attack(ctx):
                 list(ctx.my_pokemon_in_play())
             if "to your tera pokémon" in text:
                 candidates = [p for p in candidates if _has_subtype(p, "Tera")]
+            if re.search(r"to (?:1 of )?your pokémon-gx or pokémon-ex", text):
+                candidates = [p for p in candidates
+                              if _has_exact_subtype(p, "GX") or _has_exact_subtype(p, "EX")]
             target_type = re.search(
                 r"to (?:1 of )?your (grass|fire|water|lightning|psychic|"
                 r"fighting|darkness|metal|fairy|dragon) pokémon", text,
@@ -8064,7 +8103,7 @@ async def bw_legacy_attack(ctx):
                 wanted = getattr(PokemonTypes, target_type.group(1).upper())
                 candidates = [pokemon for pokemon in candidates
                               if _is_type(pokemon, wanted)]
-            one_destination = bool(re.search(r"to (?:1|one) of your ", text))
+            one_destination = not search_per_head and bool(re.search(r"to (?:1|one) of your ", text))
             fixed_target = candidates[0] if len(candidates) == 1 else \
                 await ctx.choose_pokemon(candidates, "Choose a Pokémon") \
                 if one_destination and candidates else None
@@ -8155,8 +8194,12 @@ async def bw_legacy_attack(ctx):
         r"darkness |metal )?)energy cards? from your (hand|discard pile)",
         text,
     )
-    if attach and not ("if heads" in text and not heads):
+    if attach and _attack_clause_allowed(ctx, text, attach.start(), heads, coin_count):
         count = 1 if attach.group(2) in ("a", "an") else int(attach.group(2))
+        attach_per_head = "for each heads" in text[
+            text.rfind(".", 0, attach.start()) + 1:attach.start()]
+        if attach_per_head:
+            count *= heads or 0
         pred = _energy_phrase_predicate(attach.group(3))
         zone = ctx.hand() if attach.group(4) == "hand" else ctx.discard_pile()
         cards = [card for card in zone if pred(card)]
@@ -8164,7 +8207,7 @@ async def bw_legacy_attack(ctx):
         picks = await ctx.choose_cards(
             cards, maximum,
             minimum=0 if attach.group(1) else maximum,
-                                       prompt="Choose Energy cards") if cards else []
+                                       prompt="Choose Energy cards") if maximum else []
         fixed_attach_target = None
         fixed_attach_target_chosen = False
         for energy in picks:
@@ -8182,8 +8225,8 @@ async def bw_legacy_attack(ctx):
                     wanted = getattr(PokemonTypes, target_type.group(1).upper())
                     candidates = [p for p in candidates if _is_type(p, wanted)]
                 if "benched pokémon-ex" in text:
-                    candidates = [p for p in candidates if _has_subtype(p, "EX")]
-                one_destination = bool(re.search(
+                    candidates = [p for p in candidates if _has_exact_subtype(p, "EX")]
+                one_destination = not attach_per_head and bool(re.search(
                     r"to (?:1|one) of your ", text
                 ))
                 if one_destination and not fixed_attach_target_chosen:
@@ -8388,16 +8431,20 @@ async def bw_legacy_attack(ctx):
 
     # Hand-reset attacks resolve their whole shuffle before the simultaneous draw.
     if "shuffle your hand into your deck" in text:
-        draw = 4
-        if "number of cards in your opponent's hand" in text:
+        fixed_draw = re.search(r"draw (\d+|a) cards?", text)
+        draw = (1 if fixed_draw.group(1) == "a" else int(fixed_draw.group(1))) \
+            if fixed_draw else 0
+        if "number of cards in your opponent's hand" in text \
+                or "a card for each card in your opponent's hand" in text:
             draw = ctx.hand_size(ctx.opponent_id)
+        elif "number of benched pokémon (both yours and your opponent's)" in text:
+            draw = len(ctx.my_bench()) + len(ctx.opponent_bench())
         elif "if minun is on your bench" in text and any(
                 _name(p) == "Minun" for p in ctx.my_bench()):
             draw = 8
         await _shuffle_hand_draw(ctx, ctx.player_id, draw)
-    if "opponent shuffles his or her hand" in text and "draws 4 cards" in text:
-        await _shuffle_hand_draw(ctx, ctx.opponent_id, 4)
-
+        for condition in deferred_self_conditions:
+            await ctx.apply_special_condition(ctx.attacker, condition)
     opponent_reset = re.search(
         r"opponent shuffles (?:his or her|their) hand into (?:his or her|their) deck "
         r"and draws? (\d+) cards", text,
@@ -8620,7 +8667,12 @@ async def bw_legacy_attack(ctx):
     recovery = re.search(
         r"put (?:up to )?(\d+) (?:in any combination of )?(.+?) "
         r"(?:cards? )?from your discard pile into your hand", text)
-    if recovery:
+    # A broad template must not repeat a clause already handled above.
+    # Compare positions so a separate recovery instruction remains independent.
+    if recovery and recovery.start() not in {
+            match.start() for match in
+            (arbitrary_recovery, item_recovery, recovered, recovered_loose)
+            if match is not None}:
         count, descriptor = int(recovery.group(1)), recovery.group(2)
         candidates = list(ctx.discard_pile())
         if "item" in descriptor or "pokémon tool" in descriptor:
@@ -8817,29 +8869,6 @@ async def bw_legacy_attack(ctx):
                 await ctx.devolve_pokemon(pokemon, 1, destination=destination)
         if destination == "deck":
             await ctx.shuffle_deck(ctx.opponent_id)
-    if "devolve as many of your benched pokémon as many times as you like" in text:
-        for pokemon in list(ctx.my_bench()):
-            while is_evolution_pokemon(pokemon) and await ctx.ask_yes_no(
-                    f"Devolve {_name(pokemon)}?"):
-                removed = await ctx.devolve_pokemon(pokemon, 1, destination="hand")
-                if not removed:
-                    break
-    if "devolve any number of your benched pokémon as many times as you like" in text:
-        candidates = [pokemon for pokemon in ctx.my_bench()
-                      if is_evolution_pokemon(pokemon)]
-        picks = await ctx.choose_cards(
-            candidates, len(candidates), minimum=0,
-            prompt="Choose Pokémon to devolve",
-        ) if candidates else []
-        for pokemon in picks:
-            while is_evolution_pokemon(pokemon) and await ctx.ask_yes_no(
-                    f"Devolve {_name(pokemon)} again?"):
-                removed = await ctx.devolve_pokemon(
-                    pokemon, 1, destination="hand"
-                )
-                if not removed:
-                    break
-
     time_hollow = re.search(
         r"choose a number of your opponent's stage 1 or stage 2 evolved "
         r"pokémon up to the amount of energy attached to [a-z0-9 .'-]+", text,
@@ -9044,7 +9073,25 @@ async def bw_legacy_attack(ctx):
         if cards:
             await ctx.shuffle_into_deck(cards, player_id=ctx.opponent_id)
 
+    shuffle_defender_energy = re.search(
+        r"shuffle (an?|\d+) energy (?:attached to|from) "
+        r"(?:the )?defending pokémon into their deck", text,
+    )
+    if shuffle_defender_energy and _attack_clause_allowed(
+            ctx, text, shuffle_defender_energy.start(), heads, coin_count):
+        count = 1 if shuffle_defender_energy[1] in ("a", "an") else int(shuffle_defender_energy[1])
+        prefix = text[text.rfind(".", 0, shuffle_defender_energy.start()) + 1:shuffle_defender_energy.start()]
+        if "for each heads" in prefix:
+            count *= heads or 0
+        cards = list(ctx.attached_energies(ctx.defender))
+        if cards and count:
+            picks = await ctx.choose_cards(
+                cards, min(count, len(cards)), prompt="Choose Energy to shuffle into the deck",
+            )
+            await ctx.shuffle_into_deck(picks, player_id=ctx.opponent_id)
+
     if "you may have your opponent shuffle their deck" in text \
+            and "look at the top card of your opponent's deck" not in text \
             and await ctx.ask_yes_no("Shuffle your opponent's deck?"):
         await ctx.shuffle_deck(ctx.opponent_id)
 
@@ -9168,7 +9215,9 @@ async def bw_legacy_attack(ctx):
                 await ctx.discard_cards(full_stack(ctx.defender))
 
     if "devolve" in text and "evolved pokémon" in text \
-            and "your benched pokémon" not in text:
+            and "your benched pokémon" not in text \
+            and "devolve each of your opponent's evolved pokémon" not in text \
+            and "shuffles that card into their deck" not in text and not time_hollow:
         candidates = [
             pokemon for pokemon in ctx.opponent_pokemon_in_play()
             if any(isinstance(card, PokemonEntity)
@@ -9187,7 +9236,8 @@ async def bw_legacy_attack(ctx):
                 target, steps=stages if "all of the evolution cards" in text else 1,
             )
 
-    if "devolve any number of your benched pokémon as many times as you like" in text:
+    if ("devolve any number of your benched pokémon as many times as you like" in text
+            or "devolve as many of your benched pokémon as many times as you like" in text):
         candidates = [
             pokemon for pokemon in ctx.my_bench()
             if any(isinstance(card, PokemonEntity)
@@ -9339,14 +9389,6 @@ async def bw_legacy_attack(ctx):
             should_ko = counters == int(exact.group(1))
         if should_ko:
             await ctx.knock_out(ctx.defender)
-
-    if "discard an energy from the defending pokémon ex" in text \
-            and ctx.defender is not None:
-        subtypes = set(getattr(
-            def_for(ctx.defender.archetype_id), "subtypes", None
-        ) or [])
-        if "ex" in subtypes:
-            await ctx.discard_energy_from(ctx.defender, 1)
 
     hand_ko_cost = re.search(
         r"discard (\d+) basic ([a-z]+) energy cards from your hand, and knock "

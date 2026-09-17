@@ -461,7 +461,8 @@ class BoardState:
         (rng or random).shuffle(deck_area.children)
         return True
 
-    def deal_from_deck(self, player_id: str, area_name: str, count: int) -> List[Dict[str, Any]]:
+    def deal_from_deck(self, player_id: str, area_name: str, count: int, *,
+                       from_bottom: bool = False) -> List[Dict[str, Any]]:
         """Moves the top `count` cards from the player's deck into one of their areas.
 
         Returns move descriptors ({entity_id, destination_id, position, card})
@@ -477,7 +478,7 @@ class BoardState:
             if not deck_area.children:
                 break
             # Top of the deck is the last child (cards are appended when populated).
-            card = deck_area.children[-1]
+            card = deck_area.children[0 if from_bottom else -1]
             position = len(dest_area.children)
             if not self.move_card(card.entity_id, dest_area.entity_id):
                 break
@@ -498,9 +499,9 @@ class BoardState:
             return 0
         return max(0, self.prizes_dealt.get(player_id, 0) - len(area.children))
 
-    def draw_cards(self, player_id: str, count: int) -> List[Dict[str, Any]]:
+    def draw_cards(self, player_id: str, count: int, *, from_bottom: bool = False) -> List[Dict[str, Any]]:
         """Moves the top `count` cards from the player's deck into their hand."""
-        return self.deal_from_deck(player_id, "hand", count)
+        return self.deal_from_deck(player_id, "hand", count, from_bottom=from_bottom)
 
     @staticmethod
     def _is_basic_pokemon(entity: BoardEntity) -> bool:

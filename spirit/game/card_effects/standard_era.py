@@ -1152,7 +1152,7 @@ def _search_predicate(text: str):
 
 def _requested_count(text: str, default: int = 1) -> int:
     for pattern in (
-        r"search your deck for (?:up to )?(\d+)",
+        r"search your deck for (?:(?:up to|any) )?(\d+)",
         r"choose (?:up to )?(\d+)",
         r"put (?:up to )?(\d+)",
     ):
@@ -1197,7 +1197,8 @@ async def _generic_search(ctx, text: str, *, count_override: int | None = None) 
     # A private search for a specified kind may fail even when a matching
     # card exists. An unrestricted "search for N cards" still requires N.
     reveals = "reveal" in text or "show it to your opponent" in text
-    minimum = 0 if predicate is not None or reveals or "up to" in text or "you may" in text else count
+    optional_search = "you may search your deck" in text
+    minimum = 0 if predicate is not None or reveals or "up to" in text or optional_search else count
     picks = await ctx.search_deck(
         predicate,
         count=count,

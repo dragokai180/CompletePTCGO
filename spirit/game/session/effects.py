@@ -1517,12 +1517,14 @@ class EffectContext:
     # Card movement primitives
     # ------------------------------------------------------------------
 
-    async def draw_cards(self, count: int, player_id: Optional[str] = None) -> int:
+    async def draw_cards(self, count: int, player_id: Optional[str] = None, *,
+                         from_bottom: bool = False) -> int:
         """Draws cards for a player (default: the effect's owner); returns how many."""
         pid = player_id or self.player_id
         if self._trainer_blocked(pid):
             return 0
-        moved = self.board.draw_cards(pid, count)
+        moved = self.board.draw_cards(pid, count, from_bottom=True) if from_bottom \
+            else self.board.draw_cards(pid, count)
         if moved:
             self.session.stat_add(pid, "cardsdrawn", len(moved))
         deck = self.board.find_player_area(pid, "deck")

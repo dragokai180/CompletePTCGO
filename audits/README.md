@@ -8,6 +8,8 @@ This folder collects the project's audit reports and local investigation results
 
 ## Reports
 
+- [Interpreter transactions, conditions and quantities](reports/INTERPRETER_TRANSACTION_AUDIT.md)
+
 - [HeartGold & SoulSilver](reports/HGSS_RULES_AUDIT.md)
 - [Black & White](reports/BW_RULES_AUDIT.md)
 - [XY](reports/XY_RULES_AUDIT.md)

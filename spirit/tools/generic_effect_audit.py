@@ -109,11 +109,12 @@ def scan():
                 rows.append(("passive", display, title, text, set_code, str(path)))
             effect = kw.get("effect")
             fallback = _name(effect)
-            if fallback not in {"standard_ability", "standard_attack"}:
+            if fallback not in {"standard_ability", "standard_attack",
+                                "bw_legacy_ability", "bw_legacy_attack"}:
                 continue
             title = _literal(kw.get("title"), "(untitled)", constants)
             text = _literal(kw.get("game_text"), "", constants)
-            kind = "ability" if fallback == "standard_ability" else "attack"
+            kind = "ability" if fallback in {"standard_ability", "bw_legacy_ability"} else "attack"
             rows.append((kind, display, title, text, set_code, str(path)))
     return rows
 

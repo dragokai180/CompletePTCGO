@@ -135,6 +135,10 @@ class Passive:
     # Same-key passives count once in effective_max_hp (Abomasnow stacks).
     stacking_key: Optional[str] = None
 
+    def blocks_turn_draw(self, player_id: str, carrier: BoardEntity) -> bool:
+        """Suppress only the mandatory start-of-turn draw (Heart Wink)."""
+        return False
+
     # Optional awaitable damage stage: async (ctx, calc, target, carrier) ->
     # Optional[int], consulted in ctx.deal_damage AFTER compute_damage and
     # BEFORE the HP write (None = unchanged, else the new dealt amount).
