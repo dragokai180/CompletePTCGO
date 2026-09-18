@@ -31,19 +31,13 @@ Open PowerShell in the repository and activate the installed environment:
    python -m spirit.tools.install_recent_card_art
 
 Despite its historical name, this installer covers ALL implemented card
-collections, from HGSS through Mega Evolution, not just recent cards. It
-also downloads the 17 Sword & Shield basic Energy prints and the nine free
-Energy cards. No BW Cache.zip, SM Cache.zip, PTCGO Exe.zip, --cbrew-source,
+collections, from HGSS through Mega Evolution, not just recent cards.
+No BW Cache.zip, SM Cache.zip, PTCGO Exe.zip, --cbrew-source,
 PTCGO_ART_SOURCE_DIR or PTCGO_CACHE_DIR is required for this command.
-
-Mega Evolution Energies (MEE 001-016, including the 30th Celebration prints)
-and Scarlet & Violet Energy (SVE 001-024) are downloaded from Scrydex.
-These downloads do not require a Pokemon TCG Live cache and preserve any
-artwork already installed, unless --overwrite is explicitly used.
 
 On an empty artwork directory it downloads the full implemented catalog.
 On subsequent runs it downloads only missing files, preserving existing
-artwork, including artwork previously imported from cbrew.
+artwork.
 
 The downloader reads English image URLs from the bundled card catalogs,
 including Pokemon TCG and Scrydex URLs. It tries an alternate source when
