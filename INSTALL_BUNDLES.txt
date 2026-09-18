@@ -36,6 +36,11 @@ also downloads the 17 Sword & Shield basic Energy prints and the nine free
 Energy cards. No BW Cache.zip, SM Cache.zip, PTCGO Exe.zip, --cbrew-source,
 PTCGO_ART_SOURCE_DIR or PTCGO_CACHE_DIR is required for this command.
 
+Mega Evolution Energies (MEE 001-016, including the 30th Celebration prints)
+and Scarlet & Violet Energy (SVE 001-024) are downloaded from Scrydex.
+These downloads do not require a Pokemon TCG Live cache and preserve any
+artwork already installed, unless --overwrite is explicitly used.
+
 On an empty artwork directory it downloads the full implemented catalog.
 On subsequent runs it downloads only missing files, preserving existing
 artwork, including artwork previously imported from cbrew.
@@ -58,6 +63,7 @@ Optional selections (omit them to download everything):
    python -m spirit.tools.install_recent_card_art mega
    python -m spirit.tools.install_recent_card_art BW6 BW11
    python -m spirit.tools.install_recent_card_art SWSH_Energy
+   python -m spirit.tools.install_recent_card_art MEE SVE
 
 Use --workers 4 to reduce simultaneous downloads on a slow connection.
 Use --overwrite only if you intentionally want to replace existing artwork.

@@ -113,6 +113,7 @@ RECENT_SETS = OrderedDict(
         RecentSet("mega", "me4", "ME4"),
         RecentSet("mega", "me5", "ME5"),
         RecentSet("mega", "me55", "ME55"),
+        RecentSet("mega", "mee", "MEE"),
         RecentSet("mega", "mep", "MEP"),
     )
 )
@@ -216,6 +217,15 @@ def load_catalog(data_stem: str) -> list[dict]:
 def load_image_urls(card_set: RecentSet) -> dict[str, str]:
     if card_set.set_code in ("SWSH_Energy", "Free_Energy"):
         return energy_image_urls(card_set.set_code)
+    # These numbered Energy sets outgrow the PokemonTCG metadata snapshots.
+    # Use the verified Scrydex print IDs directly, including anniversary MEE
+    # 009-016 and SVE 017-024, without requiring a local/Live catalog.
+    energy_count = {"MEE": 16, "SVE": 24}.get(card_set.set_code)
+    if energy_count is not None:
+        return {
+            str(number): f"https://images.scrydex.com/pokemon/{card_set.data_stem}-{number}/large"
+            for number in range(1, energy_count + 1)
+        }
     data_path = DATA_ROOT / f"{card_set.data_stem}.json"
     if not data_path.exists():
         # pokemon-tcg-data does not yet ship a Mega promo catalog.  The promo

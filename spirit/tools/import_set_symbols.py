@@ -1,4 +1,4 @@
-"""Download missing expansion symbols from PokemonSymbols.
+"""Download missing expansion symbols from PokemonSymbols and Scrydex.
 
 The archived PTCGO cache already contains the original ``setIcons`` bundles
 through Astral Radiance.  Sets added after the client was discontinued (plus a
@@ -81,6 +81,13 @@ def symbol_url(slug: str) -> str:
     return f"{SOURCE_BASE}/{slug}.png"
 
 
+# MEE is not listed by PokemonSymbols. Use its own symbol, not MEG's.
+SYMBOL_URLS = {
+    **{name: symbol_url(slug) for name, slug in SYMBOL_SLUGS.items()},
+    "mee": "https://images.scrydex.com/pokemon/mee-symbol/symbol",
+}
+
+
 def _download(url: str) -> bytes:
     request = Request(url, headers={"User-Agent": "PobreTCG-set-symbol-importer/1.0"})
     with urlopen(request, timeout=30) as response:
@@ -92,6 +99,14 @@ def _download(url: str) -> bytes:
         # expects a concrete color mode, so normalize every source before it
         # reaches the supplemental bundle.
         normalized = image.convert("RGBA")
+        # The bundle uses square textures. Pad rectangular sources instead
+        # of stretching their lettering when the bundle compiler resizes them.
+        if normalized.width != normalized.height:
+            side = max(normalized.size)
+            square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+            square.paste(normalized, ((side - normalized.width) // 2,
+                                      (side - normalized.height) // 2))
+            normalized = square
         output = io.BytesIO()
         normalized.save(output, format="PNG")
     return output.getvalue()
@@ -116,24 +131,24 @@ def _atomic_write(destination: Path, payload: bytes) -> None:
 def import_symbols(*, force: bool = False) -> dict[str, int]:
     totals = {"downloaded": 0, "kept": 0}
     payloads: dict[str, bytes] = {}
-    for texture_name, slug in SYMBOL_SLUGS.items():
+    for texture_name, url in SYMBOL_URLS.items():
         destination = OUTPUT_DIR / f"{texture_name}.png"
         if destination.is_file() and not force:
             totals["kept"] += 1
             continue
-        payload = payloads.get(slug)
+        payload = payloads.get(url)
         if payload is None:
-            payload = _download(symbol_url(slug))
-            payloads[slug] = payload
+            payload = _download(url)
+            payloads[url] = payload
         _atomic_write(destination, payload)
         totals["downloaded"] += 1
-        print(f"[set-icons] {texture_name} <- {slug}")
+        print(f"[set-icons] {texture_name} <- {url}")
     return totals
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Import missing PTCGO expansion symbols from PokemonSymbols."
+        description="Import missing PTCGO expansion symbols from PokemonSymbols and Scrydex."
     )
     parser.add_argument("--force", action="store_true", help="Replace existing PNGs.")
     args = parser.parse_args()

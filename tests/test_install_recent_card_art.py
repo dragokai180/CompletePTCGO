@@ -23,6 +23,38 @@ from spirit.tools.install_recent_card_art import (
 
 
 class InstallRecentCardArtTests(unittest.TestCase):
+    def test_numbered_energy_sets_need_no_metadata_or_live_cache(self):
+        with patch("spirit.tools.install_recent_card_art.load_catalog") as catalog:
+            for stem, count in (("mee", 16), ("sve", 24)):
+                entry = RECENT_SETS[stem]
+                self.assertIn(entry, selected_sets([]))
+                self.assertEqual(selected_sets([entry.set_code]), [entry])
+                urls = load_image_urls(entry)
+                self.assertEqual(set(urls), {str(n) for n in range(1, count + 1)})
+                for number in range(1, count + 1):
+                    self.assertEqual(image_candidates(entry, str(number), urls), (
+                        f"https://images.scrydex.com/pokemon/{stem}-{number}/large",))
+            catalog.assert_not_called()
+
+    def test_numbered_energy_clean_install_and_preservation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("spirit.tools.install_recent_card_art.ASSETS_ROOT", Path(directory)):
+                for stem, count in (("mee", 16), ("sve", 24)):
+                    entry = RECENT_SETS[stem]
+                    tasks = build_tasks(entry)
+                    self.assertEqual(len(tasks), count)
+                    self.assertEqual(len({urls[0] for urls, _ in tasks}), count)
+                    self.assertEqual(len({p for _, p in tasks}), count)
+                    for urls, destination in tasks:
+                        number = collector_number_from_script(destination)
+                        self.assertIn(f"/{stem}-{number}/large", urls[0])
+                    existing = tasks[0][1]
+                    existing.parent.mkdir(parents=True, exist_ok=True)
+                    existing.write_bytes(b"existing Live artwork")
+                    self.assertEqual(len(build_tasks(entry)), count - 1)
+                    self.assertEqual(len(build_tasks(entry, overwrite=True)), count)
+                    self.assertEqual(existing.read_bytes(), b"existing Live artwork")
+
     def test_sm_basic_energies_use_complete_limitless_scans(self):
         for number, code in zip(range(164, 173), 'GRWLPFDMY'):
             urls = image_candidates(RECENT_SETS['sm1'], str(number),
@@ -238,7 +270,7 @@ class InstallRecentCardArtTests(unittest.TestCase):
         selected = selected_sets(["mega"])
         self.assertEqual(
             [card_set.set_code for card_set in selected],
-            ["ME1", "ME2", "ME2PT5", "ME3", "ME4", "ME5", "ME55", "MEP"],
+            ["ME1", "ME2", "ME2PT5", "ME3", "ME4", "ME5", "ME55", "MEE", "MEP"],
         )
 
     def test_script_filename_preserves_collector_number(self):

@@ -1,9 +1,23 @@
 import unittest
+import json
+from pathlib import Path
 
 from spirit.packets.handlers.data_sync import _set_display_sort_key
 
 
 class SetDisplayOrderTests(unittest.TestCase):
+    def test_mega_energy_is_last_regular_set_before_promos_in_native_client(self):
+        root = Path(__file__).resolve().parents[1]
+        sets = json.loads((root / "spirit/database/json_data/sets.json").read_text())
+        mega = [row for row in sets if row.get("filter") and row.get("block") == "NONE"]
+        expected = ["ME55", "ME5", "ME4", "ME3", "ME2PT5", "ME2", "ME1", "MEE", "MEP"]
+        # ExpansionCollapsibleDataSource orders non-Trainer-Kit rows by promo
+        # first, then descending number. Server-only numeric adjacency is not
+        # enough: a promo's number does not determine its visible position.
+        native_order = sorted(mega, key=lambda row: (bool(row.get("promo")), -row["number"]))
+        self.assertEqual([row["name"] for row in native_order], expected)
+        self.assertEqual([row["name"] for row in sorted(mega, key=_set_display_sort_key)], expected)
+
     def test_modern_series_are_above_archived_series(self):
         sets = [
             {"name": "BW1", "block": "BW", "number": 480},

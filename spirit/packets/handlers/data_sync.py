@@ -81,6 +81,9 @@ def _set_display_sort_key(set_data):
         set_number = 0
     return (
         SERIES_DISPLAY_ORDER.get(set_data.get("block"), len(SERIES_DISPLAY_ORDER)),
+        # The native expansion list puts promotional sets after normal sets.
+        # Mirror that grouping for Mega so MEE follows ME1, directly above MEP.
+        bool(set_data.get("promo")) if set_data.get("block") == "NONE" else False,
         -set_number,
         str(set_data.get("name") or ""),
     )

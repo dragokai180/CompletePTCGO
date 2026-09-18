@@ -76,6 +76,7 @@ SET_NAME_LOCALIZATION_OVERRIDES = {
     "set.name.svp": "<i>Scarlet & Violet</i> Black Star Promos",
 
     # Additional catalog groups supported by the fork.
+    "set.name.mee": "<i>Mega Evolution Energies</i>",
     "set.name.me1": "<i>Mega Evolution</i>",
     "set.name.me2": "<i>Phantasmal Flames</i>",
     "set.name.me2pt5": "<i>Ascended Heroes</i>",
