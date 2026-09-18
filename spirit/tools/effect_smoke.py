@@ -382,7 +382,8 @@ def _condition_blocks(definition, ability, rig, entities) -> Optional[str]:
     """
     board = rig.board
     if isinstance(ability, Ability) and ability.condition is not None:
-        check = lambda: bool(ability.condition(board, P1, entities["p1_active"]))
+        condition_source = entities['target'] if isinstance(definition, StadiumCardDef) else entities['p1_active']
+        check = lambda: bool(ability.condition(board, P1, condition_source))
         label = "ability"
     elif isinstance(definition, TrainerCardDef) \
             and getattr(definition, "condition", None) and ability is None:
@@ -621,7 +622,10 @@ async def run_tool_granted_ability(rig: Rig, ability: Ability, entities) -> None
     holder = entities["p1_active"]
     board.attach_card(entities["target"].entity_id, holder.entity_id)
     await session.refresh_granted_abilities(holder)
-    await resolve_activated_ability(session, P1, holder, ability)
+    if isinstance(ability, Attack):
+        await resolve_attack(session, P1, holder, ability, 'catalog-tool-attack')
+    else:
+        await resolve_activated_ability(session, P1, holder, ability)
 
 
 async def run_energy_attach(rig: Rig, entities) -> None:
@@ -684,6 +688,8 @@ def _plan_tests(definition) -> List[Tuple[str, str, Any, bool]]:
         if definition.passive is not None and not any(k == "passive" for k, *_ in plans):
             plans.append(("passive", "(card passive)", "passive", True))
     elif isinstance(definition, StadiumCardDef):
+        if getattr(definition, 'discards_replacement', False):
+            plans.append(('stadium-replacement', '(discard replacement)', 'stadium-replacement', True))
         if callable(definition.effect):
             plans.append(("trainer", "(on play)", "trainer", True))
         elif definition.effect is unimplemented:
@@ -699,6 +705,8 @@ def _plan_tests(definition) -> List[Tuple[str, str, Any, bool]]:
         if definition.passive is not None:
             plans.append(("passive", "(stadium passive)", "stadium-passive", True))
     elif isinstance(definition, PokemonToolCardDef):
+        if definition.display_name == 'Team Plasma Badge':
+            plans.append(('tool-identity', '(Team Plasma identity)', 'plasma-badge', True))
         for ability in definition.granted_abilities:
             plans.append(("tool-ability", ability.title, ability,
                           callable(ability.effect)))
@@ -708,8 +716,12 @@ def _plan_tests(definition) -> List[Tuple[str, str, Any, bool]]:
             plans.append(("trainer", "(on play)", "trainer", True))
     elif isinstance(definition, TrainerCardDef):
         scripted = callable(definition.effect)
-        plans.append(("trainer", "(on play)", "trainer",
-                      scripted))
+        if definition.display_name == 'First Ticket':
+            plans.append(('pregame-rule', '(opening ticket)', 'first-ticket', True))
+        elif definition.display_name == 'Dream Ball':
+            plans.append(('trainer-rule', '(not playable from hand)', 'hand-prohibition', True))
+        else:
+            plans.append(("trainer", "(on play)", "trainer", scripted))
         for ability in definition.abilities:
             if ability.trigger is not None:
                 plans.append(("trainer-trigger", ability.title, ability,
@@ -762,6 +774,42 @@ async def run_one(stem: str, definition, kind: str, label: str, runner_key,
             if not scripted:
                 raise _SkipTest("effect text not scripted (unimplemented/none)")
             await run_trainer_effect(rig, entities)
+        elif runner_key == 'hand-prohibition':
+            assert not trainer_condition_met(definition.condition, rig.board, P1, entities['target'])
+        elif runner_key == 'first-ticket':
+            assert not trainer_condition_met(definition.condition, rig.board, P1, entities['target'])
+            rig.to_area(entities['target'], P1, 'deck')
+            async def decisions(pid, *args, **kwargs):
+                return 0 if pid == P1 else 1
+            rig.session.prompt_player_choice = decisions
+            await rig.session.run_pregame_coin_flip()
+            assert rig.session.first_player_id == P1
+            assert any(c.archetype_id == definition.guid
+                       for c in rig.board.find_player_area(P1, 'discard').children)
+        elif runner_key == 'plasma-badge':
+            from spirit.game.card_effects.bw_era import _team_plasma
+            holder, tool = entities['p1_active'], entities['target']
+            rig.to_area(tool, P1, 'hand')
+            assert not _team_plasma(holder)
+            rig.board.attach_card(tool.entity_id, holder.entity_id)
+            assert _team_plasma(holder), 'Badge did not grant Team Plasma identity'
+            rig.to_area(tool, P1, 'discard')
+            assert not _team_plasma(holder), 'Badge identity survived its removal'
+        elif runner_key == 'stadium-replacement':
+            from spirit.game.models.board import create_card_entity
+            outgoing = entities['target']
+            slot = rig.board.find_global_area('activeStadium')
+            rig.board.move_card(outgoing.entity_id, slot.entity_id)
+            outgoing.owning_player_id = P1
+            replacement_def = next(d for d in CARD_DEFS_BY_GUID.values()
+                                   if isinstance(d, StadiumCardDef)
+                                   and d.display_name == 'Skyarrow Bridge')
+            incoming = create_card_entity(card_loader.cards_by_guid[replacement_def.guid.lower()], P2)
+            rig.board.add_card_to_area(incoming, rig.board.find_player_area(P2, 'hand'))
+            await rig.session._execute_play_stadium(P2, incoming)
+            assert not slot.children, 'Chaotic Swell left a Stadium in play'
+            assert outgoing in rig.board.find_player_area(P1, 'discard').children
+            assert incoming in rig.board.find_player_area(P2, 'discard').children
         elif runner_key == "energy-attach":
             await run_energy_attach(rig, entities)
         elif runner_key == "energy-ko":
@@ -773,6 +821,7 @@ async def run_one(stem: str, definition, kind: str, label: str, runner_key,
             elif runner_key == "stadium-passive":
                 slot = rig.board.find_global_area("activeStadium")
                 rig.board.move_card(entities["target"].entity_id, slot.entity_id)
+                entities["target"].owning_player_id = P1
             elif runner_key == "energy-passive":
                 rig.board.attach_card(entities["target"].entity_id,
                                       entities["p1_active"].entity_id)

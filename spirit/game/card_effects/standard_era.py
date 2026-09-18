@@ -4393,9 +4393,16 @@ def standard_trainer_condition(game_text: str):
 
         if "from your discard pile" in text or "search your discard pile" in text:
             search_clause = re.search(r"search your discard pile for (.+?)(?:\.|,|$)", text)
-            predicate = _search_predicate(search_clause.group(1) if search_clause else text)
+            attach_clause = re.search(r"attach (.+?) from your discard pile", text)
+            # Recipient subtypes and ACE SPEC reminders do not describe the
+            # discarded Energy (Reboot Pod: a Basic Energy, not a Future ACE SPEC).
+            descriptor = attach_clause.group(1) if attach_clause else \
+                search_clause.group(1) if search_clause else text
+            predicate = _search_predicate(descriptor)
             candidates = [entry for entry in discard
                           if predicate is None or predicate(entry)]
+            if attach_clause and not _trainer_energy_targets_on_board(board, player_id, text):
+                return False
             if not candidates and "up to" not in text:
                 return False
         return True

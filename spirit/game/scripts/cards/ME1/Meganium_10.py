@@ -1,6 +1,5 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import AttrID, PokemonStage, PokemonTypes, Rarities
-from spirit.game.card_effects.pokemon import energy_provides_type
 from spirit.game.session.passives import Passive, active_passives
 
 
@@ -11,7 +10,9 @@ class WildGrowthPassive(Passive):
     def modify_energy_provided(self, options, energy, holder, board, carrier=None):
         if holder is None or energy.get_attribute(AttrID.IS_SPECIAL_ENERGY):
             return options
-        if not energy_provides_type(energy, PokemonTypes.GRASS.value):
+        # This hook is already inside energy_provided_options. Re-querying
+        # that function through energy_provides_type recursively calls us.
+        if not any(PokemonTypes.GRASS.value in option for option in options):
             return options
         if any(len(option) >= 2 for option in options):
             return options

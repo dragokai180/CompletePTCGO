@@ -430,6 +430,9 @@ def _semantic_scenario(kind: str, text: str, forced_coin=None):
             # results.  This exposes missing tails riders without relying on
             # whichever deterministic seed happened to be chosen.
             rig.session.turn_state.forced_coin_result = bool(forced_coin)
+            if re.search(r"flip \d+ coins", text):
+                rig.session.turn_state.forced_coins_through_turn[P1] = (
+                    bool(forced_coin), rig.session.turn_state.turn_number)
 
         def area(pid, name):
             return board.find_player_area(pid, name)
@@ -1433,7 +1436,128 @@ def _semantic_scenario(kind: str, text: str, forced_coin=None):
             rig.session.turn_state.turn_number = 2
             rig.session.first_player_id = P2
 
+        # Complete positive fixtures for conditional clauses. These are real
+        # cards/states, not overrides of the production permission predicates.
+        state = rig.session.turn_state
+        def resize_hand(pid, count):
+            hand, deck = area(pid, 'hand'), area(pid, 'deck')
+            while len(hand.children) > count:
+                board.move_card(hand.children[0].entity_id, deck.entity_id)
+            while len(hand.children) < count:
+                inject(pid, 'hand', lambda d: isinstance(d, EnergyCardDef))
+
+        def set_prizes(pid, count):
+            pile, deck = area(pid, 'prizePile'), area(pid, 'deck')
+            while len(pile.children) > count:
+                board.move_card(pile.children[-1].entity_id, deck.entity_id)
+
+        for match in re.finditer(r"(you have|your opponent has) exactly (\d+) prize cards? remaining", text):
+            set_prizes(P1 if match[1] == 'you have' else P2, int(match[2]))
+        if "total of both players' remaining prize cards is 6 or less" in text:
+            set_prizes(P1, 3)
+            set_prizes(P2, 3)
+        if 'more prize cards left than your opponent' in text:
+            set_prizes(P2, 3)
+        if 'number of prize cards you have taken' in text or 'both players have taken' in text:
+            set_prizes(P1, 3)
+            set_prizes(P2, 3)
+        if 'exactly 3 or 4 prize cards remaining' in text:
+            set_prizes(P2, 3)
+        hand_count = re.search(r'you have exactly (\d+) cards? in your hand', text)
+        if hand_count:
+            resize_hand(P1, int(hand_count[1]))
+        if 'you have no cards in your hand' in text:
+            resize_hand(P1, 0)
+        if 'same number of cards in your hand as your opponent' in text:
+            resize_hand(P1, len(area(P2, 'hand').children))
+        if re.search(r'draw cards until you have \d+ cards in your hand', text):
+            # Keep a legal cost in hand, but leave room for the draw.
+            resize_hand(P1, 2)
+            if 'fire' in text:
+                inject(P1, 'hand', lambda d: energy_of_type(d, PokemonTypes.FIRE))
+        if 'item card' in text and 'discard pile' in text:
+            inject(P1, 'discard', lambda d: type(d) is ItemCardDef)
+        if 'evolution pokémon from your discard' in text:
+            inject(P1, 'discard', lambda d: isinstance(d, PokemonCardDef)
+                   and _def_attr(d, AttrID.STAGE) == PokemonStage.STAGE1.value)
+        for wanted in ('chill teaser toy', 'shelmet'):
+            if wanted in text:
+                inject(P1, 'hand', lambda d, wanted=wanted: definition_name(d) == wanted)
+        for wanted in ('electropower', 'helix fossil omanyte', 'dome fossil kabuto'):
+            if wanted in text:
+                inject_many(P1, 'discard', lambda d, wanted=wanted: definition_name(d) == wanted, 2)
+        if 'grass pokémon from your discard' in text:
+            inject_many(P1, 'discard', lambda d: pokemon_of_type(d, PokemonTypes.GRASS), 2)
+        if '"alolan" in their names from your discard' in text:
+            inject_many(P1, 'discard', lambda d: isinstance(d, PokemonCardDef)
+                        and 'alolan' in definition_name(d), 3)
+        if 'future pokémon' in text:
+            inject(P1, 'bench', lambda d: isinstance(d, PokemonCardDef) and 'Future' in (d.subtypes or []))
+        if 'ultra beasts' in text:
+            inject(P1, 'bench', lambda d: isinstance(d, PokemonCardDef) and 'Ultra Beast' in (d.subtypes or []))
+        if 'grass mega evolution pokémon ex in play' in text:
+            inject(P1, 'bench', lambda d: pokemon_of_type(d, PokemonTypes.GRASS)
+                   and 'mega' in definition_name(d) and 'ex' in (d.subtypes or []))
+        if "opponent's active pokémon is a stage" in text:
+            stage = PokemonStage.STAGE2 if 'stage 2' in text else PokemonStage.STAGE1
+            replace_active(P2, lambda d: isinstance(d, PokemonCardDef) and _def_attr(d, AttrID.STAGE) == stage.value)
+        if "opponent's pokémon-ex" in text or "benched pokémon-gx or pokémon-ex" in text:
+            inject(P2, 'bench', lambda d: isinstance(d, PokemonCardDef) and 'EX' in (d.subtypes or []))
+        if "opponent's pokémon ex" in text or "opponent's active pokémon ex" in text:
+            replace_active(P2, lambda d: isinstance(d, PokemonCardDef) and 'ex' in (d.subtypes or []))
+        if 'remove all special conditions from your active' in text:
+            source.set_attribute(AttrID.SPECIAL_CONDITIONS, ['Poisoned'])
+        if "active pokémon is poisoned" in text or 'defending pokémon is poisoned' in text:
+            entities['p2_active'].set_attribute(AttrID.SPECIAL_CONDITIONS, ['Poisoned'])
+        if 'has full hp' in text:
+            source.set_attribute(AttrID.HP, effective_max_hp(board, source))
+        if 'has no damage counters on it' in text and 'defending pokémon' in text:
+            defender = entities['p2_active']
+            defender.set_attribute(AttrID.HP, effective_max_hp(board, defender))
+        if 'was healed during this turn' in text:
+            state.healed_entities.add(source.entity_id)
+        if 'became your active pokémon this turn' in text:
+            state.became_active_turn[source.entity_id] = state.turn_number
+        previous = re.search(r'(this pokémon|your [a-z-]+) used (.+?) during your last turn', text)
+        if previous:
+            prior = source if previous[1] == 'this pokémon' else inject(
+                P1, 'bench', lambda d: definition_name(d) == previous[1].removeprefix('your '))
+            if prior:
+                state.attacks_prev_turn_by_player[P1] = [(prior.entity_id, prior.archetype_id, previous[2])]
+        for word, ptype in type_words.items():
+            if f'any {word} energy attached' in text or f'attach a {word} energy' in text:
+                rig.attach_energy_type(P1, source, ptype.value)
+            if f'discard a {word} energy attached to the defending' in text or (
+                    f'each {word} energy attached to all of your opponent' in text):
+                rig.attach_energy_type(P2, entities['p2_active'], ptype.value)
+        if 'plasma energy attached' in text or 'plasma energy, this attack' in text:
+            energy = inject(P1, 'hand', lambda d: definition_name(d) == 'plasma energy')
+            if energy: board.attach_card(energy.entity_id, source.entity_id)
+        if 'any special energy attached' in text:
+            energy = inject(P1, 'hand', lambda d: isinstance(d, EnergyCardDef) and bool(_def_attr(d, AttrID.IS_SPECIAL_ENERGY, False)))
+            if energy: board.attach_card(energy.entity_id, source.entity_id)
+        if '2 lightning energy cards from your hand' in text:
+            inject_many(P1, 'hand', lambda d: energy_of_type(d, PokemonTypes.LIGHTNING), 2)
+        if 'fewer than 10 fire energy' in text:
+            inject_many(P1, 'discard', lambda d: energy_of_type(d, PokemonTypes.FIRE), 10)
+        for wanted in ('vespiquen', 'regice', 'latios', 'pikachu', 'illumise', 'rattata', 'shelmet', 'karrablast'):
+            if wanted in text:
+                added = inject(P1, 'bench', lambda d, wanted=wanted: definition_name(d) == wanted)
+                if added and ('damage counters' in text or wanted == 'rattata'):
+                    added.set_attribute(AttrID.HP, max(10, effective_max_hp(board, added) - 20))
+        if "for each pokémon in your opponent's discard pile" in text:
+            inject_many(P2, 'discard', lambda d: isinstance(d, PokemonCardDef), 3)
+        if 'grass, water, and lightning pokémon on your bench' in text:
+            for ptype in (PokemonTypes.GRASS, PokemonTypes.WATER, PokemonTypes.LIGHTNING):
+                inject(P1, 'bench', lambda d, ptype=ptype: pokemon_of_type(d, ptype))
+        if 'move a lightning energy attached' in text:
+            rig.attach_energy_type(P1, board.pokemon_in_play(P1)[-1], PokemonTypes.LIGHTNING.value)
+        if 'move a water energy attached to 1 of your benched' in text:
+            rig.attach_energy_type(P1, board.pokemon_in_play(P1)[-1], PokemonTypes.WATER.value)
+
         # Named cards explicitly required by an effect.
+        from spirit.tools.catalog_scenarios import enrich
+        enrich(rig, entities, runner_key, text)
         for wanted in re.findall(
                 r"(?:search your deck for|switch this pokémon with an?|"
                 r"put a) ([a-z0-9' -]+?)(?:,| in your hand| and| onto| from)", text):

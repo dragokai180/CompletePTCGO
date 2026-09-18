@@ -1,23 +1,22 @@
 from spirit.game.data_utils import SupporterCardDef
 from spirit.game.attributes import Rarities
-from spirit.game.session.effects import is_water_pokemon
 
 
 def surfer_playable(board, player_id):
     area = board.find_player_area(player_id, "bench")
-    return bool(area) and any(is_water_pokemon(p) for p in area.children)
+    return bool(area) and bool(area.children) and board.active_pokemon(player_id) is not None
 
 
 async def surfer(ctx):
-    """Switch your Active Pokémon with 1 of your Benched Water Pokémon."""
-    bench = [p for p in ctx.my_bench() if is_water_pokemon(p)]
+    """Switch with a Benched Pokémon. If successful, draw until five cards."""
+    bench = list(ctx.my_bench())
     if not bench:
         return
     target = await ctx.choose_pokemon(
-        bench, "Choose a Benched Water Pokémon to switch into the Active Spot"
+        bench, "Choose a Benched Pokémon to switch into the Active Spot"
     )
-    if target is not None:
-        await ctx.switch_active(ctx.player_id, target)
+    if target is not None and await ctx.switch_active(ctx.player_id, target):
+        await ctx.draw_until(5)
 
 
 card = SupporterCardDef(

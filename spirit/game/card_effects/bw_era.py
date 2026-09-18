@@ -4867,6 +4867,19 @@ async def bw_legacy_attack(ctx):
     text = text.replace("new defending pokémon", "new active pokémon")
     printed = getattr(ctx.ability, "damage", 0) or 0
     primary_damage_dealt = 0
+    # Dragon Vortex names a UNION of two types, then moves those exact cards.
+    # The generic single-type multiplier cannot preserve that selection.
+    vortex = re.fullmatch(
+        r"does (\d+) damage times the number of water energy cards and lightning "
+        r"energy cards in your discard pile\. then, shuffle all of those cards "
+        r"back into your deck\.?", text)
+    if vortex:
+        cards = [card for card in ctx.discard_pile() if is_energy_card(card) and (
+            energy_provides_type(card, PokemonTypes.WATER.value)
+            or energy_provides_type(card, PokemonTypes.LIGHTNING.value))]
+        await ctx.deal_damage(int(vortex.group(1)) * len(cards))
+        await ctx.shuffle_into_deck(cards)
+        return
     from spirit.game.card_effects.attack_state_clauses import resolve_public_conditional_damage
     if await resolve_public_conditional_damage(ctx, text, printed):
         return
@@ -4946,6 +4959,18 @@ async def bw_legacy_attack(ctx):
         loser = ctx.opponent_id if won else ctx.player_id
         await ctx.draw_cards(3, player_id=winner)
         await ctx.discard_cards(ctx.deck_top(3, loser))
+        return
+    if text.startswith("put a team plasma pokémon, a team plasma trainer card, and a team plasma energy card"):
+        selected = []
+        for predicate, label in ((is_pokemon_card, "Pokemon"),
+                                 (is_trainer_card, "Trainer"),
+                                 (is_energy_card, "Energy")):
+            pool = [c for c in ctx.discard_pile() if _team_plasma(c) and predicate(c)]
+            if pool:
+                selected.extend(await ctx.choose_cards(
+                    pool, 1, minimum=1, prompt="Choose a Team Plasma " + label,
+                ))
+        await ctx.put_in_hand(selected)
         return
     if "pokémon of different types that evolve from eevee" in text:
         selected = []
@@ -5256,6 +5281,26 @@ async def bw_legacy_attack(ctx):
             prompt="Choose Energy to move",
         )
         await ctx.deal_damage(int(moved_energy_damage.group(2)) * len(moved))
+        return
+
+    # Imittack and Copy Anything require the copied attack's Energy.
+    # Most copy attacks waive that cost, so this gate belongs only here.
+    if "necessary energy to use that attack" in text and "use it as this attack" in text:
+        from spirit.game.attributes import CLIENT_POKEMON_TYPE_NAMES
+        from spirit.game.session.legal_actions import attack_cost_satisfied
+        from spirit.game.session.passives import effective_attack_cost
+        targets = [ctx.defender] if "defending pokémon" in text else ctx.opponent_pokemon_in_play()
+        candidates = [(pokemon, attack) for pokemon in targets if pokemon is not None
+                      for attack in (getattr(def_for(pokemon.archetype_id), "abilities", None) or [])
+                      if isinstance(attack, Attack)]
+        picked = await ctx.choose_attack_to_copy(candidates, "Choose an attack to copy") if candidates else None
+        if picked:
+            attack = picked[1]
+            cost = effective_attack_cost(ctx.board, ctx.attacker, {
+                CLIENT_POKEMON_TYPE_NAMES[kind]: count for kind, count in attack.cost.items()
+            }, attack=attack)
+            if attack_cost_satisfied(cost, ctx.attached_energies(ctx.attacker), ctx.board):
+                await ctx.use_attack(attack)
         return
 
     if re.search(
@@ -8265,7 +8310,7 @@ async def bw_legacy_attack(ctx):
     attach = re.search(
         r"attach (up to )?(\d+|an|a) "
         r"((?:basic )?(?:grass |fire |water |lightning |psychic |fighting |"
-        r"darkness |metal )?)energy cards? from your (hand|discard pile)",
+        r"darkness |metal |fairy )?)energy(?: cards?)? from your (hand|discard pile)",
         text,
     )
     if attach and _attack_clause_allowed(ctx, text, attach.start(), heads, coin_count):
@@ -8605,7 +8650,10 @@ async def bw_legacy_attack(ctx):
                         int(counters.group(1)) * 10, target=picked,
                         apply_modifiers=False, as_counters=True, is_attack=False,
                     )
-    if "choose a random card from your opponent's hand" in text:
+    random_hand = re.search(
+        r"choose (?:a random card|a card at random) from your opponent's hand", text)
+    if random_hand and _attack_clause_allowed(
+            ctx, text, random_hand.start(), heads, coin_count):
         hand = list(ctx.hand(ctx.opponent_id))
         if hand:
             picked = random.choice(hand)
@@ -9141,7 +9189,9 @@ async def bw_legacy_attack(ctx):
         ) if maximum else []
         if picks:
             await ctx.move_to_lost_zone(picks)
-    if "opponent puts their active pokémon and all cards attached to it into their hand" in text:
+    if re.search(
+            r"opponent puts (?:their active pokémon|the defending pokémon) and all "
+            r"cards attached to it into (?:their|his or her) hand", text):
         await ctx.put_in_hand(full_stack(ctx.defender), reveal=False)
 
     if "shuffle this pokémon and all attached cards into your deck" in text:
@@ -9440,6 +9490,8 @@ async def bw_legacy_attack(ctx):
         defender_conditions = ctx.defender.get_attribute(AttrID.SPECIAL_CONDITIONS) or []
         counters = _damage_counter_count(ctx, ctx.defender)
         should_ko = False
+        if "if both of them are heads, the defending pokémon is knocked out" in text:
+            should_ko = coin_count == 2 and heads == 2
         if "defending pokémon is affected by a special condition, it is knocked out" in text:
             should_ko = bool(defender_conditions)
         if "defending pokémon is asleep, it is knocked out" in text:
@@ -10192,7 +10244,7 @@ async def bw_legacy_attack(ctx):
     if "for the rest of this game, your opponent can't use any gx attacks" in text:
         ctx.lock_gx_attacks(ctx.opponent_id)
 
-    if "discard any stadium card in play" in text:
+    if "discard any stadium card in play" in text or "discard the stadium card" in text:
         await ctx.discard_stadium()
 
     if "whenever your opponent flips a coin during his or her next turn, treat it as tails" in text:
@@ -10269,7 +10321,8 @@ async def bw_legacy_attack(ctx):
         if target is not None:
             await ctx.switch_active(ctx.player_id, target)
     if "you may have your opponent switch" in text \
-            and "active pokémon" in text and ctx.opponent_bench() \
+            and ("active pokémon" in text or "defending pokémon" in text) \
+            and ctx.opponent_bench() and switch_allowed \
             and await ctx.ask_yes_no("Have your opponent switch their Active Pokémon?"):
         bench = list(ctx.opponent_bench())
         target = bench[0] if len(bench) == 1 else await ctx.choose_pokemon(

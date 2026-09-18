@@ -8,6 +8,7 @@ This folder collects the project's audit reports and local investigation results
 
 ## Reports
 
+- [All-card execution and effect audit — 2026-09-18](reports/ALL_CARD_CAMPAIGN_2026-09-18.md)
 - [Lost Zone destinations, payments and damage](reports/LOST_ZONE_AUDIT.md)
 
 - [Mandatory costs, Mega ex evolution and attack-effect shields](reports/MODERN_COSTS_AND_EFFECT_SHIELDS.md)

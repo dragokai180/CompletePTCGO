@@ -1,6 +1,5 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, def_for
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, AttrID
-from spirit.game.card_effects.pokemon import energy_provides_type
 from spirit.game.session.passives import Passive, active_passives
 
 
@@ -13,7 +12,7 @@ class EnergyFactoryPassive(Passive):
     def modify_energy_provided(self, options, energy, holder, board, carrier=None):
         if holder is None or energy.get_attribute(AttrID.IS_SPECIAL_ENERGY):
             return options
-        if not energy_provides_type(energy, PokemonTypes.DARKNESS.value):
+        if not any(PokemonTypes.DARKNESS.value in option for option in options):
             return options
         if not _is_weezing_named(holder):
             return options
