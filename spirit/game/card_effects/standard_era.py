@@ -1846,7 +1846,8 @@ def standard_trainer_effect(game_text: str):
             top = None
             if selected is not None:
                 top, bottom = selected
-                if await ctx.put_legend(top, bottom):
+                top = await ctx.put_legend(top, bottom)
+                if top is not None:
                     for energy in [card for card in viewed if is_energy_card(card)]:
                         await ctx.attach_energy(energy, top)
                 else:
@@ -1984,10 +1985,15 @@ def standard_trainer_effect(game_text: str):
             r"and choose 1 of them", text,
         )
         if top_choice:
-            owner = ctx.opponent_id if top_choice.group(2) == "your opponent's" \
-                else (ctx.player_id if await ctx.choose(
-                    "Which deck?", ["Yours", "Opponent's"]
-                ) == 0 else ctx.opponent_id)
+            sides = [ctx.opponent_id] if top_choice.group(2) == "your opponent's" \
+                else [ctx.player_id, ctx.opponent_id]
+            sides = [pid for pid in sides if ctx.deck(pid)]
+            if not sides:
+                return
+            index = await ctx.choose("Which deck?", [
+                "Yours" if pid == ctx.player_id else "Opponent's" for pid in sides
+            ]) if len(sides) > 1 else 0
+            owner = sides[index]
             viewed = ctx.deck_top(int(top_choice.group(1)), owner)
             chosen = await _choose_one(ctx, viewed, "Choose the top card") \
                 if viewed else None
@@ -2734,6 +2740,9 @@ def standard_trainer_effect(game_text: str):
         if top_order:
             pid = ctx.opponent_id if top_order.group(2) == "your opponent's" \
                 else ctx.player_id
+            if top_order.group(2) == "either player's":
+                side = await ctx.choose("Choose a deck", ["Your deck", "Opponent's deck"])
+                pid = ctx.player_id if side == 0 else ctx.opponent_id
             await ctx.reorder_deck_top(int(top_order.group(1)), player_id=pid)
             return
         if "look at the top card of either player's deck" in text:
@@ -3813,8 +3822,18 @@ def standard_trainer_condition(game_text: str):
                 return False
         if "search your deck" in text and not deck:
             return False
-        if _top_deck_count(text) is not None and not deck:
-            return False
+        if _top_deck_count(text) is not None:
+            # The resource belongs to the deck named by the inspection,
+            # not necessarily to the player using the Trainer (Hiker/Ice Axe).
+            inspected = re.search(
+                r"(?:look at|reveal) the top (?:\d+ cards?|card) of "
+                r"(your|your opponent's|either player's) deck", text,
+            ).group(1)
+            opposing_deck = cards(board, opponent_id, "deck") if opponent_id else []
+            available = (deck or opposing_deck) if inspected == "either player's" \
+                else opposing_deck if inspected == "your opponent's" else deck
+            if not available:
+                return False
 
         if text.startswith("choose 1: • put a basic energy card from your discard") \
                 and not any(is_basic_energy(entry) for entry in discard):

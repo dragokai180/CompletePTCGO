@@ -36,7 +36,7 @@ from spirit.game.data_utils import (
     has_rule_box,
     unimplemented,
 )
-from spirit.game.models.board import BoardEntity, CardEntity, EnergyEntity, PokemonEntity
+from spirit.game.models.board import BoardEntity, CardEntity, EnergyEntity, PokemonEntity, LegendPokemonEntity
 from spirit.network.message_names import OutboundMsg
 from spirit.game.game_sequence_packets import NestedSequence
 from .constants import PROMPT_NO, PROMPT_YES
@@ -1587,7 +1587,7 @@ class EffectContext:
         reveal=True presents each card large to the opponent on the way
         ("...reveal it, and put it into your hand").
         """
-        cards = [card for card in cards if not self._pokemon_move_effect_blocked(card)]
+        cards = [card for card in physical_movement_cards(cards) if not self._pokemon_move_effect_blocked(card)]
         reveal_batches = {}
         # Snapshot before the first stack member moves: attachments then
         # inherit its new hand location. Return moves must run AFTER the
@@ -1804,7 +1804,7 @@ class EffectContext:
         # Resolve simultaneous discard replacements while the entire stack is
         # still in play. Moving its Pokemon first must not turn off Recycle
         # Energy/U-Turn Board before their own destinations are determined.
-        cards = [card for card in cards if not self._pokemon_move_effect_blocked(card)]
+        cards = [card for card in physical_movement_cards(cards) if not self._pokemon_move_effect_blocked(card)]
         replacements = {
             card.entity_id: passive_discard_destination(self.board, card)
             for card in cards
@@ -2019,7 +2019,7 @@ class EffectContext:
         deck = self.board.find_player_area(pid, "deck")
         if not deck:
             return
-        cards = [card for card in cards if not self._pokemon_move_effect_blocked(card)]
+        cards = [card for card in physical_movement_cards(cards) if not self._pokemon_move_effect_blocked(card)]
         for card in cards:
             if self._trainer_blocked(card) or self._energy_removal_blocked(card):
                 continue
@@ -2087,18 +2087,22 @@ class EffectContext:
 
     async def reorder_deck_top(self, count: int,
                                player_id: Optional[str] = None,
-                               prompt: str = "Rearrange the cards on top of your deck",
+                               prompt: str = "Rearrange the cards on top of the chosen deck",
                                ) -> List[CardEntity]:
         """Privately chooses the top cards' order and synchronizes the pile.
 
-        Returns the new top order (topmost first); card faces stay hidden.
+        player_id identifies the deck owner, NOT the chooser. The effect's
+        controller sees and orders the cards, including in an opponent's deck.
+        Returns the new top order (topmost first); faces stay private to them.
         """
         pid = player_id or self.player_id
         top = self.deck_top(count, pid)
-        if len(top) <= 1:
+        if not top:
             return top
+        # Even one remaining card must be shown: there is no ordering choice,
+        # but looking at that card is still part of the effect.
         picked_ids = await self.session.prompt_card_chooser(
-            pid, self.source.entity_id, top, len(top), minimum=len(top),
+            self.player_id, self.source.entity_id, top, len(top), minimum=len(top),
             prompt=prompt, ordered=True,
         )
         by_id = {c.entity_id: c for c in top}
@@ -2145,6 +2149,9 @@ class EffectContext:
 
     async def put_on_top_of_deck(self, card: CardEntity) -> bool:
         """Puts a card on top of its owner's deck."""
+        if isinstance(card, LegendPokemonEntity):
+            results = [await self.put_on_top_of_deck(c) for c in reversed(full_stack(card))]
+            return bool(results) and all(results)
         owner = card.owning_player_id or self.player_id
         deck = self.board.find_player_area(owner, "deck")
         if not deck or self._energy_removal_blocked(card):
@@ -2164,6 +2171,9 @@ class EffectContext:
 
     async def put_on_bottom_of_deck(self, card: CardEntity) -> bool:
         """Puts a card on the bottom of its owner's deck (position 0)."""
+        if isinstance(card, LegendPokemonEntity):
+            results = [await self.put_on_bottom_of_deck(c) for c in full_stack(card)]
+            return bool(results) and all(results)
         owner = card.owning_player_id or self.player_id
         deck = self.board.find_player_area(owner, "deck")
         if not deck or self._energy_removal_blocked(card):
@@ -2180,7 +2190,7 @@ class EffectContext:
         )
         return True
 
-    async def put_legend(self, first: CardEntity, second: CardEntity) -> bool:
+    async def put_legend(self, first: CardEntity, second: CardEntity) -> Optional[LegendPokemonEntity]:
         """Validate and join both physical halves as one board Pokemon."""
         from spirit.game.legend import legend_pairs
         pairs = legend_pairs([first, second])
@@ -2188,12 +2198,34 @@ class EffectContext:
                 or first.owning_player_id != self.player_id \
                 or second.owning_player_id != self.player_id \
                 or first._containing_area_name() not in ("hand", "deck"):
-            return False
+            return None
         top, bottom = pairs[0]
-        if not await self.bench_pokemon(top):
-            return False
-        await self.attach_card(bottom, top)
-        return True
+        if not self.can_bench_pokemon(top):
+            return None
+        bench = self.board.find_player_area(self.player_id, "bench")
+        out = self.board.find_global_area("outOfPlay")
+        slot = self.board.free_bench_slot(self.player_id)
+        legend = LegendPokemonEntity(top, bottom)
+        out.add_child(legend)
+        self.board._register_entity(legend)
+        # ConfigureLegendary resolves these IDs immediately on introduction.
+        # Add and introduce both physical halves BEFORE the composite.
+        messages = [self.session._entity_introduced_msg(c) for c in (top, bottom)]
+        messages.append(self.session._build_msg(OutboundMsg.ENTITY_ADDED.value, {
+            "gameID": self.game_id, "entityID": legend.entity_id,
+            "owningPlayerID": self.player_id, "parentEntityID": out.entity_id,
+        }))
+        messages.append(self.session._entity_introduced_msg(legend))
+        for position, half in enumerate((top, bottom)):
+            self.board.attach_card(half.entity_id, legend.entity_id)
+            messages.append(self.session._entity_moved_msg(
+                half.entity_id, legend.entity_id, position))
+        self.board.move_card(legend.entity_id, bench.entity_id)
+        self.session.turn_state.mark_entered_play(legend.entity_id)
+        messages.append(self.session._entity_moved_msg(legend.entity_id, bench.entity_id, slot))
+        self._queue(NestedSequence(GameSequence.CREATE_LEGEND, messages),
+                    bracket=GameSequence.SERIAL_SEQUENCE.value)
+        return legend
 
     def can_bench_pokemon(self, card: CardEntity) -> bool:
         """Whether this effect may put the candidate onto its owner's Bench."""
@@ -2846,9 +2878,21 @@ def is_energy_of_type(card: CardEntity, energy_type) -> bool:
     return is_energy_card(card) and         getattr(energy_type, "value", energy_type) in types
 
 
+def physical_movement_cards(cards: Sequence[CardEntity]) -> List[CardEntity]:
+    """Expand a selected LEGEND composite without duplicating physical cards."""
+    out = []
+    seen = set()
+    for card in cards:
+        for physical in full_stack(card) if isinstance(card, LegendPokemonEntity) else [card]:
+            if physical.entity_id not in seen:
+                seen.add(physical.entity_id)
+                out.append(physical)
+    return out
+
+
 def full_stack(pokemon: PokemonEntity) -> List[CardEntity]:
-    """A Pokemon plus every card attached under it, depth-first."""
-    out: List[CardEntity] = [pokemon]
+    """Physical cards only: an assembled LEGEND is not a third card."""
+    out: List[CardEntity] = [] if isinstance(pokemon, LegendPokemonEntity) else [pokemon]
     queue: List[BoardEntity] = list(pokemon.children)
     while queue:
         entity = queue.pop(0)
@@ -2871,6 +2915,11 @@ def split_pokemon_stack(
     Stage 2 directly on a Basic Pokémon.
     """
     cards = list(stack) if stack is not None else full_stack(pokemon)
+    if isinstance(pokemon, LegendPokemonEntity):
+        cards = [card for card in cards if card is not pokemon]
+        half_ids = {half.entity_id for half in pokemon.legend_halves}
+        return ([card for card in cards if card.entity_id in half_ids],
+                [card for card in cards if card.entity_id not in half_ids])
     if pokemon not in cards:
         cards.insert(0, pokemon)
 

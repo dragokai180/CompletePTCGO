@@ -8833,8 +8833,16 @@ async def bw_legacy_attack(ctx):
                             ("dragon", PokemonTypes.DRAGON)):
             if word in descriptor:
                 candidates = [card for card in candidates if _is_type(card, ptype)]
+        # A card belongs on its owner's Bench, not the attacker's. Do not
+        # offer a discard target whose owner's Bench cannot receive it.
+        candidates = [card for card in candidates if ctx.can_bench_pokemon(card)]
+        owners = {card.owning_player_id or ctx.player_id for card in candidates}
+        slots = sum(max(0, effective_bench_capacity(ctx.board, pid)
+                        - len(ctx.board.find_player_area(pid, "bench").children))
+                    for pid in owners)
+        maximum = min(maximum, len(candidates), slots)
         picks = await ctx.choose_cards(
-            candidates, min(maximum, len(candidates)), minimum=0,
+            candidates, maximum, minimum=0 if "up to" in bench_from_discard.group(0) else maximum,
             prompt="Choose Pokémon for the Bench") if candidates else []
         for pokemon in picks:
             await ctx.bench_pokemon(pokemon)
@@ -11724,8 +11732,8 @@ async def bw_legacy_ability(ctx):
             await ctx.put_on_top_of_deck(picks[0])
         return
 
-    # Look/reorder effects.  A player may also be named explicitly; the deck
-    # owner's client makes the private ordering choice.
+    # Look/reorder effects. A player may name either deck, but the effect's
+    # controller (not the deck owner) privately views and orders those cards.
     reorder = re.search(
         r"look at the top (\d+) cards? of (your|your opponent's|either player's|"
         r"that player's) deck.*put them back (?:on top )?.*in any order",

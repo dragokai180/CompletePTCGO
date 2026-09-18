@@ -233,9 +233,14 @@ class PokemonCard(Card):
         # We start with the base card attributes
         final_attrs = super().to_archetype_attributes(download_key)
 
-        # Force Card Type to Pokemon (0)
+        # Physical halves are not synthetic assembled LegendPokemon entities.
+        # ConfigureLegendary otherwise dereferences two missing half IDs as
+        # soon as a half is introduced (including during the opening deal).
         final_attrs[str(AttrID.CARD_TYPE.value)] = {
-            "type": "int", "value": CardType.POKEMON.value
+            "type": "int", "value": (
+                CardType.LEGEND_HALF.value if self.stage == PokemonStage.LEGEND.value
+                else CardType.POKEMON.value
+            )
         }
 
         # Mandatory Pokemon Rendering/Stat Attributes

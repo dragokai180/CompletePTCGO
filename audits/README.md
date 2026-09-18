@@ -8,6 +8,7 @@ This folder collects the project's audit reports and local investigation results
 
 ## Reports
 
+- [Player choice, deck ownership and private views](reports/PLAYER_CHOICE_EFFECTS.md)
 - [All-card execution and effect audit — 2026-09-18](reports/ALL_CARD_CAMPAIGN_2026-09-18.md)
 - [Lost Zone destinations, payments and damage](reports/LOST_ZONE_AUDIT.md)
 

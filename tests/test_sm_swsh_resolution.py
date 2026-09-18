@@ -44,8 +44,16 @@ class SmSwshResolutionTests(unittest.IsolatedAsyncioTestCase):
                 ctx.choose = AsyncMock(return_value=0)
                 ctx.ask_yes_no = AsyncMock(return_value=True)
                 ctx.reveal_cards = AsyncMock()
+                top = ctx.deck_top(1, owner)
+                rig.session.prompt_card_chooser = AsyncMock(return_value=[top[0].entity_id])
                 await getattr(import_module('spirit.game.scripts.cards.' + path), function)(ctx)
-                ctx.reveal_cards.assert_awaited_once_with(ctx.deck_top(1, owner), to_player=P1)
+                # Even a singleton is inspected in the private ordering
+                # browser, not an EntityIntroduced reveal animation.
+                rig.session.prompt_card_chooser.assert_awaited_once_with(
+                    P1, ctx.source.entity_id, top, 1, minimum=1,
+                    prompt="Rearrange the cards on top of the chosen deck", ordered=True)
+                ctx.reveal_cards.assert_not_awaited()
+                self.assertEqual([msg['name'] for _, msg, _ in ctx._messages], ['PileReordered'])
 
     async def test_arc_phone_never_offers_face_up_prize(self):
         rig, e = self.rig('SWSH11.ArcPhone_152', 'trainer')

@@ -247,7 +247,9 @@ class SemanticCatalogFindingsTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn(card, ctx.my_bench())
             rig.to_area(card, P1, "deck")
         self.assertTrue(all(predicate(card) for card in choices))
-        self.assertFalse(predicate(ctx.deck()[0]))
+        # The effect shuffles; deck[0] can legitimately be another Arrokuda.
+        unrelated = self.add(rig, self.filler, P1, "deck")
+        self.assertFalse(predicate(unrelated))
 
     async def test_lum_berry_below_break_is_discarded_after_curing(self):
         rig, e = self.rig("XY8.RaichuBREAK_50")

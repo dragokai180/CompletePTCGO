@@ -107,7 +107,7 @@ def _persist_match_result(account_id: str, coins: int, is_winner: bool,
         grant_coins(account_id, coins)
     if award_ladder:
         award_match_points(account_id, is_winner)
-from spirit.game.models.board import BoardEntity, BoardState, EnergyEntity, PokemonEntity
+from spirit.game.models.board import BoardEntity, BoardState, EnergyEntity, PokemonEntity, LegendPokemonEntity
 from .effects import (
     EffectContext,
     resolve_activated_ability,
@@ -117,6 +117,7 @@ from .effects import (
     resolve_trainer_effect,
     resolve_triggered_ability,
     split_pokemon_stack,
+    full_stack,
 )
 from .passives import (
     ability_locked, active_passives, active_to_bench_counters,
@@ -677,6 +678,14 @@ class GameSession:
         no-op when the bracket contains zero inner messages, so callers must
         always provide at least one.
         """
+        # Native EntityDestroyed clears ParentLegendary on both half renderers.
+        # Delay it until the bracket carrying the last physical card's move,
+        # not an earlier reveal/attack bracket; process both viewers separately.
+        inner_messages = list(inner_messages)
+        retired = self._legend_retirements_in(inner_messages)
+        inner_messages.extend(self._build_msg(OutboundMsg.ENTITY_DESTROYED.value, {
+            "gameID": self.game_id, "entityID": entity_id,
+        }) for entity_id in retired)
         # Accept GameSequence enum members or raw strings.
         name = getattr(name, "value", name)
         sequence_id = str(uuid.uuid4())
@@ -702,6 +711,8 @@ class GameSession:
             for player_id, player in self._unique_recipients(players):
                 for packet in packets:
                     await player.send_packet(OutboundMsg.SEQUENCE_MESSAGE.value, packet)
+                for retirement in retired.values():
+                    retirement["delivered"].add(player_id)
                 if isinstance(player, NetworkPlayer) and player.connected:
                     human_recipient_ids.append(
                         player_id or getattr(player, "account_id", None)
@@ -709,6 +720,26 @@ class GameSession:
             self._last_sequence_sent_at = time.monotonic()
             if human_recipient_ids:
                 self._note_client_animation(name, human_recipient_ids)
+        for entity_id, retirement in retired.items():
+            if set(self.players).issubset(retirement["delivered"]):
+                self.clear_pokemon_effects(retirement["entity"])
+                self.reset_ability_usage(retirement["entity"])
+                self.board_state.retired_legends.pop(entity_id, None)
+
+    def _legend_retirements_in(self, messages):
+        pending = getattr(getattr(self, "board_state", None), "retired_legends", {})
+        if not pending:
+            return {}
+        def movements(items):
+            for message in items:
+                if isinstance(message, NestedSequence):
+                    yield from movements(message.messages)
+                elif message.get("name") == OutboundMsg.ENTITY_MOVED.value:
+                    value = message["value"]
+                    yield value["entityID"], value["destinationID"]
+        moves = set(movements(messages))
+        return {eid: retirement for eid, retirement in pending.items()
+                if (retirement["last_card"], retirement["destination"]) in moves}
 
     def _nested_sequence_envelopes(self, nested: NestedSequence) -> List[Dict[str, Any]]:
         """Builds the Start/inner/Stop envelope run for a child sequence.
@@ -1468,6 +1499,12 @@ class GameSession:
         authoritative tree already contains the card at its final destination.
         """
         entity = self.board_state.get_entity(entity_id)
+        destination = self.board_state.get_entity(destination_id)
+        if isinstance(destination, LegendPokemonEntity) and entity in destination.legend_halves:
+            # Referenced image sources are not additional zoom attachments.
+            # Match BoardState.serialize's native LEGEND wire projection while
+            # retaining both physical cards in the authoritative rules stack.
+            destination_id = self.board_state.find_global_area('outOfPlay').entity_id
         if entity is not None and stamp_slot:
             # Mirror the client: every EntityMoved stamps A.m = positionInParent.
             entity.board_slot = position
@@ -2309,7 +2346,7 @@ class GameSession:
                         owner_id,
                         ability,
                         was_active,
-                        [pokemon] + _stack_descendants(pokemon),
+                        full_stack(pokemon),
                     ))
 
         # Special-energy leave-play hooks (Gift Energy's draw) snapshotted with
@@ -2333,7 +2370,7 @@ class GameSession:
                 if hook is not None and hook is not unimplemented:
                     energy_ko_hooks.append((
                         owner_id, hook, energy, pokemon,
-                        [pokemon] + _stack_descendants(pokemon),
+                        full_stack(pokemon),
                     ))
 
         # Prize counts/destinations evaluate BEFORE any stack moves so the
@@ -2369,7 +2406,7 @@ class GameSession:
             was_active = self.board_state.active_pokemon(owner_id) is pokemon
             from_attack = _damage_ko(pokemon) \
                 and ctx.attacker.owning_player_id != owner_id
-            stack_snapshot = [pokemon] + _stack_descendants(pokemon)
+            stack_snapshot = full_stack(pokemon)
             for passive, carrier in passive_pairs:
                 passive_ko_hooks.append((
                     passive, carrier, pokemon, owner_id, was_active,
@@ -2465,7 +2502,7 @@ class GameSession:
             dest_area = self.board_state.find_player_area(owner_id, dest_name) or discard
             attachment_dest = self.board_state.find_player_area(
                 owner_id, attachment_dest_name) or discard
-            stack = [pokemon] + _stack_descendants(pokemon)
+            stack = full_stack(pokemon)
             evolution_cards, _ = split_pokemon_stack(pokemon, stack)
             evolution_ids = {card.entity_id for card in evolution_cards}
             moves = []
@@ -2528,8 +2565,11 @@ class GameSession:
                 # leaving that victim null and crashing IsLegendPokemon before
                 # the promotion offer. Use ordinary grouped movement for them;
                 # KO rules, hooks and replacement selection remain unchanged.
+                # LEGEND's physical halves move; the composite is destroyed
+                # afterwards, not moved to discard as a third physical card.
                 sequence = (GameSequence.KNOCKOUT
-                            if pokemon.get_attribute(AttrID.CARD_TYPE) == CardType.POKEMON.value
+                            if pokemon.client_card_type() == CardType.POKEMON.value
+                            and not isinstance(pokemon, LegendPokemonEntity)
                             else GameSequence.GROUPED_MOVE)
                 moves.extend(hp_resets)
                 moves.extend(viz_msgs)
@@ -2851,7 +2891,7 @@ class GameSession:
         discard = self.board_state.find_player_area(player_id, "discard")
         if not discard:
             return
-        stack = [pokemon] + _stack_descendants(pokemon)
+        stack = full_stack(pokemon)
         moves = []
         for entity in stack:
             position = len(discard.children)
@@ -4305,11 +4345,12 @@ class GameSession:
                 return
             partner = picked[0]
             top, bottom = legend_pairs([card, partner])[0]
-            if not await ctx.put_legend(top, bottom):
+            legend = await ctx.put_legend(top, bottom)
+            if legend is None:
                 return
             await ctx.flush_choreography()
             ends_turn = await self._fire_triggered_abilities(
-                player_id, top, Triggers.ON_PLAY)
+                player_id, legend, Triggers.ON_PLAY)
             await self.enforce_bench_capacity()
             return ends_turn
         bench_area = self.board_state.find_player_area(player_id, "bench")

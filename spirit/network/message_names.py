@@ -600,6 +600,8 @@ class OutboundMsg(str, Enum):
 
     # Setup phase (post coin flip): entity movement + reveal + mulligan
     ENTITY_MOVED = "EntityMoved"
+    ENTITY_ADDED = "EntityAdded"
+    ENTITY_DESTROYED = "EntityDestroyed"
     ENTITY_INTRODUCED = "EntityIntroduced"
     # Re-hides a revealed card (client L.U -> EntityComponent.ResetAttributes):
     # restores the face-down back after a "look at your Prizes" reveal.

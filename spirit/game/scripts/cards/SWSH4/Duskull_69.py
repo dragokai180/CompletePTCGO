@@ -9,23 +9,7 @@ async def future_sight(ctx):
         ["Your deck", "Opponent's deck"], use_panel=False,
     )
     target_pid = ctx.player_id if choice == 0 else ctx.opponent_id
-    top = ctx.deck_top(4, target_pid)
-    if len(top) <= 1:
-        if top:
-            await ctx.reveal_cards(top, to_player=ctx.player_id)
-        return
-    order = await ctx.choose_cards(
-        top, len(top), minimum=len(top), ordered=True, player_id=ctx.player_id,
-        prompt="Put the cards back in any order",
-    )
-    if not order:
-        order = top
-    deck = ctx.board.find_player_area(target_pid, "deck")
-    for card in order:
-        if card in deck.children:
-            deck.children.remove(card)
-    for card in reversed(order):
-        deck.children.append(card)
+    await ctx.reorder_deck_top(4, player_id=target_pid)
 
 
 card = PokemonCardDef(

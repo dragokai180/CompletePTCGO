@@ -1,29 +1,30 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
-from spirit.game.session.constants import BENCH_CAPACITY
 from spirit.game.session.effects import is_basic_pokemon
+from spirit.game.session.passives import effective_bench_capacity, pokemon_entry_blocked
 
 
-def _borne_ashore_candidates(board):
+def _borne_ashore_candidates(board, player_id):
     candidates = []
     for pid in board.player_ids:
         bench = board.find_player_area(pid, "bench")
-        if bench is None or len(bench.children) >= BENCH_CAPACITY:
+        if bench is None or len(bench.children) >= effective_bench_capacity(board, pid):
             continue
         discard = board.find_player_area(pid, "discard")
         if discard:
-            candidates.extend(c for c in discard.children if is_basic_pokemon(c))
+            candidates.extend(c for c in discard.children if is_basic_pokemon(c)
+                              and not pokemon_entry_blocked(board, player_id, c))
     return candidates
 
 
 def borne_ashore_condition(board, player_id, pokemon):
-    return bool(_borne_ashore_candidates(board))
+    return bool(_borne_ashore_candidates(board, player_id))
 
 
 async def borne_ashore(ctx):
     """Put a Basic Pokémon from either player's discard pile onto that
     player's Bench."""
-    candidates = _borne_ashore_candidates(ctx.board)
+    candidates = _borne_ashore_candidates(ctx.board, ctx.player_id)
     if not candidates:
         return
     picks = await ctx.choose_cards(

@@ -268,12 +268,65 @@ class PokemonEntity(CardEntity):
 
     def _initialize_attributes(self):
         super()._initialize_attributes()
+        if self.card_obj.get_attribute_value(AttrID.STAGE) == PokemonStage.LEGEND.value:
+            # Rules operate on PokemonEntity pairs; only the wire format uses
+            # LegendHalf. Keep Pokemon searches and pair rules unchanged.
+            self.set_attribute(AttrID.CARD_TYPE, CardType.POKEMON.value)
         hp_val = self.card_obj.get_attribute_value(AttrID.HP, 100)
         self.set_attribute(AttrID.HP, hp_val)
         self.attribute_originals[AttrID.HP.value] = hp_val
 
+    def client_card_type(self) -> int:
+        if self.get_attribute(AttrID.STAGE) == PokemonStage.LEGEND.value:
+            return CardType.LEGEND_HALF.value
+        return self.get_attribute(AttrID.CARD_TYPE)
+
+    def serialize_attributes(self) -> List[Dict[str, Any]]:
+        attributes = super().serialize_attributes()
+        if self.client_card_type() != CardType.LEGEND_HALF.value:
+            return attributes
+        for attribute in attributes:
+            if attribute["name"] == AttrID.CARD_TYPE.value:
+                for field in ("value", "originalValue", "modValue"):
+                    attribute[field] = self.client_card_type()
+        return attributes
+
     def get_entity_name(self) -> str:
+        if self.client_card_type() == CardType.LEGEND_HALF.value:
+            return "com.direwolfdigital.cake.rules.entities.HalfLegend"
         return "com.direwolfdigital.cake.rules.entities.Pokemon"
+
+
+class LegendPokemonEntity(PokemonEntity):
+    """Native in-play composite, not a third physical card.
+
+    LegendaryCardRenderer combines the two physical HalfLegend entities referenced by
+    these IDs. Neither this wrapper nor its ID can enter a private card pile.
+    """
+    def __init__(self, top: PokemonEntity, bottom: PokemonEntity):
+        super().__init__(top.card_obj, top.owning_player_id)
+        self.legend_halves = (top, bottom)
+        self.set_attribute(AttrID.IS_LEGEND, True)
+        self.set_attribute(AttrID.LEGEND_TOP_HALF, top.entity_id)
+        self.set_attribute(AttrID.LEGEND_BOTTOM_HALF, bottom.entity_id)
+
+    def client_card_type(self) -> int:
+        return CardType.POKEMON.value
+
+    def get_entity_name(self) -> str:
+        return "com.direwolfdigital.cake.rules.entities.LegendPokemon"
+
+    def serialize(self, viewer_id: Optional[str] = None) -> Dict[str, Any]:
+        tree = super().serialize(viewer_id)
+        # The native zoom creates two renderer slots for the composite. Its
+        # half IDs resolve through the entity registry, NOT through Children.
+        # Listing the physical halves here adds them a second time as attached
+        # cards, and the native two-slot LEGEND navigation skips the lower art.
+        # Keep the rules tree intact; BoardState parks their wire entities in
+        # outOfPlay so both referenced images remain available on reconnect.
+        half_ids = {half.entity_id for half in self.legend_halves}
+        tree['children'] = [c for c in tree['children'] if c['entityID'] not in half_ids]
+        return tree
 
 
 class EnergyEntity(CardEntity):
@@ -318,6 +371,9 @@ class BoardState:
         
         # Internal cache map (entityID -> BoardEntity) for O(1) lookups
         self._entity_cache: Dict[str, BoardEntity] = {self.playmat.entity_id: self.playmat}
+        # Empty composites leave the rules tree immediately; client removal
+        # follows the last physical card's movement, separately per viewer.
+        self.retired_legends: Dict[str, Dict[str, Any]] = {}
         
         self.game_options: Dict[str, Any] = {
             "theme": "ForestPlaymat"
@@ -417,7 +473,11 @@ class BoardState:
 
         if not isinstance(card, CardEntity) or not isinstance(to_area, PlayArea):
             return False
+        if isinstance(card, LegendPokemonEntity) and to_area.get_attribute(AttrID.NAME) not in (
+                "bench", "activePokemonArea"):
+            return False
 
+        old_parent = card.parent
         if card.parent_id:
             parent = self.get_entity(card.parent_id)
             if parent:
@@ -425,7 +485,19 @@ class BoardState:
 
         to_area.add_child(card, position)
         card.owning_player_id = to_area.owning_player_id
+        self._retire_empty_legend(old_parent, card_id, to_area_id)
         return True
+
+    def _retire_empty_legend(self, parent, moved_id, destination_id):
+        if not isinstance(parent, LegendPokemonEntity) or parent.children:
+            return
+        if parent.parent is not None:
+            parent.parent.remove_child(parent)
+        self._unregister_entity(parent)
+        self.retired_legends[parent.entity_id] = {
+            "entity": parent, "last_card": moved_id,
+            "destination": destination_id, "delivered": set(),
+        }
 
     def attach_card(self, card_id: str, to_entity_id: str) -> bool:
         """Reparents a card underneath another CARD entity (not a play area).
@@ -443,6 +515,7 @@ class BoardState:
         if card is target:
             return False
 
+        old_parent = card.parent
         if card.parent_id:
             parent = self.get_entity(card.parent_id)
             if parent:
@@ -450,6 +523,7 @@ class BoardState:
 
         target.add_child(card)
         card.owning_player_id = target.owning_player_id
+        self._retire_empty_legend(old_parent, card_id, to_entity_id)
         return True
 
     def shuffle_deck(self, player_id: str, rng: Optional[random.Random] = None) -> bool:
@@ -781,10 +855,22 @@ class BoardState:
         serialized un-introduced (attributes=null) so they render face-down.
         """
         self._refresh_bench_gaps()
+        entities = self.playmat.serialize(viewer_id)
+        out = self.find_global_area('outOfPlay')
+        if out is not None:
+            wire_out = next(c for c in entities['children'] if c['entityID'] == out.entity_id)
+            for owner in self.player_ids:
+                for pokemon in self.pokemon_in_play(owner):
+                    if isinstance(pokemon, LegendPokemonEntity):
+                        for half in pokemon.legend_halves:
+                            if half.parent is pokemon:
+                                wire_half = half.serialize(viewer_id)
+                                wire_half['parentID'] = out.entity_id
+                                wire_out['children'].append(wire_half)
         return {
             "messageName": OutboundMsg.SERIALIZED_GAME_STATE.value,
             "gameID": self.game_id,
             "playerAccounts": self.player_ids,
             "gameOptions": self.game_options,
-            "entities": self.playmat.serialize(viewer_id)
+            "entities": entities
         }
