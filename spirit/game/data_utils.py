@@ -266,11 +266,14 @@ TRAINER_EFFECTS_BY_GUID: Dict[str, Any] = {}
 # archetype guid (lowercase) -> CardDefinition, filled by every CardDefinition;
 # the session engine reads behavior (passives, conditions, subtypes) off it.
 CARD_DEFS_BY_GUID: Dict[str, "CardDefinition"] = {}
+# Generated in-play composites are rules objects, not collectible archetypes.
+RUNTIME_CARD_DEFS_BY_GUID: Dict[str, "CardDefinition"] = {}
 
 
 def def_for(archetype_id: Optional[str]) -> Optional["CardDefinition"]:
     """The CardDefinition behind an entity's archetype GUID, if scripted."""
-    return CARD_DEFS_BY_GUID.get((archetype_id or "").lower())
+    key = (archetype_id or "").lower()
+    return CARD_DEFS_BY_GUID.get(key) or RUNTIME_CARD_DEFS_BY_GUID.get(key)
 
 
 def subtypes_for(archetype_id: Optional[str]) -> List[str]:

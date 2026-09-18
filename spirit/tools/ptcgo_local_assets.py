@@ -643,6 +643,8 @@ def main() -> int:
                         help="Import only native Radiant Collection artwork and masks")
     parser.add_argument("--premium-xy-only", action="store_true",
                         help="Refresh only the 14 exact Premium Trainer's XY foil masks")
+    parser.add_argument("--vunion-only", action="store_true",
+                        help="Install the 20 V-UNION parts, five complete faces and original foil masks")
     parser.add_argument(
         "--replace-landing-pages",
         action="store_true",
@@ -659,6 +661,11 @@ def main() -> int:
         parser.error("--radiant-only and --ui-only cannot be combined")
     if args.premium_xy_only and (args.ui_only or args.radiant_only):
         parser.error("--premium-xy-only cannot be combined with --ui-only or --radiant-only")
+    if args.vunion_only and (args.ui_only or args.radiant_only or args.premium_xy_only):
+        parser.error("--vunion-only cannot be combined with another targeted or UI import")
+    if args.vunion_only:
+        from spirit.tools.import_vunion import import_vunion
+        return 2 if import_vunion(source) else 0
 
     premium_failed = False
     if not args.ui_only and not args.radiant_only:
@@ -684,8 +691,13 @@ def main() -> int:
             return 2 if radiant['unavailable'] else 0
 
     energy_failures = []
+    vunion_failures = []
     if not args.ui_only:
         card_totals = import_card_art(source)
+        # Composite V-UNION faces have nonnumeric native texture names, so
+        # they need the dedicated importer in addition to physical card art.
+        from spirit.tools.import_vunion import import_vunion
+        vunion_failures = import_vunion(source)
         print(
             "[cards] done: "
             f"{card_totals['written']} updated, "
@@ -710,7 +722,7 @@ def main() -> int:
         )
         created = seed_original_landing_pages(args.replace_landing_pages)
         print(f"[menus] {created} original home landing page(s) created")
-    return 2 if energy_failures or premium_failed else 0
+    return 2 if energy_failures or premium_failed or vunion_failures else 0
 
 
 if __name__ == "__main__":

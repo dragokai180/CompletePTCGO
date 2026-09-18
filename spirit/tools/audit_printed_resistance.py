@@ -161,12 +161,29 @@ def audit(index):
         counts[definition.set_code] += 1
         if expected[1]:
             resistant[expected[1]] += 1
+        # Public card datasets repeat the whole V-UNION's characteristics on
+        # all four entries. Only the assembled Pokemon has that Resistance;
+        # checking a fragment against it would manufacture stats outside play.
+        assembled_layers = []
+        if getattr(definition, 'vunion_part', False):
+            from spirit.game.vunion import assembled_definition
+            from spirit.game.models.card import PokemonCard
+            combined = assembled_definition(definition.vunion_name)
+            raw = combined.to_archetype_dict()
+            combined_model = PokemonCard(combined.guid, combined.key, raw['attributes'])
+            assembled_layers = [
+                ('assembled-definition', combined.extra_attributes, expected),
+                ('assembled-model', combined_model.attributes, expected),
+                ('assembled-client', combined_model.to_archetype_attributes('resistance-audit'), expected),
+            ]
+            expected = (PokemonTypes.UNSET.value, 0)
         # Validate mechanics, loaded model and client serialization separately.
-        for layer, attrs in (
+        layers = [(layer, attrs, expected) for layer, attrs in (
             ('definition', definition.extra_attributes),
             ('model', model.attributes),
             ('client', model.to_archetype_attributes('resistance-audit')),
-        ):
+        )]
+        for layer, attrs, expected in [*layers, *assembled_layers]:
             actual = attribute_resistance(attrs)
             if actual != expected:
                 mismatches.append({'card': label, 'layer': layer,

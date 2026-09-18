@@ -268,16 +268,21 @@ class PokemonEntity(CardEntity):
 
     def _initialize_attributes(self):
         super()._initialize_attributes()
-        if self.card_obj.get_attribute_value(AttrID.STAGE) == PokemonStage.LEGEND.value:
+        if self.card_obj.get_attribute_value(AttrID.STAGE) in (PokemonStage.LEGEND.value, PokemonStage.VUNION.value):
             # Rules operate on PokemonEntity pairs; only the wire format uses
             # LegendHalf. Keep Pokemon searches and pair rules unchanged.
             self.set_attribute(AttrID.CARD_TYPE, CardType.POKEMON.value)
-        hp_val = self.card_obj.get_attribute_value(AttrID.HP, 100)
+        # V-UNION fragments have no HP outside play; never manufacture 100 HP.
+        fragment = (self.card_obj.get_attribute_value(AttrID.STAGE) == PokemonStage.VUNION.value
+                    and self.card_obj.get_attribute_value(AttrID.HP) is None)
+        hp_val = self.card_obj.get_attribute_value(AttrID.HP, 0 if fragment else 100)
         self.set_attribute(AttrID.HP, hp_val)
         self.attribute_originals[AttrID.HP.value] = hp_val
 
     def client_card_type(self) -> int:
-        if self.get_attribute(AttrID.STAGE) == PokemonStage.LEGEND.value:
+        if (self.get_attribute(AttrID.STAGE) == PokemonStage.LEGEND.value
+                or (self.get_attribute(AttrID.STAGE) == PokemonStage.VUNION.value
+                    and self.card_obj.get_attribute_value(AttrID.HP) is None)):
             return CardType.LEGEND_HALF.value
         return self.get_attribute(AttrID.CARD_TYPE)
 
@@ -297,7 +302,17 @@ class PokemonEntity(CardEntity):
         return "com.direwolfdigital.cake.rules.entities.Pokemon"
 
 
-class LegendPokemonEntity(PokemonEntity):
+class CompositePokemonEntity(PokemonEntity):
+    """One in-play Pokemon backed by multiple physical cards, never a deck card."""
+
+    def serialize(self, viewer_id: Optional[str] = None) -> Dict[str, Any]:
+        tree = super().serialize(viewer_id)
+        part_ids = {part.entity_id for part in self.physical_parts}
+        tree['children'] = [c for c in tree['children'] if c['entityID'] not in part_ids]
+        return tree
+
+
+class LegendPokemonEntity(CompositePokemonEntity):
     """Native in-play composite, not a third physical card.
 
     LegendaryCardRenderer combines the two physical HalfLegend entities referenced by
@@ -306,6 +321,7 @@ class LegendPokemonEntity(PokemonEntity):
     def __init__(self, top: PokemonEntity, bottom: PokemonEntity):
         super().__init__(top.card_obj, top.owning_player_id)
         self.legend_halves = (top, bottom)
+        self.physical_parts = self.legend_halves
         self.set_attribute(AttrID.IS_LEGEND, True)
         self.set_attribute(AttrID.LEGEND_TOP_HALF, top.entity_id)
         self.set_attribute(AttrID.LEGEND_BOTTOM_HALF, bottom.entity_id)
@@ -473,7 +489,7 @@ class BoardState:
 
         if not isinstance(card, CardEntity) or not isinstance(to_area, PlayArea):
             return False
-        if isinstance(card, LegendPokemonEntity) and to_area.get_attribute(AttrID.NAME) not in (
+        if isinstance(card, CompositePokemonEntity) and to_area.get_attribute(AttrID.NAME) not in (
                 "bench", "activePokemonArea"):
             return False
 
@@ -489,7 +505,7 @@ class BoardState:
         return True
 
     def _retire_empty_legend(self, parent, moved_id, destination_id):
-        if not isinstance(parent, LegendPokemonEntity) or parent.children:
+        if not isinstance(parent, CompositePokemonEntity) or parent.children:
             return
         if parent.parent is not None:
             parent.parent.remove_child(parent)
@@ -861,8 +877,8 @@ class BoardState:
             wire_out = next(c for c in entities['children'] if c['entityID'] == out.entity_id)
             for owner in self.player_ids:
                 for pokemon in self.pokemon_in_play(owner):
-                    if isinstance(pokemon, LegendPokemonEntity):
-                        for half in pokemon.legend_halves:
+                    if isinstance(pokemon, CompositePokemonEntity):
+                        for half in pokemon.physical_parts:
                             if half.parent is pokemon:
                                 wire_half = half.serialize(viewer_id)
                                 wire_half['parentID'] = out.entity_id

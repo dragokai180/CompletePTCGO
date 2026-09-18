@@ -107,7 +107,7 @@ def _persist_match_result(account_id: str, coins: int, is_winner: bool,
         grant_coins(account_id, coins)
     if award_ladder:
         award_match_points(account_id, is_winner)
-from spirit.game.models.board import BoardEntity, BoardState, EnergyEntity, PokemonEntity, LegendPokemonEntity
+from spirit.game.models.board import BoardEntity, BoardState, EnergyEntity, PokemonEntity, LegendPokemonEntity, CompositePokemonEntity
 from .effects import (
     EffectContext,
     resolve_activated_ability,
@@ -754,7 +754,9 @@ class GameSession:
                 OutboundMsg.START_SEQUENCE.value,
                 {"gameID": self.game_id, "sequenceID": child_id, "name": nested.name},
             )),
-            *(self._sequence_envelope(child_id, msg) for msg in nested.messages),
+            *(packet for msg in nested.messages for packet in (
+                self._nested_sequence_envelopes(msg) if isinstance(msg, NestedSequence)
+                else [self._sequence_envelope(child_id, msg)])),
             self._sequence_envelope(child_id, self._build_msg(
                 OutboundMsg.STOP_SEQUENCE.value,
                 {"gameID": self.game_id, "sequenceID": child_id, "name": nested.name},
@@ -1500,7 +1502,7 @@ class GameSession:
         """
         entity = self.board_state.get_entity(entity_id)
         destination = self.board_state.get_entity(destination_id)
-        if isinstance(destination, LegendPokemonEntity) and entity in destination.legend_halves:
+        if isinstance(destination, CompositePokemonEntity) and entity in destination.physical_parts:
             # Referenced image sources are not additional zoom attachments.
             # Match BoardState.serialize's native LEGEND wire projection while
             # retaining both physical cards in the authoritative rules stack.
@@ -2569,7 +2571,7 @@ class GameSession:
                 # afterwards, not moved to discard as a third physical card.
                 sequence = (GameSequence.KNOCKOUT
                             if pokemon.client_card_type() == CardType.POKEMON.value
-                            and not isinstance(pokemon, LegendPokemonEntity)
+                            and not isinstance(pokemon, CompositePokemonEntity)
                             else GameSequence.GROUPED_MOVE)
                 moves.extend(hp_resets)
                 moves.extend(viz_msgs)
@@ -3320,7 +3322,9 @@ class GameSession:
 
     def credit_card_damage(self, player_id: str, entity, amount: int):
         """Accumulates damage per attacking card for the EOG MVP pick."""
-        guid = getattr(entity, "archetype_id", None)
+        guid = (entity.get_attribute(AttrID.ARCHETYPE_ID)
+                if isinstance(entity, CompositePokemonEntity)
+                else getattr(entity, "archetype_id", None))
         if not guid or amount <= 0:
             return
         name = entity.get_attribute(AttrID.NAME)
@@ -3598,6 +3602,8 @@ class GameSession:
         """Between-turns checkup, per player (turn order), on that player's
         ACTIVE only: Poison -> Burn -> Sleep -> Paralysis-cure. Then fires
         BETWEEN_TURNS triggered abilities for every in-play Pokemon."""
+        from spirit.game.vunion import refresh_vunion_conditions
+        await refresh_vunion_conditions(self)
         active_id = active_id if active_id is not None else self.turn_state.active_player_id
         turn_number = self.turn_state.turn_number
         # Scheduled cross-turn effects (Word of Ruin timers) fire FIRST, before
@@ -4932,6 +4938,8 @@ class GameSession:
         Recomputed rather than pushed and popped, so a Stadium that leaves play
         takes its rows with it. Only broadcasts on change, so the common case --
         no passive contributing any -- costs a comparison per player."""
+        from spirit.game.vunion import refresh_vunion_conditions
+        await refresh_vunion_conditions(self)
         for player_id in self.players:
             entity = self.board_state.find_player_entity(player_id)
             if entity is None:
@@ -5502,7 +5510,9 @@ class GameSession:
                 or incoming is outgoing:
             return None
         actor_id = getattr(ctx, "player_id", owner_id)
-        if pokemon_entry_blocked(self.board_state, actor_id, incoming):
+        if pokemon_entry_blocked(self.board_state, actor_id, incoming,
+                                 source=getattr(ctx, "source", None),
+                                 ability=getattr(ctx, "ability", None)):
             return None
         source_area = incoming._containing_area_name()
         dest = self.board_state.find_player_area(owner_id, destination_name)

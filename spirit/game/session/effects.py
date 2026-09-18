@@ -36,7 +36,7 @@ from spirit.game.data_utils import (
     has_rule_box,
     unimplemented,
 )
-from spirit.game.models.board import BoardEntity, CardEntity, EnergyEntity, PokemonEntity, LegendPokemonEntity
+from spirit.game.models.board import BoardEntity, CardEntity, EnergyEntity, PokemonEntity, LegendPokemonEntity, CompositePokemonEntity
 from spirit.network.message_names import OutboundMsg
 from spirit.game.game_sequence_packets import NestedSequence
 from .constants import PROMPT_NO, PROMPT_YES
@@ -2149,7 +2149,7 @@ class EffectContext:
 
     async def put_on_top_of_deck(self, card: CardEntity) -> bool:
         """Puts a card on top of its owner's deck."""
-        if isinstance(card, LegendPokemonEntity):
+        if isinstance(card, CompositePokemonEntity):
             results = [await self.put_on_top_of_deck(c) for c in reversed(full_stack(card))]
             return bool(results) and all(results)
         owner = card.owning_player_id or self.player_id
@@ -2171,7 +2171,7 @@ class EffectContext:
 
     async def put_on_bottom_of_deck(self, card: CardEntity) -> bool:
         """Puts a card on the bottom of its owner's deck (position 0)."""
-        if isinstance(card, LegendPokemonEntity):
+        if isinstance(card, CompositePokemonEntity):
             results = [await self.put_on_bottom_of_deck(c) for c in full_stack(card)]
             return bool(results) and all(results)
         owner = card.owning_player_id or self.player_id
@@ -2234,7 +2234,8 @@ class EffectContext:
         return (
             bench is not None
             and len(bench.children) < effective_bench_capacity(self.board, owner)
-            and not pokemon_entry_blocked(self.board, self.player_id, card)
+            and not pokemon_entry_blocked(self.board, self.player_id, card,
+                                          source=self.source, ability=self.ability)
         )
 
     async def bench_pokemon(self, card: CardEntity) -> bool:
@@ -2883,7 +2884,7 @@ def physical_movement_cards(cards: Sequence[CardEntity]) -> List[CardEntity]:
     out = []
     seen = set()
     for card in cards:
-        for physical in full_stack(card) if isinstance(card, LegendPokemonEntity) else [card]:
+        for physical in full_stack(card) if isinstance(card, CompositePokemonEntity) else [card]:
             if physical.entity_id not in seen:
                 seen.add(physical.entity_id)
                 out.append(physical)
@@ -2892,7 +2893,7 @@ def physical_movement_cards(cards: Sequence[CardEntity]) -> List[CardEntity]:
 
 def full_stack(pokemon: PokemonEntity) -> List[CardEntity]:
     """Physical cards only: an assembled LEGEND is not a third card."""
-    out: List[CardEntity] = [] if isinstance(pokemon, LegendPokemonEntity) else [pokemon]
+    out: List[CardEntity] = [] if isinstance(pokemon, CompositePokemonEntity) else [pokemon]
     queue: List[BoardEntity] = list(pokemon.children)
     while queue:
         entity = queue.pop(0)
@@ -2915,9 +2916,9 @@ def split_pokemon_stack(
     Stage 2 directly on a Basic Pokémon.
     """
     cards = list(stack) if stack is not None else full_stack(pokemon)
-    if isinstance(pokemon, LegendPokemonEntity):
+    if isinstance(pokemon, CompositePokemonEntity):
         cards = [card for card in cards if card is not pokemon]
-        half_ids = {half.entity_id for half in pokemon.legend_halves}
+        half_ids = {half.entity_id for half in pokemon.physical_parts}
         return ([card for card in cards if card.entity_id in half_ids],
                 [card for card in cards if card.entity_id not in half_ids])
     if pokemon not in cards:

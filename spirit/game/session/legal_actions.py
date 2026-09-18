@@ -134,6 +134,8 @@ class TurnState:
     vstar_used: Set[str] = field(default_factory=set)
     # Players who already used their once-per-game GX attack.
     gx_used: Set[str] = field(default_factory=set)
+    # V-UNION is a once-per-game play rule, independently for each owner/name.
+    vunion_played: Set[Tuple[str, str]] = field(default_factory=set)
     # Bonnie permits only the named Pokemon to reuse GX, for this turn.
     gx_repeat_names_this_turn: Dict[str, Set[str]] = field(default_factory=dict)
     # Players forbidden from declaring GX attacks for the rest of the game
@@ -864,14 +866,14 @@ def _out_of_zone_ability_entries(
     for zone in ("hand", "discard"):
         area = board.find_player_area(player_id, zone)
         for card in (area.children if area else []):
-            if out_of_play_ability_locked(board, card):
-                continue
             for entry in card.get_attribute(AttrID.PIE_ABILITIES) or []:
                 if not isinstance(entry, dict):
                     continue
                 ability_id = entry.get("abilityID")
                 ability = ABILITIES_BY_ID.get(ability_id) if ability_id else None
                 if ability is None or ability.usable_from != zone:
+                    continue
+                if not ability.is_rule_action and out_of_play_ability_locked(board, card):
                     continue
                 if ability.effect is None:
                     continue

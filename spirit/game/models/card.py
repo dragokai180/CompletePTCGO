@@ -210,7 +210,8 @@ class PokemonCard(Card):
 
     @property
     def hp(self) -> int:
-        return safe_int(self.get_attribute_value(AttrID.HP), 100)
+        return safe_int(self.get_attribute_value(AttrID.HP),
+                        0 if self.stage == PokemonStage.VUNION else 100)
 
     @property
     def stage(self) -> int:
@@ -238,7 +239,9 @@ class PokemonCard(Card):
         # soon as a half is introduced (including during the opening deal).
         final_attrs[str(AttrID.CARD_TYPE.value)] = {
             "type": "int", "value": (
-                CardType.LEGEND_HALF.value if self.stage == PokemonStage.LEGEND.value
+                CardType.LEGEND_HALF.value if (self.stage == PokemonStage.LEGEND.value
+                    or (self.stage == PokemonStage.VUNION.value
+                        and self.get_attribute_value(AttrID.HP) is None))
                 else CardType.POKEMON.value
             )
         }

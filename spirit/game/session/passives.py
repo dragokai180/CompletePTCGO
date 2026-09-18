@@ -10,7 +10,7 @@ or max HP, so effects switch on/off purely by board position.
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-from spirit.game.attributes import AttrID, PokemonTypes, TrainerType
+from spirit.game.attributes import AttrID, PokemonTypes, PokemonStage, TrainerType
 from spirit.game.data_utils import ABILITIES_BY_ID, def_for, subtypes_for
 from spirit.game.models.board import (
     BENCH_SLOT_COUNT,
@@ -811,6 +811,8 @@ def out_of_play_ability_locked(board: BoardState, card: BoardEntity) -> bool:
     """
     if not isinstance(card, PokemonEntity):
         return False
+    if card._containing_area_name() not in ("hand", "discard"):
+        return False
     state = getattr(board, "turn_state", None)
     if state is not None and state.turn_number <= getattr(
             state, "abilities_disabled_through_turn", 0):
@@ -1173,23 +1175,51 @@ def trainer_play_blocked(board: BoardState, player_id: str, card: BoardEntity) -
 
 def pokemon_play_blocked(board: BoardState, player_id: str, card: BoardEntity) -> bool:
     """Whether a continuous passive forbids playing `card` from hand."""
-    return any(
+    return pokemon_entry_blocked(board, player_id, card) or any(
         passive.blocks_pokemon_play(card, player_id, carrier)
-        or passive.blocks_pokemon_entry(card, player_id, carrier)
         for passive, carrier in active_passives(board)
     )
 
 
-def pokemon_entry_blocked(board: BoardState, player_id: str, card: BoardEntity) -> bool:
+def pokemon_entry_blocked(board: BoardState, player_id: str, card: BoardEntity,
+                          *, source=None, ability=None) -> bool:
     """Any-zone entry restriction; player_id is the effect's controller.
 
     A Pokemon already on the field may still switch or be promoted.
     Hand-only restrictions deliberately do not apply to effect-driven entry.
     """
+    # A V-UNION fragment is not a Pokemon that can enter play by itself,
+    # including effects which put Pokemon directly from the discard/deck.
+    if getattr(def_for(card.archetype_id), 'vunion_part', False):
+        return True
     if card.parent is not None and card.parent.get_attribute(AttrID.NAME) in (
         "activePokemonArea", "bench"
     ):
         return False
+    definition = def_for(card.archetype_id)
+    source_definition = def_for(source.archetype_id) if source is not None else None
+    source_name = getattr(source_definition, "display_name", "")
+    title = getattr(ability, "title", "")
+    if card.get_attribute(AttrID.STAGE) == PokemonStage.RESTORED.value:
+        # Printed Restored entry rules are not Abilities: Garbotoxin cannot
+        # remove them. Only the matching Fossil or explicit Restored support
+        # overrides the rule; generic "put a Pokemon" effects do not.
+        fossil = card.get_attribute(AttrID.EVOLUTION_LOGIC_FROM) or ""
+        source_key = (getattr(source_definition, "name", "") or "").split(".")
+        matching_fossil = bool(fossil and len(source_key) >= 2
+                              and fossil == source_key[-2])
+        restored_support = (
+            source_name == "Twist Mountain"
+            or (source_name == "Omastar" and title == "Restoring Beam")
+            or (source_name == "Fossil Researcher"
+                and getattr(definition, "display_name", "") in ("Amaura", "Tyrunt")))
+        if not (matching_fossil or restored_support):
+            return True
+    if any(getattr(a, "title", "") == "Hero's Spirit"
+           for a in getattr(definition, "abilities", [])):
+        zero_to_hero = source_name == "Palafin" and title == "Zero to Hero"
+        if not zero_to_hero and not out_of_play_ability_locked(board, card):
+            return True
     return any(
         passive.blocks_pokemon_entry(card, player_id, carrier)
         for passive, carrier in active_passives(board)

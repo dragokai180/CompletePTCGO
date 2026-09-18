@@ -4,15 +4,17 @@ from spirit.game.data_utils import Ability, Activations
 from spirit.game.session.effects import is_evolution_pokemon, is_pokemon_card
 from spirit.game.session.passives import (
     effective_max_hp, effective_pokemon_types, evolution_blocked, effective_bench_capacity,
+    pokemon_entry_blocked,
 )
 
 
 def last_card_recovery(pokemon_type):
-    """Archie/Maxie: mandatory typed recovery, then draw; any Stage is legal."""
+    """Archie/Maxie: typed recovery, respecting the target's entry rules."""
     def candidates(board, player_id):
         discard = board.find_player_area(player_id, 'discard')
         return [card for card in (discard.children if discard is not None else [])
                 if is_pokemon_card(card)
+                and not pokemon_entry_blocked(board, player_id, card)
                 and pokemon_type in (card.get_attribute(AttrID.POKEMON_TYPES) or [])]
 
     def condition(board, player_id, source=None):

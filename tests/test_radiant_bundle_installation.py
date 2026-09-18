@@ -80,6 +80,7 @@ class RadiantBundleInstallationTests(unittest.TestCase):
                                 (['--radiant-only'], 1)):
             with self.subTest(flags=flags), tempfile.TemporaryDirectory() as tmp:
                 with patch('sys.argv', ['installer', '--source', tmp, *flags]), \
+                        patch('spirit.tools.import_vunion.import_vunion', return_value=[]), \
                         patch.object(installer, 'import_radiant_collections', return_value={
                             'written': 0, 'unchanged': 1, 'masks_written': 1, 'unavailable': 0}) as rc, \
                         patch.object(installer, 'import_card_art', return_value={

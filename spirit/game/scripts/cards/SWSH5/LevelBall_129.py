@@ -5,7 +5,7 @@ from spirit.game.session.effects import is_pokemon_card
 
 
 def _hp_90_or_less(card):
-    return is_pokemon_card(card) and (card.get_attribute(AttrID.HP) or 0) <= 90
+    return is_pokemon_card(card) and 0 < (card.get_attribute(AttrID.HP) or 0) <= 90
 
 
 card = ItemCardDef(

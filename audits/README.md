@@ -8,6 +8,8 @@ This folder collects the project's audit reports and local investigation results
 
 ## Reports
 
+- [Restored Pokemon and Hero's Spirit entry rules](reports/RESTRICTED_POKEMON_ENTRY.md)
+- [Original PTCGO V-UNION implementation](reports/vunion-implementation.md)
 - [Player choice, deck ownership and private views](reports/PLAYER_CHOICE_EFFECTS.md)
 - [All-card execution and effect audit — 2026-09-18](reports/ALL_CARD_CAMPAIGN_2026-09-18.md)
 - [Lost Zone destinations, payments and damage](reports/LOST_ZONE_AUDIT.md)

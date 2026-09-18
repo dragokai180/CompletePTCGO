@@ -31,6 +31,7 @@ from spirit.game.data_utils import (
 )
 from spirit.game.session.passives import (
     Passive, TurnDamageModifier, effective_max_hp, effective_pokemon_types,
+    effective_bench_capacity,
 )
 from spirit.game.session.effects import (
     full_stack,
@@ -2702,10 +2703,17 @@ def standard_trainer_effect(game_text: str):
             deck = list(ctx.deck())
             viewed = deck[:int(bottom.group(1))]
             predicate = _search_predicate(text)
+            # Fossils name a species rather than saying "Pokemon". Do not
+            # mistake the trailing Item reminder for the requested card type.
+            named = re.search(r"reveal an? ([^.]+?) you find there", text)
+            if named and "onto your bench" in text:
+                wanted_name = named.group(1)
+                predicate = lambda card: is_pokemon_card(card) and _card_name(card).casefold() == wanted_name
             eligible = [card for card in viewed if predicate is None or predicate(card)]
             count = 2 if "put 2 of them into your hand" in text else 1
             if "onto your bench" in text:
-                free = max(0, 5 - len(ctx.my_bench()))
+                eligible = [card for card in eligible if ctx.can_bench_pokemon(card)]
+                free = max(0, effective_bench_capacity(ctx.board, ctx.player_id) - len(ctx.my_bench()))
                 count = min(count, free)
             selectable = eligible if count > 0 else []
             picks = await ctx.choose_cards(

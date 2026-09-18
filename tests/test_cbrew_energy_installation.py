@@ -12,6 +12,7 @@ class CbrewEnergyInstallationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory)
             with patch("sys.argv", ["installer", "--source", directory, *flags]), \
+                 patch("spirit.tools.import_vunion.import_vunion", return_value=[]), \
                  patch.object(installer, "import_card_art", return_value={
                      "written": 0, "unchanged": 0, "unavailable": 0,
                  }) as cards, \

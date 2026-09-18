@@ -4577,8 +4577,8 @@ def _ability_search_predicate(text: str):
     if hp_limit:
         predicate = _ability_search_predicate(text.replace(hp_limit.group(0), ""))
         return lambda card: is_pokemon_card(card) and (
-            predicate is None or predicate(card)) and int(
-                def_for(card.archetype_id).extra_attributes[str(AttrID.HP.value)]["value"]
+            predicate is None or predicate(card)) and 0 < int(
+                def_for(card.archetype_id).extra_attributes.get(str(AttrID.HP.value), {}).get("value", 0)
             ) <= int(hp_limit.group(1))
     from spirit.game.card_effects.search_descriptors import specific_search_predicate
     specific = specific_search_predicate(text)
@@ -7978,7 +7978,8 @@ async def bw_legacy_attack(ctx):
         viewed = ctx.deck_top(int(top_selection.group(1)))
         picks = []
         if "onto your bench" in text:
-            candidates = [card for card in viewed if is_pokemon_card(card)]
+            candidates = [card for card in viewed
+                          if is_pokemon_card(card) and ctx.can_bench_pokemon(card)]
             if "basic pokémon" in text:
                 candidates = [card for card in candidates if is_basic_pokemon(card)]
             capacity = max(

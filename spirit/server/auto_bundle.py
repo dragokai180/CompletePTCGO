@@ -434,6 +434,18 @@ def check_and_generate_bundles() -> int:
 
             card_assets = {asset_name: png_path}
 
+            # The native V-UNION renderer requests one combined face. This is
+            # an asset, not a fifth collectible card or deck archetype.
+            if getattr(card_def, 'vunion_part', False):
+                combined_stem = f'{card_def.vunion_name}VUNION_combined'
+                combined = os.path.join(CARDS_IMG_DIR, rel_dir, combined_stem + '.png')
+                if os.path.exists(combined):
+                    card_assets[card_def.vunion_texture] = combined
+                for suffix, kind in FOIL_KIND_SUFFIXES.items():
+                    combined_mask = os.path.join(CARDS_IMG_DIR, rel_dir, combined_stem + suffix + '.png')
+                    if os.path.exists(combined_mask):
+                        foil_sets.setdefault(set_code, {}).setdefault(kind, {})[card_def.vunion_texture] = combined_mask
+
             # Foil masks live in their own {SET}_wp_{kind}_Foil2 bundles
             # with textures named by padded number: the client's request
             # "{SET}_wp_std_Foil2/127" strips to LoadAsset("127"), so a

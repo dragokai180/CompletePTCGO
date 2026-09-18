@@ -42,6 +42,7 @@ class PremiumXYInstallationTests(unittest.TestCase):
                              (['--radiant-only'], 0), (['--premium-xy-only'], 1)):
             with self.subTest(flags=flags), tempfile.TemporaryDirectory() as tmp:
                 with patch('sys.argv', ['installer', '--source', tmp, *flags]), \
+                        patch('spirit.tools.import_vunion.import_vunion', return_value=[]), \
                         patch.object(installer, 'import_premium_xy_foils', return_value={'written': 14, 'missing': [], 'available': True}) as premium, \
                         patch.object(installer, 'import_radiant_collections', return_value={'written': 0, 'unchanged': 0, 'masks_written': 0, 'unavailable': 0}), \
                         patch.object(installer, 'import_card_art', return_value={'written': 0, 'unchanged': 0, 'unavailable': 0}) as cards, \
