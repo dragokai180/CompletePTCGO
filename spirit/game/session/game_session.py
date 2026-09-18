@@ -5139,7 +5139,10 @@ class GameSession:
             )
             return False
         definition = def_for(card.archetype_id)
-        is_mega = "MEGA" in (getattr(definition, "subtypes", []) or [])
+        subtypes = set(getattr(definition, "subtypes", []) or [])
+        # Imported modern ex can also carry the generic MEGA classification.
+        # Only the original upper-case EX rule ends the turn on evolution.
+        is_mega = "MEGA" in subtypes and "SV_Mega" not in subtypes and "ex" not in subtypes
         linked = is_mega and self._has_matching_spirit_link(target, definition)
         evolved = await self.perform_evolution(player_id, card, target)
         # XY-era Mega Evolution rule: becoming a Mega ends the turn unless the

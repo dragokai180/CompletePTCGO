@@ -8,6 +8,9 @@ This folder collects the project's audit reports and local investigation results
 
 ## Reports
 
+- [Lost Zone destinations, payments and damage](reports/LOST_ZONE_AUDIT.md)
+
+- [Mandatory costs, Mega ex evolution and attack-effect shields](reports/MODERN_COSTS_AND_EFFECT_SHIELDS.md)
 - [Interpreter transactions, conditions and quantities](reports/INTERPRETER_TRANSACTION_AUDIT.md)
 
 - [HeartGold & SoulSilver](reports/HGSS_RULES_AUDIT.md)

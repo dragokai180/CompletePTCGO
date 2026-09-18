@@ -198,6 +198,10 @@ class Passive:
         """True to shield `target` from opponents' attack EFFECTS (not damage)."""
         return False
 
+    def blocks_attack_effects_from(self, target, carrier, attacker=None, attack=None):
+        """Context-aware shields may restrict the attacking Pokemon or GX attack."""
+        return self.blocks_attack_effects(target, carrier)
+
     def blocks_abilities(self, pokemon: PokemonEntity, carrier: BoardEntity) -> bool:
         """True to turn off `pokemon`'s Abilities (Path to the Peak style)."""
         return False
@@ -1013,10 +1017,11 @@ def effective_max_hp(board: BoardState, pokemon: PokemonEntity) -> int:
     return printed + bonus
 
 
-def attack_effects_blocked(board: BoardState, target: PokemonEntity) -> bool:
+def attack_effects_blocked(board: BoardState, target: PokemonEntity,
+                           attacker=None, attack=None) -> bool:
     """Whether a passive shields `target` from opposing attack effects."""
     return any(
-        passive.blocks_attack_effects(target, carrier)
+        passive.blocks_attack_effects_from(target, carrier, attacker, attack)
         for passive, carrier in active_passives(board)
     )
 

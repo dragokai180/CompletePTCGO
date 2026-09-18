@@ -286,7 +286,7 @@ class EffectContext:
         if self.is_attack_effect():
             if attack_ignores_defender_effects(self.board, self.attacker):
                 return False
-            return attack_effects_blocked(self.board, target)
+            return attack_effects_blocked(self.board, target, self.attacker, self.ability)
         if self.is_ability_effect():
             return ability_effects_blocked(self.board, target)
         return False
@@ -340,6 +340,17 @@ class EffectContext:
             )
             return True
         return False
+
+    def _pokemon_move_effect_blocked(self, card) -> bool:
+        """Effects on an in-play Pokemon include removal of its attachments.
+
+        Knockout cleanup is a game rule, not a preventable attack effect.
+        Hidden/public pile cards are not shielded by their printed Ability.
+        """
+        holder = carrier_pokemon(card)
+        return bool(holder is not None and self.pokemon_is_in_play(holder)
+                    and holder.get_attribute(AttrID.HP, 0) > 0
+                    and self.effects_blocked(holder))
 
     async def _run_damage_interceptors(self, calc, target: PokemonEntity) -> int:
         """Awaitable damage stage (Guts/Infiltrator): runs AFTER compute_damage
@@ -718,6 +729,8 @@ class EffectContext:
                               expires_after_turn: Optional[int] = None) -> None:
         """Attaches an effect-granted passive to `target` (expires_after_turn
         None = until it leaves the Active spot / play)."""
+        if isinstance(target, PokemonEntity) and self.effects_blocked(target):
+            return
         self.board.temporary_passives.append(
             TempPassive(passive, target.entity_id, expires_after_turn,
                         from_attack=self.is_attack_effect())
@@ -793,6 +806,8 @@ class EffectContext:
         """"The Defending Pokemon can't retreat during your opponent's next
         turn" (default); pass legal_actions.LOCK_UNTIL_LEAVES_ACTIVE to hold
         the lock until it leaves the Active spot."""
+        if self.effects_blocked(target):
+            return
         self.session.turn_state.lock_retreat(target.entity_id, through_turn,
                                             from_attack=self.is_attack_effect())
 
@@ -1204,9 +1219,13 @@ class EffectContext:
                                   counters: int) -> None:
         """Sets a Pokemon's damage to exactly `counters` (HP = max - 10n,
         Claydol-style); a result of 0 HP enqueues the knockout."""
-        if target is None:
+        if not self.pokemon_is_in_play(target):
+            return
+        if self.effects_blocked(target) or self._trainer_blocked(target):
             return
         new_hp = max(0, self.max_hp(target) - counters * 10)
+        if new_hp < target.get_attribute(AttrID.HP, 0) and self._counters_blocked(target):
+            return
         target.set_attribute(AttrID.HP, new_hp)
         self._queue_hp_update(target)
         if new_hp <= 0 and target not in self.knockouts:
@@ -1568,6 +1587,7 @@ class EffectContext:
         reveal=True presents each card large to the opponent on the way
         ("...reveal it, and put it into your hand").
         """
+        cards = [card for card in cards if not self._pokemon_move_effect_blocked(card)]
         reveal_batches = {}
         # Snapshot before the first stack member moves: attachments then
         # inherit its new hand location. Return moves must run AFTER the
@@ -1702,6 +1722,8 @@ class EffectContext:
     ) -> List[CardEntity]:
         """Discards `count` Energy attached to `pokemon` (chooser over the pips
         when the player must pick; all matching when count covers them all)."""
+        if self._pokemon_move_effect_blocked(pokemon):
+            return []
         energies = [e for e in self.attached_energies(pokemon)
                     if predicate is None or predicate(e)]
         if not energies or count <= 0:
@@ -1782,7 +1804,7 @@ class EffectContext:
         # Resolve simultaneous discard replacements while the entire stack is
         # still in play. Moving its Pokemon first must not turn off Recycle
         # Energy/U-Turn Board before their own destinations are determined.
-        cards = list(cards)
+        cards = [card for card in cards if not self._pokemon_move_effect_blocked(card)]
         replacements = {
             card.entity_id: passive_discard_destination(self.board, card)
             for card in cards
@@ -1997,6 +2019,7 @@ class EffectContext:
         deck = self.board.find_player_area(pid, "deck")
         if not deck:
             return
+        cards = [card for card in cards if not self._pokemon_move_effect_blocked(card)]
         for card in cards:
             if self._trainer_blocked(card) or self._energy_removal_blocked(card):
                 continue
@@ -2233,7 +2256,7 @@ class EffectContext:
         ctx.knockouts (the caller's flow resolves it). Flushes queued
         choreography first so the Devolve brackets land in order."""
         removed: List[CardEntity] = []
-        if pokemon is None:
+        if pokemon is None or self.effects_blocked(pokemon):
             return removed
         await self.flush_choreography()
         top = pokemon

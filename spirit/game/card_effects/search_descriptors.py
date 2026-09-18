@@ -25,6 +25,10 @@ def specific_search_predicate(text):
         return lambda c: "tag team" in subtypes(c)
     if "ultra beast card" in descriptor:
         return lambda c: "ultra beast" in subtypes(c)
+    if "future pokémon" in descriptor:
+        return lambda c: is_pokemon_card(c) and "future" in subtypes(c)
+    if "ancient pokémon" in descriptor:
+        return lambda c: is_pokemon_card(c) and "ancient" in subtypes(c)
     if "cards named looker" in descriptor:
         return lambda c: (getattr(def_for(c.archetype_id), "display_name", "") or "").casefold() == "looker"
     if "unidentified fossil card" in descriptor:

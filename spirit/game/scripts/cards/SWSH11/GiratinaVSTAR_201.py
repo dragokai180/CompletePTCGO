@@ -11,12 +11,8 @@ async def lost_impact(ctx):
         energies.extend(ctx.attached_energies(pokemon))
     if not energies:
         return
-    picks = await ctx.choose_cards(
-        energies, 2,
-        prompt="Choose 2 Energy to put in the Lost Zone",
-    )
-    if picks:
-        await ctx.move_to_lost_zone(picks)
+    from spirit.game.card_effects.lost_zone import move_energy_units_to_lost_zone
+    await move_energy_units_to_lost_zone(ctx, energies, 2)
 
 
 async def star_requiem(ctx):

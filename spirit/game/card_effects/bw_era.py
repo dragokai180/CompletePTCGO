@@ -1786,6 +1786,11 @@ class _BWTextPassive(Passive):
     def prevents_damage(self, calc, carrier):
         if not calc.is_attack:
             return False
+        if self._is_attack_effect_shield() and (
+                "including damage" in self.text or "all damage from and effects" in self.text):
+            return calc.is_opposing and self._attack_shield_applies(
+                calc.target, carrier, calc.attacker,
+                is_gx=str(getattr(calc, "attack_title", "") or "").casefold().endswith("-gx"))
         holder = carrier_pokemon(carrier)
         # HGSS uses the printed name where newer cards say "this Pokémon".
         # Check those conditions before the generic immunity branch.
@@ -2195,21 +2200,86 @@ class _BWTextPassive(Passive):
             return 0
         return int(match.group(1))
 
-    def blocks_attack_effects(self, target, carrier):
+    def _is_attack_effect_shield(self):
+        t = self.text
+        return ("prevent all effects" in t or "prevent all damage from and effects" in t) \
+            and "attacks" in t and "done to you or your hand" not in t
+
+    def _attack_shield_applies(self, target, carrier, attacker=None, *, is_gx=False):
+        """Use the same printed scope for prevention of damage and attack riders."""
+        t = self.text
         holder = carrier_pokemon(carrier)
-        if "benched pokémon (both yours and your opponent's)" in self.text:
-            return not _is_active(target)
-        if "each of your pokémon that has any energy attached" in self.text:
-            if target.owning_player_id != carrier.owning_player_id or not _attached(target):
+        board = _board_for(carrier)
+        if "as long as this pokémon is your active pokémon" in t and not _is_active(holder):
+            return False
+        if "as long as this pokémon is on your bench" in t and _is_active(holder):
+            return False
+        required = re.search(r"if you have (.+?) in play", t)
+        if required and not any(_name(p).casefold() == required.group(1)
+                                for p in board.pokemon_in_play(carrier.owning_player_id)):
+            return False
+        if "benched pokémon (both yours and your opponent's)" in t:
+            if _is_active(target):
+                return False
+        elif any(phrase in t for phrase in (
+                "each of your pokémon", "all of your pokémon", "done to your pokémon",
+                "your benched pokémon", "your dragon pokémon", "your basic team rocket's pokémon")):
+            if target.owning_player_id != carrier.owning_player_id:
+                return False
+            if "your benched pokémon" in t and _is_active(target):
+                return False
+            if "your dragon pokémon" in t and PokemonTypes.DRAGON.value not in effective_pokemon_types(board, target):
+                return False
+            if "your basic team rocket's pokémon" in t and not (
+                    _stage(target) == PokemonStage.BASIC.value
+                    and _name(target).casefold().startswith("team rocket's ")):
+                return False
+            if ("have energy attached" in t or "has any energy attached" in t) and not _attached(target):
+                return False
+            if "has any metal energy attached" in t and not _has_energy_type(target, PokemonTypes.METAL):
                 return False
         elif holder is not target:
             return False
-        if "prevent all effects of your opponent's attacks, except damage" in self.text:
-            return True
-        if "prevent all effects of attacks, including damage" in self.text:
-            # Damage is handled by prevents_damage; this hook shields riders.
-            return True
-        return False
+        if "fairy pokémon that this card is attached to" in t \
+                and PokemonTypes.FAIRY.value not in effective_pokemon_types(board, target):
+            return False
+        if "gx attacks" in t and not is_gx:
+            return False
+        if attacker is None:
+            opponent = _other_player_id(board, target.owning_player_id)
+            attacker = _active_from(carrier, opponent)
+        if attacker is None:
+            return False
+        # Smug Face lists alternative sources; do not require all three.
+        if "tag team pokémon and ultra beasts" in t:
+            return (_has_subtype(attacker, "TAG TEAM") or _has_subtype(attacker, "Ultra Beast")
+                    or any(is_special_energy(e) for e in _attached(attacker)))
+        if "special energy attached" in t and not any(is_special_energy(e) for e in _attached(attacker)):
+            return False
+        if "pokémon-gx or pokémon-ex" in t:
+            if not (_has_subtype(attacker, "GX") or _pokemon_ex(attacker)):
+                return False
+        elif "pokémon-ex" in t and not _pokemon_ex(attacker):
+            return False
+        if "pokémon with abilities" in t and not _has_pokemon_ability(attacker):
+            return False
+        if "opponent's stage 2 pokémon" in t and _stage(attacker) != PokemonStage.STAGE2.value:
+            return False
+        if "opponent's evolution pokémon" in t and _stage(attacker) == PokemonStage.BASIC.value:
+            return False
+        if "opponent's mega evolution pokémon" in t and not (
+                _has_subtype(attacker, "MEGA") or _has_subtype(attacker, "SV_Mega")):
+            return False
+        if "opponent's tera pokémon" in t and not _has_subtype(attacker, "Tera"):
+            return False
+        return True
+
+    def blocks_attack_effects_from(self, target, carrier, attacker=None, attack=None):
+        return self._is_attack_effect_shield() and self._attack_shield_applies(
+            target, carrier, attacker, is_gx=bool(getattr(attack, "gx", False)))
+
+    def blocks_attack_effects(self, target, carrier):
+        return self.blocks_attack_effects_from(target, carrier)
 
     def blocks_retreat(self, pokemon, carrier):
         holder = carrier_pokemon(carrier)
@@ -4930,6 +5000,9 @@ async def bw_legacy_attack(ctx):
     from spirit.game.card_effects.attack_draw_transactions import resolve_draw_transaction
     if await resolve_draw_transaction(ctx, text, printed):
         return
+    from spirit.game.card_effects.lost_zone import resolve_lost_zone_attack
+    if await resolve_lost_zone_attack(ctx, text, printed):
+        return
     geomancy = re.search(
         r"choose (\d+) of your benched pokémon\. for each of those pokémon, "
         r"search your deck for an? "
@@ -7639,7 +7712,8 @@ async def bw_legacy_attack(ctx):
                     and await ctx.ask_yes_no("Shuffle your opponent's deck?"):
                 await ctx.shuffle_deck(ctx.opponent_id)
 
-    if "look at your opponent's hand" in text:
+    if "look at your opponent's hand" in text \
+            and "put the pokémon you chose in the lost zone" not in text:
         hand = await ctx.reveal_hand(ctx.opponent_id, ctx.player_id)
         if "put a card you find there in the lost zone" in text and hand:
             chosen = await _choose_one(ctx, hand, "Choose a card")
@@ -9006,9 +9080,10 @@ async def bw_legacy_attack(ctx):
 
     lost_attacker_energy = re.search(
         r"put (1|all) energy(?: cards?)? (?:attached to|from) "
-        r"(?:this pokémon|[a-z0-9 &'’.-]+) in the lost zone", text,
+        r"this pokémon in the lost zone", text,
     )
-    if lost_attacker_energy:
+    if lost_attacker_energy and _attack_clause_allowed(
+            ctx, text, lost_attacker_energy.start(), heads, coin_count):
         energies = list(ctx.attached_energies(ctx.attacker))
         if lost_attacker_energy.group(1) == "all":
             picks = energies
@@ -9024,10 +9099,15 @@ async def bw_legacy_attack(ctx):
         r"put (\d+|an|a) energy(?: cards?)? (?:attached to|from) "
         r"(?:the )?defending pokémon in the lost zone", text,
     )
-    if lost_defender_energy:
+    if lost_defender_energy and _attack_clause_allowed(
+            ctx, text, lost_defender_energy.start(), heads, coin_count):
         count = 1 if lost_defender_energy.group(1) in ("a", "an") \
             else int(lost_defender_energy.group(1))
         energies = list(ctx.attached_energies(ctx.defender))
+        if "card" not in lost_defender_energy.group(0):
+            from spirit.game.card_effects.lost_zone import move_energy_units_to_lost_zone
+            await move_energy_units_to_lost_zone(ctx, energies, count)
+            energies = []  # Value-based payment already resolved this clause.
         picks = await ctx.choose_cards(
             energies, min(count, len(energies)),
             minimum=min(count, len(energies)),
@@ -10395,6 +10475,9 @@ async def bw_legacy_ability(ctx):
         ctx.suppress_announce = True
         return
     optional = "you may" in text
+    from spirit.game.card_effects.lost_zone import resolve_lost_zone_ability
+    if await resolve_lost_zone_ability(ctx, text):
+        return
     if "took this pokémon as a face-down prize card" in text:
         bench = ctx.board.find_player_area(ctx.player_id, "bench")
         if ctx.source not in ctx.hand() or bench is None \

@@ -355,6 +355,11 @@ def standard_ability_condition(game_text: str):
             activation_clause = activation_clause.replace(source_name, "this pokémon")
         if not ability_position_allowed(board, player_id, source, text):
             return False
+        from spirit.game.card_effects.lost_zone import hand_energy_payment, payment_candidates
+        lost_payment = hand_energy_payment(text)
+        if lost_payment and (len(payment_candidates(hand, lost_payment)) < int(lost_payment[1])
+                             or board.active_pokemon(opponent_id) is None):
+            return False
         if "you win this game" in text and not alternate_win_condition_met(
                 board, player_id, text):
             return False
@@ -1006,7 +1011,7 @@ def _mandatory_hand_discard_cost(text: str):
         default=len(text),
     )
     for match in re.finditer(
-        r"discard (a|an|\d+) (.+?) from your hand", text,
+        r"discard (a|an|another|\d+) (.+?) from your hand", text,
     ):
         if match.start() > first_result:
             continue
@@ -1018,7 +1023,7 @@ def _mandatory_hand_discard_cost(text: str):
         descriptor = re.sub(
             r"\s+cards?$", "", match.group(2).strip()
         ).removeprefix("other ")
-        return (1 if raw_count in {"a", "an"} else int(raw_count),
+        return (1 if raw_count in {"a", "an", "another"} else int(raw_count),
                 descriptor)
     return None
 
@@ -3406,10 +3411,10 @@ def standard_trainer_effect(game_text: str):
             ) if candidates else []
             await ctx.put_in_hand(picks, reveal=True)
 
-        discard_match = re.search(r"discard (a|an|\d+) (.+?) from your hand", text)
+        discard_match = re.search(r"discard (a|an|another|\d+) (.+?) from your hand", text)
         if discard_match and "you may discard" not in text and not paid_hand_discard:
             raw_count = discard_match.group(1)
-            count = 1 if raw_count in {"a", "an"} else int(raw_count)
+            count = 1 if raw_count in {"a", "an", "another"} else int(raw_count)
             descriptor = re.sub(
                 r"\s+cards?$", "", discard_match.group(2).strip()
             ).removeprefix("other ")
@@ -3873,6 +3878,12 @@ def standard_trainer_condition(game_text: str):
             eligible = [entry for entry in hand
                         if predicate is None or predicate(entry)]
             if len(eligible) < count:
+                return False
+            if "draw a card for each of your opponent's benched pokémon" in text \
+                    and (not deck or not opposing_bench):
+                return False
+            refill = re.search(r"draw cards until you have (\d+) cards in your hand", text)
+            if refill and (not deck or len(hand) - count >= int(refill.group(1))):
                 return False
 
         opponent_switch = bool(
