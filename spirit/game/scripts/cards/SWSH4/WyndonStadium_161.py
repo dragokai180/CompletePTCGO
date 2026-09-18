@@ -7,8 +7,9 @@ class _WyndonStadiumPassive(Passive):
     """Whenever either player plays a Pokemon VMAX from their hand to evolve
     a Pokemon V during their turn, heal 100 damage from that Pokemon."""
 
-    def heal_on_evolve(self, evolved, pre_evolution, player_id, carrier):
-        if "VMAX" not in subtypes_for(evolved.archetype_id):
+    def heal_on_evolve(self, evolved, pre_evolution, player_id, carrier,
+                       *, from_hand=True):
+        if not from_hand or "VMAX" not in subtypes_for(evolved.archetype_id):
             return 0
         if "V" not in subtypes_for(pre_evolution.archetype_id):
             return 0

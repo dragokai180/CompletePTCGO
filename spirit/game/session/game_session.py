@@ -146,6 +146,7 @@ from .legal_actions import (
     copy_attack_choice_node,
     energy_provided_count,
     same_stadium_in_play,
+    tool_attachment_targets,
 )
 
 
@@ -5117,7 +5118,8 @@ class GameSession:
         """Attaches a Pokemon Tool underneath the chosen Pokemon (one each)."""
         target_id = self._validated_target(entry, target_ids)
         target = self.board_state.get_entity(target_id) if target_id else None
-        if target is None or tool_slots_free(self.board_state, target) <= 0:
+        if target is None or target not in tool_attachment_targets(
+                self.board_state, player_id, card):
             logging.warning(
                 f"[Session {self.game_id}] Tool attach without a valid "
                 f"target ({target_ids}); re-offering."
@@ -5331,14 +5333,14 @@ class GameSession:
                  self._condition_attr_msg(target)],
             )
 
-        # Wyndon Stadium: heal a Pokemon just evolved from hand (deck-sourced
-        # evolutions ride from_zone_intro and are not "played from hand").
-        if played_from_hand:
-            heal = evolve_heal_amount(self.board_state, card, target, player_id)
-            if heal > 0:
-                heal_ctx = EffectContext(self, player_id, card, None)
-                if await heal_ctx.heal(heal, target=card):
-                    await self._flush_effect_runs(heal_ctx)
+        # Theta Max also heals when an effect evolves from the deck. Other
+        # healers (Regenerative Energy) retain their from-hand restriction.
+        heal = evolve_heal_amount(self.board_state, card, target, player_id,
+                                 from_hand=played_from_hand)
+        if heal > 0:
+            heal_ctx = EffectContext(self, player_id, card, None)
+            if await heal_ctx.heal(heal, target=card):
+                await self._flush_effect_runs(heal_ctx)
 
         await self._fire_triggered_abilities(
             player_id, card, Triggers.ON_EVOLVE, from_hand=played_from_hand)

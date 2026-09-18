@@ -613,11 +613,11 @@ async def escape_rope(ctx):
     chooses first and their swap is shown to both clients before the Escape
     Rope player decides (no Bench, no switch)."""
     opp_bench = ctx.opponent_bench()
-    if opp_bench:
+    if opp_bench and not ctx._trainer_blocked(ctx.opponent_active()):
         target = await ctx.choose_pokemon(
             opp_bench, "Choose your new Active Pokémon", player_id=ctx.opponent_id
         )
-        await ctx.switch_active(ctx.opponent_id, target or opp_bench[0])
+        await ctx.switch_active(ctx.opponent_id, target or opp_bench[0], target_active=True)
         # Flush the opponent's swap so both clients see it land before the
         # Escape Rope player is prompted for their own switch.
         await ctx.flush_choreography()
@@ -626,7 +626,7 @@ async def escape_rope(ctx):
         target = await ctx.choose_pokemon(
             my_bench, "Choose your new Active Pokémon", player_id=ctx.player_id
         )
-        await ctx.switch_active(ctx.player_id, target or my_bench[0])
+        await ctx.switch_active(ctx.player_id, target or my_bench[0], target_active=True)
 
 
 async def lost_vacuum(ctx):

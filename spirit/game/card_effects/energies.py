@@ -291,8 +291,9 @@ class FusionStrikeEnergyPassive(Passive):
 class RegenerativeEnergyPassive(Passive):
     """Heal 100 after the attached Pokemon V is evolved from the hand."""
 
-    def heal_on_evolve(self, evolved, pre_evolution, player_id, carrier):
-        if carrier_pokemon(carrier) is evolved \
+    def heal_on_evolve(self, evolved, pre_evolution, player_id, carrier,
+                       *, from_hand=True):
+        if from_hand and carrier_pokemon(carrier) is evolved \
                 and is_pokemon_v(pre_evolution.archetype_id):
             return 100
         return 0

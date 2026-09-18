@@ -18,7 +18,7 @@ from spirit.game.attributes import (
     SpecialConditions,
     TrainerType,
 )
-from spirit.game.data_utils import ABILITIES_BY_ID, Activations, def_for
+from spirit.game.data_utils import ABILITIES_BY_ID, Activations, def_for, subtypes_for
 from spirit.game.legend import complementary_halves
 from spirit.game.models.board import (
     BoardState,
@@ -592,6 +592,23 @@ def pokemon_without_tool(pokemon: Any) -> bool:
     )
 
 
+def tool_attachment_targets(board: BoardState, player_id: str, tool) -> List[PokemonEntity]:
+    """Shared menu/execution rules; Team Flare Tool F targets opposing EX.
+
+    Tool F requires no Tool at all, even when theta Double leaves a free slot.
+    Lowercase modern ex are not the printed uppercase Pokemon-EX category.
+    """
+    definition = def_for(tool.archetype_id)
+    tool_f = 'Pokémon Tool F' in (getattr(definition, 'subtypes', None) or [])
+    attach_to = getattr(definition, 'attach_to', None)
+    owners = [pid for pid in board.player_ids if pid != player_id] if tool_f else [player_id]
+    return [pokemon for owner in owners for pokemon in board.pokemon_in_play(owner)
+            if tool_slots_free(board, pokemon) > 0
+            and (attach_to is None or attach_to(pokemon))
+            and (not tool_f or ('EX' in subtypes_for(pokemon.archetype_id)
+                               and pokemon_without_tool(pokemon)))]
+
+
 def _evolution_card_may_evolve_early(card: PokemonEntity,
                                      target: PokemonEntity) -> bool:
     """Consult an Ancient Trait carried by the evolution card in hand."""
@@ -743,11 +760,8 @@ def compute_legal_actions(
                         [orientation] if orientation else None,
                     ))
             elif trainer_type == TrainerType.POKEMON_TOOL.value:
-                tool_attach_to = getattr(definition, "attach_to", None)
                 tool_targets = [
-                    p.entity_id for p in in_play
-                    if tool_slots_free(board, p) > 0
-                    and (tool_attach_to is None or tool_attach_to(p))
+                    p.entity_id for p in tool_attachment_targets(board, player_id, card)
                 ]
                 if tool_targets:
                     entries.append(_target_map_entry(

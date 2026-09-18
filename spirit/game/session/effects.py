@@ -10,6 +10,7 @@ inline before any choreography is flushed.
 import logging
 import traceback
 import random
+from contextlib import contextmanager
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, cast
 from .legal_actions import EffectExpiry, energy_provided_count
 from spirit.game.attributes import (
@@ -154,6 +155,7 @@ class EffectContext:
         # Set by resolve_trainer_effect: primitives against a shielded OTHER
         # player no-op (Dew Guard, via _trainer_blocked).
         self.is_trainer_effect: bool = False
+        self._trainer_player_target: Optional[str] = None
         # ON_ALLY_KNOCKED_OUT: the KO'd ally (still on board, energies attached).
         self.ko_pokemon: Optional[PokemonEntity] = None
         # target entity_id -> (dealt, pre_hit_hp); first attack hit wins.
@@ -300,6 +302,20 @@ class EffectContext:
             return False
         return damage_counters_blocked(self.board, target)
 
+    @contextmanager
+    def trainer_effect_on_player(self, player_id: str):
+        """Scope a player-directed Trainer instruction (Avery/Cyrus).
+
+        Pokemon shields do not stop it, but player-wide shields still apply.
+        Restore the context even when a selection or movement fails.
+        """
+        previous = self._trainer_player_target
+        self._trainer_player_target = player_id
+        try:
+            yield
+        finally:
+            self._trainer_player_target = previous
+
     def _trainer_blocked(self, player_or_entity) -> bool:
         """Dew Guard shield: in a trainer context, True when the primitive's
         direct object belongs to a shielded player OTHER than the acting one.
@@ -308,6 +324,9 @@ class EffectContext:
         shuffle_into_deck, discard_cards/move_to_lost_zone (per card)."""
         if not self.is_trainer_effect:
             return False
+        if self._trainer_player_target is not None and getattr(
+                player_or_entity, 'owning_player_id', None) == self._trainer_player_target:
+            player_or_entity = self._trainer_player_target
         if not isinstance(player_or_entity, str) and (
                 is_item_card(self.source) or is_supporter_card(self.source)):
             from spirit.game.session.passives import trainer_targeting_blocked
@@ -2556,13 +2575,10 @@ class EffectContext:
                 dest_list = [dest]
         return moved
 
-    async def switch_active(self, player_id: str, new_active: PokemonEntity) -> bool:
+    async def switch_active(self, player_id: str, new_active: PokemonEntity,
+                            *, target_active: bool = False) -> bool:
         """Swaps a player's Active with the given benched Pokemon (gust or
         self-switch). Special Conditions on the leaving Active are cured."""
-        # Guard on the gusted bench Pokemon: entity-scoped shields (Princess's
-        # Curtain) protect the chosen bencher, not the whole side.
-        if self._trainer_blocked(new_active):
-            return False
         board = self.board
         active_area = board.find_player_area(player_id, "activePokemonArea")
         bench_area = board.find_player_area(player_id, "bench")
@@ -2570,6 +2586,10 @@ class EffectContext:
         if not active_area or not bench_area or old_active is None:
             return False
         if new_active not in bench_area.children:
+            return False
+        # Lysandre targets the incoming Bencher; Escape Rope targets the
+        # outgoing Active. Do not apply both shields to the same switch.
+        if self._trainer_blocked(old_active if target_active else new_active):
             return False
 
         # All effects (Special Conditions, attack locks) end when a Pokemon

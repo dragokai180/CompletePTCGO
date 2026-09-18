@@ -14,7 +14,11 @@ async def avery(ctx):
         )
         if target is None:
             break
-        await ctx.discard_cards(full_stack(target))
+        with ctx.trainer_effect_on_player(ctx.opponent_id):
+            await ctx.discard_cards(full_stack(target))
+        # A player-wide shield can still prevent the instruction entirely.
+        if target in ctx.opponent_bench():
+            break
 
 
 card = SupporterCardDef(

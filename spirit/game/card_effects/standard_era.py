@@ -2201,9 +2201,10 @@ def standard_trainer_effect(game_text: str):
                 player_id=ctx.opponent_id,
             ) if keep_count else []
             for pokemon in [entry for entry in bench if entry not in keep]:
-                await ctx.shuffle_into_deck(
-                    full_stack(pokemon), player_id=ctx.opponent_id
-                )
+                with ctx.trainer_effect_on_player(ctx.opponent_id):
+                    await ctx.shuffle_into_deck(
+                        full_stack(pokemon), player_id=ctx.opponent_id
+                    )
             return
 
         if "prevent all damage done to your ultra beasts" in text:

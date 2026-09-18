@@ -578,10 +578,9 @@ class Passive:
 
     def heal_on_evolve(
         self, evolved: PokemonEntity, pre_evolution: BoardEntity,
-        player_id: str, carrier: BoardEntity,
+        player_id: str, carrier: BoardEntity, *, from_hand: bool = True,
     ) -> int:
-        """Damage healed from a Pokemon `player_id` just evolved from hand
-        (Wyndon Stadium)."""
+        """Evolution healing; each effect enforces its own source-zone rule."""
         return 0
 
     def offers_attack_coin_reroll(
@@ -1297,10 +1296,12 @@ def active_to_bench_counters(board: BoardState, pokemon: PokemonEntity) -> int:
 
 
 def evolve_heal_amount(board: BoardState, evolved: PokemonEntity,
-                       pre_evolution: BoardEntity, player_id: str) -> int:
-    """Damage healed from a Pokemon just evolved from hand (Wyndon Stadium)."""
+                       pre_evolution: BoardEntity, player_id: str,
+                       *, from_hand: bool = True) -> int:
+    """Healing from evolution, including theta Max's unrestricted source."""
     return sum(
-        passive.heal_on_evolve(evolved, pre_evolution, player_id, carrier)
+        passive.heal_on_evolve(evolved, pre_evolution, player_id, carrier,
+                               from_hand=from_hand)
         for passive, carrier in active_passives(board)
     )
 

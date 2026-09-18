@@ -8,6 +8,8 @@ This folder collects the project's audit reports and local investigation results
 
 ## Reports
 
+- [Omega Barrier: Compendium interaction tests](reports/OMEGA_BARRIER_COMPENDIUM.md)
+- [Ancient Traits: audit and regression fixes](reports/ANCIENT_TRAITS_AUDIT.md)
 - [Restored Pokemon and Hero's Spirit entry rules](reports/RESTRICTED_POKEMON_ENTRY.md)
 - [Original PTCGO V-UNION implementation](reports/vunion-implementation.md)
 - [Player choice, deck ownership and private views](reports/PLAYER_CHOICE_EFFECTS.md)

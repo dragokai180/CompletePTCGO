@@ -2458,8 +2458,11 @@ class _BWTextPassive(Passive):
                 and affected.owning_player_id == carrier.owning_player_id \
                 and _has_named_in_play(
                     carrier, carrier.owning_player_id, "Solrock")
+        # Removing attached Energy/Tools affects their Pokemon too. This
+        # does not shield detached cards or change the exempt source types.
         if "excluding pokémon tools and stadium cards" in self.text \
-                and affected_entity is holder \
+                and holder is not None \
+                and carrier_pokemon(affected_entity) is holder \
                 and affected_player_id == carrier.owning_player_id \
                 and trainer_card.owning_player_id != carrier.owning_player_id \
                 and trainer_type in (
@@ -2560,7 +2563,8 @@ class _BWTextPassive(Passive):
         return "you may play this card from your hand to evolve a pokémon" \
             in self.text
 
-    def heal_on_evolve(self, evolved, pre_evolution, player_id, carrier):
+    def heal_on_evolve(self, evolved, pre_evolution, player_id, carrier,
+                       *, from_hand=True):
         return 10 ** 6 if carrier_pokemon(carrier) is evolved \
             and "when 1 of your pokémon becomes this pokémon, heal all damage" \
                 in self.text else 0

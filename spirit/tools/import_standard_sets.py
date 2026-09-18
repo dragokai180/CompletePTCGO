@@ -343,7 +343,7 @@ def existing_print_scripts() -> Dict[tuple[str, int], Path]:
 def mechanics_signature(card: dict) -> str:
     keys = (
         "name", "supertype", "subtypes", "hp", "types", "evolvesFrom",
-        "abilities", "attacks", "weaknesses", "resistances",
+        "abilities", "ancientTrait", "attacks", "weaknesses", "resistances",
         "convertedRetreatCost", "rules",
     )
     data = {key: card.get(key) for key in keys}
