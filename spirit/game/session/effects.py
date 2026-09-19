@@ -1364,10 +1364,18 @@ class EffectContext:
         exist); minimum=0 makes the pick optional ("up to count").
         submit_on_pick lets an optional single in-place pick advance on click;
         Done with no card selected still declines the pick.
+        Exact mandatory picks from the effect owner's hand resolve without
+        a prompt when every eligible card is required. Optional, ordered and
+        browser selections retain their UI (including private searches).
         """
         if (not cards and not display_cards) or count <= 0:
             return []
         pid = player_id or self.player_id
+        if pid == self.player_id and not ordered and display_cards is None \
+                and len(cards) == count and (minimum is None or minimum == count):
+            hand = self.hand(pid)
+            if all(card is not self.source and card in hand for card in cards):
+                return list(cards)
         if not ordered and display_cards is None and cards \
                 and self._visible_in_place(cards, pid):
             picked_ids = await self.session.prompt_entity_picker(

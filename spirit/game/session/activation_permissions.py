@@ -154,6 +154,10 @@ def public_activation_allowed(ability, board, pid, source):
     """
     text = _text(ability.game_text)
     title = ability.title
+    from spirit.game.card_effects.hand_entry import hand_entry_allowed
+    entry_allowed = hand_entry_allowed(board, pid, source, ability, text)
+    if entry_allowed is not None:
+        return entry_allowed
     definition = def_for(source.archetype_id) if source is not None else None
     if source is not None and is_stadium_card(source):
         if not _stadium_allowed(board, pid, source, getattr(definition, 'display_name', '')):

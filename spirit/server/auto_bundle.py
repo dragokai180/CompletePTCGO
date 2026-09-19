@@ -437,7 +437,7 @@ def check_and_generate_bundles() -> int:
             # The native V-UNION renderer requests one combined face. This is
             # an asset, not a fifth collectible card or deck archetype.
             if getattr(card_def, 'vunion_part', False):
-                combined_stem = f'{card_def.vunion_name}VUNION_combined'
+                combined_stem = getattr(card_def, 'vunion_asset_stem', f'{card_def.vunion_name}VUNION_combined')
                 combined = os.path.join(CARDS_IMG_DIR, rel_dir, combined_stem + '.png')
                 if os.path.exists(combined):
                     card_assets[card_def.vunion_texture] = combined

@@ -5,8 +5,8 @@ rules instead say 'that player/their deck', so resolve these explicit
 families before falling back to that interpreter. Reprints share the text.
 """
 from spirit.game.attributes import AttrID, PokemonTypes
-from spirit.game.data_utils import subtypes_for
-from spirit.game.session.effects import is_basic_energy, is_basic_pokemon
+from spirit.game.data_utils import subtypes_for, has_rule_box
+from spirit.game.session.effects import is_basic_energy, is_basic_pokemon, is_pokemon_tool, is_pokemon_card
 from spirit.game.card_effects.pokemon import energy_provides_type
 from spirit.game.session.passives import effective_bench_capacity
 
@@ -18,7 +18,12 @@ def stadium_effect_for_text(text):
     coronet = 'that player may put 2 metal energy cards from their discard pile into their hand' in t
     brooklet = 'search their deck for a basic water pokémon or basic fighting pokémon' in t
     ultra_space = 'search their deck for an ultra beast card' in t
-    if not any((discard_search, heat_factory, coronet, brooklet, ultra_space)):
+    artazon = "search their deck for a basic pokémon that doesn't have a rule box" in t
+    lumiose = 'search their deck for a basic pokémon and put it onto their bench' in t
+    town_store = 'search their deck for a pokémon tool card' in t
+    mesagoza = 'flip a coin' in t and 'searches their deck for a pokémon' in t
+    if not any((discard_search, heat_factory, coronet, brooklet, ultra_space,
+                artazon, lumiose, town_store, mesagoza)):
         return None
 
     async def effect(ctx):
@@ -30,6 +35,30 @@ def stadium_effect_for_text(text):
                 await ctx.put_in_hand(picks, reveal=True)
             return
         if not ctx.deck():
+            return
+        if artazon or lumiose:
+            if len(ctx.my_bench()) >= effective_bench_capacity(ctx.board, ctx.player_id):
+                return
+            cards = await ctx.search_deck(
+                lambda c: is_basic_pokemon(c) and ctx.can_bench_pokemon(c)
+                and (not artazon or not has_rule_box(c.archetype_id)),
+                count=1, minimum=0, prompt='Choose a Basic Pokémon for your Bench')
+            for card in cards:
+                await ctx.bench_pokemon(card)
+            await ctx.shuffle_deck()
+            # Failing a private search still ends the turn with Lumiose City.
+            if lumiose and 'their turn ends' in t:
+                ctx.ends_turn = True
+            return
+        if town_store or mesagoza:
+            if mesagoza and not (await ctx.flip_coins(1, 'Mesagoza'))[0]:
+                return
+            cards = await ctx.search_deck(
+                is_pokemon_tool if town_store else is_pokemon_card,
+                count=1, minimum=0, reveal_result=True,
+                prompt='Choose a Pokémon Tool' if town_store else 'Choose a Pokémon')
+            await ctx.put_in_hand(cards, reveal=True)
+            await ctx.shuffle_deck()
             return
         if heat_factory or discard_search:
             cost = [c for c in ctx.hand() if not heat_factory or energy_provides_type(c, PokemonTypes.FIRE.value)]

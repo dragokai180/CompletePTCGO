@@ -636,9 +636,12 @@ def standard_ability_condition(game_text: str):
             r"energy(?: cards?)? from your (hand|discard pile)", text
         )
         if energy_clause and "attach" in text:
+            from spirit.game.card_effects.attachment_followup import attachment_targets
+            if not attachment_targets(board, player_id, source, text):
+                return False
             zone = hand if energy_clause.group(1) == "hand" else discard
             candidates = [card for card in zone if is_energy_card(card)]
-            if "basic energy" in text:
+            if re.search(r'\bbasic (?:\w+ )?energy', text):
                 candidates = [card for card in candidates if is_basic_energy(card)]
             if "special energy" in text:
                 candidates = [card for card in candidates if is_special_energy(card)]

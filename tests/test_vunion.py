@@ -54,7 +54,7 @@ class VUnionTests(unittest.IsolatedAsyncioTestCase):
 
     def test_twenty_physical_prints_no_phantom_collectible_or_fragment_attacks(self):
         models = [c for c in loader.cards if c.get_attribute_value(AttrID.STAGE) == PokemonStage.VUNION]
-        self.assertEqual(len(models), 20)
+        self.assertEqual(len(models), 24)
         for model in models:
             d = def_for(model.guid)
             self.assertTrue(d.vunion_part)
@@ -137,6 +137,14 @@ class VUnionTests(unittest.IsolatedAsyncioTestCase):
                     rig, ctx, pokemon, parts = await self.assembled(name, owner)
                     self.assertEqual(effective_max_hp(rig.board, pokemon), spec[2])
                     self.assertEqual(pokemon.get_attribute(AttrID.IMAGE_URL), f'{spec[0]}to{spec[0]+3}')
+                    # Native PlaymatCardImageRenderer ignores IMAGE_URL here.
+                    # Its lookup is Q.j collector number + S.y's 10020 suffix.
+                    rendered_name = str(pokemon.get_attribute(AttrID.COLLECTOR_NUMBER)).zfill(3) + pokemon.get_attribute(AttrID.IMAGE_FALLBACK_1, '')
+                    self.assertEqual(rendered_name, f'{spec[0]}to{spec[0]+3}')
+                    intro = rig.session._entity_introduced_msg(pokemon)['value']['attributeMap']
+                    self.assertEqual(next(a['value'] for a in intro if a['name'] == 10020), f'to{spec[0]+3}')
+                    for part in parts:
+                        self.assertFalse(part.get_attribute(AttrID.IMAGE_FALLBACK_1))
                     self.assertFalse(pokemon.get_attribute(AttrID.IS_LEGEND))
                     self.assertCountEqual(split_pokemon_stack(pokemon)[0], parts)
                     self.assertCountEqual(full_stack(pokemon), parts)

@@ -285,6 +285,8 @@ def image_url(card_set: RecentSet, number: str, known: dict[str, str]) -> str:
         return known[number]
     if card_set.data_stem == "mep":
         return mega_promo_url(number)
+    if card_set.data_stem == "swshp":
+        return f"https://images.pokemontcg.io/swshp/SWSH{int(number):03d}_hires.png"
     # This also covers promo prints added after the bundled metadata snapshot.
     return f"https://images.pokemontcg.io/{card_set.data_stem}/{number}_hires.png"
 
@@ -431,12 +433,69 @@ def install_native_energy(overwrite: bool, source: str | None = None) -> list[st
     return failures
 
 
+def restore_native_promos(source: str) -> None:
+    """Prefer available cbrew textures, retaining downloads for cache gaps."""
+    from spirit.tools.ptcgo_local_assets import install_card_art
+    restored = 0
+    for script in (SCRIPTS_ROOT / 'Promo_SWSH').glob('*.py'):
+        number = collector_number_from_script(script)
+        if number is not None and install_card_art(
+                'Promo_SWSH', number, ASSETS_ROOT / 'Promo_SWSH' / (script.stem + '.png'),
+                source=source, overwrite=True):
+            restored += 1
+    from spirit.game.vunion import SPECS
+    for name, spec in SPECS.items():
+        start = spec[0]
+        install_card_art('Promo_SWSH', f'{start}to{start + 3}',
+                         ASSETS_ROOT / 'Promo_SWSH' / f'{name}VUNION_combined.png', source=source, overwrite=True)
+    install_card_art('Promo_SWSH', '287to290',
+                     ASSETS_ROOT / 'Promo_SWSH' / 'MorpekoVUNION_alternate_combined.png', source=source, overwrite=True)
+    print(f'Promo_SWSH: {restored} original cbrew textures restored.')
+
+
+def assemble_downloaded_vunion_faces() -> list[str]:
+    """Build missing complete faces from four downloaded quadrants, never foils.
+
+    Keep original cbrew composites when present. The alternate Morpeko art
+    has its own asset, independent of the original 215-218 printing.
+    """
+    from spirit.game.vunion import SPECS
+    groups = [(name, spec[0], 'combined') for name, spec in SPECS.items()]
+    groups.append(('Morpeko', 287, 'alternate_combined'))
+    errors = []
+    for name, start, suffix in groups:
+        folder = ASSETS_ROOT / 'Promo_SWSH'
+        target = folder / f'{name}VUNION_{suffix}.png'
+        if target.is_file():
+            continue
+        stems = [f'{name}VUNION_{n}' for n in range(start, start + 4)]
+        if not all((SCRIPTS_ROOT / 'Promo_SWSH' / (s + '.py')).is_file() for s in stems):
+            continue
+        try:
+            parts = []
+            for stem in stems:
+                with Image.open(folder / (stem + '.png')) as picture:
+                    parts.append(picture.convert('RGB'))
+            width, height = parts[0].size
+            if any(p.size != (width, height) for p in parts):
+                raise ValueError('quadrant dimensions differ')
+            combined = Image.new('RGB', (width * 2, height * 2))
+            for slot, part in enumerate(parts):
+                combined.paste(part, ((slot % 2) * width, (slot // 2) * height))
+            combined.save(target)
+        except (OSError, ValueError) as exc:
+            errors.append(f'V-UNION {name}/{start}: {exc}')
+    return errors
+
+
 def run(values: Iterable[str], workers: int, overwrite: bool,
         cbrew_source: str | None = None) -> None:
     sets = selected_sets(values)
     tasks: list[tuple[tuple[str, ...], Path]] = []
     failures: list[str] = []
     for card_set in sets:
+        if card_set.set_code == 'Promo_SWSH' and cbrew_source:
+            restore_native_promos(cbrew_source)
         if card_set.set_code == "SWSH_Energy" and cbrew_source:
             missing = install_native_energy(overwrite, cbrew_source)
             if missing:
@@ -456,6 +515,10 @@ def run(values: Iterable[str], workers: int, overwrite: bool,
         )
 
     if not tasks and not failures:
+        if any(s.set_code == 'Promo_SWSH' for s in sets):
+            errors = assemble_downloaded_vunion_faces()
+            if errors:
+                raise ValueError('; '.join(errors))
         print("All selected card artwork is already installed.")
         return
 
@@ -473,6 +536,8 @@ def run(values: Iterable[str], workers: int, overwrite: bool,
                     f"({len(failures)} failures)"
                 )
 
+    if any(s.set_code == 'Promo_SWSH' for s in sets):
+        failures.extend(assemble_downloaded_vunion_faces())
     if failures:
         print("Artwork installation failures:")
         for failure in failures:
@@ -489,7 +554,7 @@ def main() -> None:
     )
     parser.add_argument("--workers", type=int, default=20)
     parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--cbrew-source", help="Optional native source for SWSH Energy; missing textures are downloaded")
+    parser.add_argument("--cbrew-source", help="Native source for SWSH Energy and promos; missing textures are downloaded")
     args = parser.parse_args()
     try:
         run(args.eras_or_sets, args.workers, args.overwrite, args.cbrew_source)

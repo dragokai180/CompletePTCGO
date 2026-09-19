@@ -202,6 +202,9 @@ def attacks_and_abilities(name):
 
 def make_vunion(name, collector_number, *, assembled=False):
     start, kind, hp, weakness, resistance, family, _ = SPECS[name]
+    alternate = name == 'Morpeko' and 287 <= collector_number <= 290
+    if alternate:
+        start = 287
     if not start <= collector_number < start + 4:
         raise ValueError('Collector number is not a part of this V-UNION')
     identity = f'CompletePTCGO:Promo_SWSH:{name}VUNION:{"assembled" if assembled else collector_number}'
@@ -211,7 +214,7 @@ def make_vunion(name, collector_number, *, assembled=False):
         activation=Activations.UNLIMITED, usable_from='discard', is_rule_action=True,
         condition=can_assemble, effect=assemble)]
     card = PokemonCardDef(
-        guid=str(uuid.uuid5(uuid.NAMESPACE_URL, identity)) if assembled else NATIVE_GUIDS[collector_number], key='Promo_SWSH',
+        guid=str(uuid.uuid5(uuid.NAMESPACE_URL, identity)) if assembled or alternate else NATIVE_GUIDS[collector_number], key='Promo_SWSH',
         name=f'com.direwolfdigital.cake.data.archetypes.pokemon.{name}VUNION.Name',
         display_name=f'{name} V-UNION', searchable_by=[name, f'{name} V-UNION', 'V-UNION'],
         collector_number=collector_number, set_code='Promo_SWSH', rarity=Rarities.RarePromo,
@@ -221,10 +224,12 @@ def make_vunion(name, collector_number, *, assembled=False):
         family_id=family, subtypes=['V-UNION'], regulation_mark='E',
         attributes={200790: {'type': 'string', 'value': f'SWSH{collector_number}'}},
         abilities=abilities, unplayable_from_hand=True,
-        foil=Foil(effects=[FoilEffects.SUNPILLAR], intensity=201))
+        foil=None if alternate else Foil(effects=[FoilEffects.SUNPILLAR], intensity=201))
     card.vunion_name = name
     card.vunion_part = not assembled
     card.vunion_texture = f'{start}to{start + 3}'
+    card.vunion_slot = collector_number - start
+    card.vunion_asset_stem = f'{name}VUNION_' + ('alternate_combined' if alternate else 'combined')
     if not assembled:
         # Pieces have no HP, attacks, retreat cost, Weakness or Resistance.
         for attr in (AttrID.HP, AttrID.RETREAT_COST, AttrID.WEAKNESS_TYPES, AttrID.RESISTANCE_TYPES):
@@ -249,13 +254,12 @@ def available_parts(board, player_id, source):
     discard = board.find_player_area(player_id, 'discard')
     if source.parent is not discard or source.owning_player_id != player_id:
         return []
-    parts = {definition.collector_number: source}
+    parts = {definition.vunion_slot: source}
     for card in discard.children:
         candidate = def_for(card.archetype_id)
         if getattr(candidate, 'vunion_part', False) and candidate.vunion_name == name:
-            parts.setdefault(candidate.collector_number, card)
-    start = SPECS[name][0]
-    return [parts[n] for n in range(start, start + 4)] if len(parts) == 4 else []
+            parts.setdefault(candidate.vunion_slot, card)
+    return [parts[n] for n in range(4)] if len(parts) == 4 else []
 
 
 class VUnionCard(PokemonCard):
@@ -271,11 +275,20 @@ class VUnionPokemonEntity(CompositePokemonEntity):
         raw = definition.to_archetype_dict()
         model = VUnionCard(definition.guid, definition.key, raw['attributes'],
                            definition.display_name, definition.searchable_by, definition.subtypes)
-        model.combined_texture = definition.vunion_texture
+        face = def_for(parts[0].archetype_id)
+        model.combined_texture = face.vunion_texture
         super().__init__(model, parts[0].owning_player_id)
         self.physical_parts = tuple(parts)
         self.set_attribute(AttrID.ARCHETYPE_ID, parts[0].archetype_id)
         self.set_attribute(AttrID.COLLECTION_ID, parts[0].archetype_id)
+        # PlaymatCardImageRenderer.textureLookup uses the padded collector
+        # number + attribute 10020, not IMAGE_URL (10510). A plain first-part
+        # collector number otherwise draws only that quarter on the playmat.
+        # _match_render_attributes strips 10020 for ordinary cards, so set the
+        # native suffix explicitly on the assembled entity, never its pieces.
+        start = int(face.vunion_texture.split('to')[0])
+        self.set_attribute(AttrID.COLLECTOR_NUMBER, start)
+        self.set_attribute(AttrID.IMAGE_FALLBACK_1, f'to{start + 3}')
 
     def serialize(self, viewer_id=None):
         tree = super().serialize(viewer_id)

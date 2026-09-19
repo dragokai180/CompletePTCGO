@@ -104,13 +104,13 @@ class VUnionInstallationTests(unittest.TestCase):
             self.assertEqual(vunion.main(), 0)
             imported.assert_called_once_with(Path(tmp))
 
-    def test_download_installer_discovers_all_twenty_physical_prints(self):
+    def test_download_installer_discovers_all_twenty_four_physical_prints(self):
         with tempfile.TemporaryDirectory() as tmp, \
                 patch.object(downloader, 'ASSETS_ROOT', Path(tmp)), \
                 patch.object(downloader, 'load_image_urls', return_value={}):
             tasks = downloader.build_tasks(downloader.RECENT_SETS['swshp'])
         physical = [destination for _, destination in tasks if 'VUNION' in destination.name]
-        self.assertEqual(len(physical), 20)
+        self.assertEqual(len(physical), 24)
         self.assertTrue(all('combined' not in p.name for p in physical))
 
 

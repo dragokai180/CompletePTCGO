@@ -8,6 +8,8 @@ This folder collects the project's audit reports and local investigation results
 
 ## Reports
 
+- [Sword & Shield Black Star Promos completion](reports/SWSH_PROMOS_COMPLETION.md)
+- [Stadium searches, hand entry, Energy consequences and V-UNION rendering](reports/MODERN_EFFECT_FOLLOWUP.md)
 - [Omega Barrier: Compendium interaction tests](reports/OMEGA_BARRIER_COMPENDIUM.md)
 - [Ancient Traits: audit and regression fixes](reports/ANCIENT_TRAITS_AUDIT.md)
 - [Restored Pokemon and Hero's Spirit entry rules](reports/RESTRICTED_POKEMON_ENTRY.md)

@@ -35,8 +35,9 @@ async def single_strike_roar(ctx):
     )
     if target is None:
         return
-    await ctx.attach_energy(picks[0], target)
-    await ctx.deal_damage(20, target=target, apply_modifiers=False, as_counters=True)
+    if await ctx.attach_energy(picks[0], target):
+        await ctx.deal_damage(20, target=target, apply_modifiers=False,
+                              as_counters=True, is_attack=False)
 
 
 card = PokemonCardDef(

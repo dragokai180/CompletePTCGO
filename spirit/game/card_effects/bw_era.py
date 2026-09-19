@@ -10567,6 +10567,9 @@ async def bw_legacy_ability(ctx):
         return
 
     from spirit.game.card_effects.hgss_era import resolve_hgss_power
+    from spirit.game.card_effects.hand_entry import resolve_hand_entry
+    if await resolve_hand_entry(ctx, text):
+        return
     if await resolve_hgss_power(ctx, text):
         return
 
@@ -11211,29 +11214,6 @@ async def bw_legacy_ability(ctx):
             candidates, "Choose your new Active Pokémon") if candidates else None
         if target is not None:
             await ctx.switch_active(ctx.player_id, target)
-        return
-
-    # Hand-only self-entry powers.  Staging the card on the Bench and then
-    # using the shared switch primitive preserves all movement triggers and
-    # animation ordering.
-    hand = getattr(ctx, "hand", lambda: [])
-    if ctx.source in hand() and any(phrase in text for phrase in (
-            "play this pokémon as your new active pokémon",
-            "put this pokémon onto your bench")):
-        allowed = True
-        if "opponent has any stage 2 pokémon" in text:
-            allowed = any(
-                p.get_attribute(AttrID.STAGE) == PokemonStage.STAGE2.value
-                for p in ctx.opponent_pokemon_in_play()
-            )
-        if "more prize cards remaining" in text:
-            own_prizes = ctx.board.find_player_area(ctx.player_id, "prizePile")
-            opposing_prizes = ctx.board.find_player_area(ctx.opponent_id, "prizePile")
-            allowed = len(own_prizes.children if own_prizes else []) > len(
-                opposing_prizes.children if opposing_prizes else [])
-        if allowed and await ctx.bench_pokemon(ctx.source) \
-                and "new active pokémon" in text:
-            await ctx.switch_active(ctx.player_id, ctx.source)
         return
 
     # Inspect the opponent's deck and discard any Items found there.
@@ -12968,6 +12948,7 @@ async def bw_legacy_ability(ctx):
         return
 
     # Typed Energy acceleration from hand/discard/deck.
+    from spirit.game.card_effects.attachment_followup import attachment_targets, attach_with_followup
     energy_clause = re.search(
         r"(?:(up to) (\d+)|(\d+)|(?:an?|1)) "
         r"(?:(basic|special) )?"
@@ -12997,21 +12978,12 @@ async def bw_legacy_ability(ctx):
             prompt="Choose Energy cards",
         ) if maximum else []
         for energy in picks:
-            targets = list(ctx.my_pokemon_in_play())
-            if "to this pokémon" in text:
-                targets = [ctx.source]
-            elif "to your active pokémon" in text:
-                targets = [ctx.my_active()] if ctx.my_active() is not None else []
-            elif "benched" in text:
-                targets = list(ctx.my_bench())
+            targets = attachment_targets(ctx.board, ctx.player_id, ctx.source, text)
             target = targets[0] if len(targets) == 1 else await ctx.choose_pokemon(
                 targets, "Choose a Pokémon"
             ) if targets else None
-            if target is not None:
-                await ctx.attach_energy(energy, target)
-                heal = re.search(r"heal (\d+) damage from that pokémon", text)
-                if heal:
-                    await ctx.heal(int(heal.group(1)), target)
+            if target in targets:
+                await attach_with_followup(ctx, energy, target, text)
         return
 
     discard_search = re.search(
@@ -13045,16 +13017,12 @@ async def bw_legacy_ability(ctx):
             prompt="Choose Energy cards",
         ) if maximum else []
         for energy in picks:
-            targets = [ctx.source] if "to this pokémon" in text else ctx.my_pokemon_in_play()
+            targets = attachment_targets(ctx.board, ctx.player_id, ctx.source, text)
             target = targets[0] if len(targets) == 1 else await ctx.choose_pokemon(
                 targets, "Choose a Pokémon"
             ) if targets else None
-            if target is not None:
-                attached = await ctx.attach_energy(energy, target)
-                counters = re.search(r"if you do, put (\d+) damage counters? on that pokémon", text)
-                if attached and counters:
-                    await ctx.deal_damage(int(counters.group(1)) * 10, target=target,
-                                          is_attack=False, as_counters=True)
+            if target in targets:
+                await attach_with_followup(ctx, energy, target, text)
         return
 
     deck_energy = re.search(
@@ -13076,12 +13044,12 @@ async def bw_legacy_ability(ctx):
             predicate, count, minimum=0, prompt="Choose Energy cards"
         )
         for energy in picks:
-            targets = [ctx.source] if "to this pokémon" in text else ctx.my_pokemon_in_play()
+            targets = attachment_targets(ctx.board, ctx.player_id, ctx.source, text)
             target = targets[0] if len(targets) == 1 else await ctx.choose_pokemon(
                 targets, "Choose a Pokémon"
             ) if targets else None
-            if target is not None:
-                await ctx.attach_energy(energy, target)
+            if target in targets:
+                await attach_with_followup(ctx, energy, target, text)
         await ctx.shuffle_deck()
         return
 

@@ -48,3 +48,21 @@ Run from the repository root:
 ```text
 python -m unittest discover -s tests
 ```
+
+## Automatic forced hand payments
+
+The common card picker now skips the redundant hand-selection prompt when
+the acting player must select exactly all eligible cards from their own hand.
+This handles discard costs (Ultra Ball), filtered return costs (Pokemon
+Communication / Energy Exchanger), and Lost Zone costs without changing each
+card implementation. Movement, reveals, shuffling and subsequent searches
+still execute normally; the played source itself is never auto-selected.
+
+Selections remain manual with surplus or insufficient eligible cards, an
+optional minimum, an ordering requirement, a displayed browser, another
+player's hand, or a non-hand zone. Private deck searches keep their existing
+failure rules. Optional effects still require their initial acceptance.
+
+`tests/test_automatic_hand_costs.py` checks the actual Ultra Ball discard,
+HGSS/BW/SM Pokemon Communication returns, filtered costs for both players,
+and the exclusions above, without replacing the common picker.
