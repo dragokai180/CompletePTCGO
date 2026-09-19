@@ -79,8 +79,8 @@ to rebuild the affected bundles, then reconnect the clients.
 
    .\venv\Scripts\Activate.ps1
 
-3. Original bundles installation. Point CompletePTCGO to your bundles
-   directory. Replace the example path with the real location on your computer:
+3. Point CompletePTCGO to your bundles directory.
+   Replace the example path with the real location on your computer:
 
    $env:PTCGO_ART_SOURCE_DIR = "D:\path\to\cbrew bundles"
    $env:PTCGO_CACHE_DIR = $env:PTCGO_ART_SOURCE_DIR
