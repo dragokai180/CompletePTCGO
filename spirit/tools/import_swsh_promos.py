@@ -7,6 +7,7 @@ from spirit.tools.import_standard_sets import (
     render_pokemon, render_reprint, render_trainer, existing_named_modules, guid_for,
 )
 from spirit.tools.install_recent_card_art import DATA_ROOT, RECENT_SETS
+from spirit.game.excluded_prints import excluded_print
 
 
 def plan():
@@ -33,6 +34,8 @@ def plan():
     result = []
     for row in promos:
         number = numeric(row['number'])
+        if excluded_print('Promo_SWSH', number):
+            continue
         if ('Promo_SWSH', number) in existing:
             continue
         path = scripts / 'Promo_SWSH' / f"{clean_name(row['name'])}_{number}.py"
@@ -53,8 +56,6 @@ def plan():
             raise ValueError(f'Unsupported promo: {row["id"]}')
         if base or row['supertype'] == 'Trainer':
             source += f"\ncard.extra_attributes['200790'] = {{'type': 'string', 'value': {row['number']!r}}}\n"
-        if number == 135:
-            source = source.replace('stage=PokemonStage.BASIC', 'stage=PokemonStage.LEVELUP')
         if not base and row['supertype'] == 'Pokémon' and 'V-UNION' not in row.get('subtypes', []):
             source += ('\nfrom spirit.game.card_effects.swsh_promos import configure_promo\n'
                        'configure_promo(card)\n')
@@ -83,14 +84,13 @@ def main():
             if entry['name'] == 'Promo_SWSH':
                 entry['count'] = max(numeric(row['number']) for row in promos)
         path.write_text(json.dumps(sets, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
-        # Anniversary novelty promos explicitly say they cannot be used at
-        # official tournaments. Keep them collectible, outside deck formats.
+        # Removed novelty promos must not leave obsolete format references.
         illegal = [guid_for(row['id']) for row in promos if any(
             'cannot be used at official tournaments' in r for r in row.get('rules', []))]
         path = ROOT / 'spirit/database/json_data/formats.json'
         formats = json.loads(path.read_text(encoding='utf-8'))
         for fmt in formats['formats']:
-            fmt['bannedCards'] = list(dict.fromkeys(fmt.get('bannedCards', []) + illegal))
+            fmt['bannedCards'] = [guid for guid in fmt.get('bannedCards', []) if guid not in illegal]
         path.write_text(json.dumps(formats, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
 
 

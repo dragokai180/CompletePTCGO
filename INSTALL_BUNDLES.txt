@@ -92,6 +92,16 @@ to rebuild the affected bundles, then reconnect the clients.
    Use --cards-only to import only card artwork, or --ui-only to import only
    the original menus and interface bundles.
 
+   Sword & Shield Black Star Promos also import their exact native foil masks
+   automatically (including --cards-only). Missing masks are not substituted.
+   To refresh their artwork and foils, then download absent English artwork:
+
+   python -m spirit.tools.install_recent_card_art swshp --cbrew-source "$env:PTCGO_ART_SOURCE_DIR"
+
+   The six novelty promos marked "This card cannot be used at official
+   tournaments" are excluded from the catalog and all artwork/mask imports.
+   Foil files remain local; they are not distributed through GitHub.
+
    Radiant Collection artwork and available original foil masks are included
    automatically, for both Legendary Treasures and Generations. The importer
    maps printed RC numbers to the original client's numeric texture slots.

@@ -27,6 +27,7 @@ from datetime import datetime
 from typing import Optional, Union
 
 from spirit.game.foil_variants import PREMIUM_XY_FOIL_VARIANTS
+from spirit.game.excluded_prints import excluded_print
 
 DEFAULT_CACHE_DIR = os.path.join(
     "original_game_cache",
@@ -113,7 +114,8 @@ def _set_card_stems(set_code: str) -> dict:
             tail = re.search(r"_(\d+)$", stem)
             if tail:
                 stems[tail.group(1).zfill(3)] = stem
-    return stems
+    return {number: stem for number, stem in stems.items()
+            if not excluded_print(set_code, number)}
 
 
 def _bundle_name_pattern(set_code: str, kind: str) -> re.Pattern:

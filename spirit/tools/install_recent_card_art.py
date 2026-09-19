@@ -1,8 +1,8 @@
 """Download missing English card artwork from HGSS through Mega Evolution.
 
-This installer is intentionally limited to artwork.  It never creates or
-modifies card definitions, so it is safe to run on a clean CompletePTCGO
-checkout with or without the optional cbrew bundles.
+This installer never creates or modifies card definitions. With --cbrew-source
+it also installs available exact Sword & Shield promo foil masks; without a
+native source it downloads artwork only. Missing masks are never synthesized.
 
 Run from the repository root::
 
@@ -31,6 +31,7 @@ from typing import Iterable
 import requests
 from PIL import Image
 from spirit.game.gallery_catalog import GALLERY_SETS, gallery_number
+from spirit.game.excluded_prints import excluded_print
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -358,7 +359,7 @@ def build_tasks(
         if script_path.name == "__init__.py":
             continue
         number = collector_number_from_script(script_path)
-        if number is None:
+        if number is None or excluded_print(card_set.set_code, number):
             continue
         destination = ASSETS_ROOT / card_set.set_code / f"{script_path.stem}.png"
         if (destination.exists() and not overwrite
@@ -451,6 +452,13 @@ def restore_native_promos(source: str) -> None:
     install_card_art('Promo_SWSH', '287to290',
                      ASSETS_ROOT / 'Promo_SWSH' / 'MorpekoVUNION_alternate_combined.png', source=source, overwrite=True)
     print(f'Promo_SWSH: {restored} original cbrew textures restored.')
+    from spirit.tools.ptcgo_local_assets import import_swsh_promo_foils
+    import_swsh_promo_foils(Path(source))
+    # Complete V-UNION faces use nonnumeric mask names and a dedicated importer.
+    from spirit.tools.import_vunion import import_vunion
+    missing = import_vunion(Path(source))
+    if missing:
+        print(f'Promo_SWSH: {len(missing)} original V-UNION assets unavailable in this cache.')
 
 
 def assemble_downloaded_vunion_faces() -> list[str]:
@@ -554,7 +562,7 @@ def main() -> None:
     )
     parser.add_argument("--workers", type=int, default=20)
     parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--cbrew-source", help="Native source for SWSH Energy and promos; missing textures are downloaded")
+    parser.add_argument("--cbrew-source", help="Native SWSH Energy/promo artwork and promo foil masks; missing artwork is downloaded")
     args = parser.parse_args()
     try:
         run(args.eras_or_sets, args.workers, args.overwrite, args.cbrew_source)

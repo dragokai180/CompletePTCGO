@@ -34,10 +34,13 @@ class SwshPromoTests(unittest.IsolatedAsyncioTestCase):
         rows = json.loads((installer.DATA_ROOT / 'swshp.json').read_text(encoding='utf-8'))
         definitions = {d.collector_number: d for d in CARD_DEFS_BY_GUID.values() if d.set_code == 'Promo_SWSH'}
         self.assertEqual(len(rows), 304)
-        self.assertEqual(len(definitions), 304)
+        self.assertEqual(len(definitions), 298)
         urls = installer.load_image_urls(installer.RECENT_SETS['swshp'])
         for row in rows:
             n = int(row['number'][4:])
+            if any('cannot be used at official tournaments' in text.lower() for text in row.get('rules', [])):
+                self.assertNotIn(n, definitions)
+                continue
             d = definitions[n]
             with self.subTest(number=n):
                 self.assertEqual(d.display_name, row['name'])
@@ -145,8 +148,12 @@ class SwshPromoTests(unittest.IsolatedAsyncioTestCase):
                 return False
             with patch.object(installer, 'SCRIPTS_ROOT', scripts.parent), \
                     patch.object(installer, 'ASSETS_ROOT', assets.parent), \
+                    patch('spirit.tools.ptcgo_local_assets.import_swsh_promo_foils') as foils, \
+                    patch('spirit.tools.import_vunion.import_vunion', return_value=[]) as composites, \
                     patch('spirit.tools.ptcgo_local_assets.install_card_art', side_effect=restore) as native:
                 installer.restore_native_promos('native-cache')
+                foils.assert_called_once_with(Path('native-cache'))
+                composites.assert_called_once_with(Path('native-cache'))
                 with Image.open(assets / 'Grookey_1.png') as image:
                     self.assertEqual(image.getpixel((0,0)), (255,0,0))
                 with Image.open(assets / 'Arcanine_304.png') as image:

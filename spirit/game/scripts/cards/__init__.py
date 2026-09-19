@@ -64,6 +64,11 @@ class ScriptLoader:
 
     def _load_script(self, file_path: str):
         """Loads a single card script."""
+        from spirit.game.excluded_prints import excluded_print
+        # Ignore an obsolete script left by an older non-Git installation.
+        stem = os.path.splitext(os.path.basename(file_path))[0]
+        if excluded_print(os.path.basename(os.path.dirname(file_path)), stem.rsplit('_', 1)[-1]):
+            return
         try:
             # Create a unique module name based on the relative path
             rel_path = os.path.relpath(file_path, self.scripts_dir)

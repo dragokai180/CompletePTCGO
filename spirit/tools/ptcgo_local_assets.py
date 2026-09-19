@@ -23,6 +23,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
 import UnityPy
+from spirit.game.excluded_prints import excluded_print
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
@@ -338,6 +339,8 @@ def install_card_art(
 ) -> bool:
     """Install one native card texture; return False if no local art exists."""
     set_code = str(set_code).upper()
+    if excluded_print(set_code, collector_number):
+        return False
     collector_number = _native_collector(set_code, collector_number)
     suffix = CARD_ARCHIVES.get(set_code)
     number = _collector_value(collector_number)
@@ -432,6 +435,23 @@ def import_premium_xy_foils(source: Path) -> dict:
     return {'written': written, 'missing': missing, 'available': True}
 
 
+def import_swsh_promo_foils(source: Path) -> dict:
+    """Import exact original promo masks; never infer missing print finishes."""
+    from spirit.tools import import_foil_masks as masks
+    sources = [str(path) for path in reversed(_cache_archives(source))]
+    for directory in (source, source / 'bundleCache'):
+        if any(masks._bundle_payloads(str(directory), 'Promo_SWSH', kind)
+               for kind in masks.KIND_SUFFIXES):
+            sources.append(str(directory))
+    if not sources:
+        print('[swsh-promos] No native cache found; foil masks were not installed.')
+        return {'written': 0, 'unchanged': 0, 'available': False}
+    written, unchanged = masks.extract_set('Promo_SWSH', sources, force=True, strict=True)
+    print(f'[swsh-promos] {written} exact masks installed; {unchanged} unchanged. '
+          'Printings absent from these bundles do not receive a substitute mask.')
+    return {'written': written, 'unchanged': unchanged, 'available': bool(written or unchanged)}
+
+
 def import_card_art(source: Path) -> dict[str, int]:
     """Replace implemented card PNGs with matching native PTCGO textures."""
     totals = {"sets": 0, "written": 0, "unchanged": 0, "unavailable": 0}
@@ -449,6 +469,8 @@ def import_card_art(source: Path) -> dict[str, int]:
             entries = _archive_card_entries(archive)
             for script in sorted(scripts.glob("*.py")):
                 number = _collector_from_script(set_code, script.stem)
+                if excluded_print(set_code, number):
+                    continue
                 entry = entries.get(number) if number is not None else None
                 if entry is None:
                     totals["unavailable"] += 1
@@ -477,6 +499,8 @@ def import_card_art(source: Path) -> dict[str, int]:
         set_written = 0
         for script in sorted(scripts.glob("*.py")):
             key = _collector_key_from_script(set_code, script.stem)
+            if excluded_print(set_code, key):
+                continue
             payload = cached.get(key) if key is not None else None
             if payload is None:
                 totals["unavailable"] += 1
@@ -694,6 +718,7 @@ def main() -> int:
     vunion_failures = []
     if not args.ui_only:
         card_totals = import_card_art(source)
+        import_swsh_promo_foils(source)
         # Composite V-UNION faces have nonnumeric native texture names, so
         # they need the dedicated importer in addition to physical card art.
         from spirit.tools.import_vunion import import_vunion
