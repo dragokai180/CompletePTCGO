@@ -235,6 +235,7 @@ __marimo__/
 /AGENTS.md
 
 # Runtime credentials, account state, and logs.
+/spirit-admin.local.json
 *.crt
 *.key
 *.db

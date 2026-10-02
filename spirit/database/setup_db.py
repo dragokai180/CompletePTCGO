@@ -4,6 +4,8 @@ import uuid
 import hashlib
 import sqlite3
 import secrets
+import json
+from pathlib import Path
 
 # Ensure Python can find the 'spirit' module
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -13,6 +15,18 @@ from spirit.database.connection import DB_PATH
 
 def hash_password(password):
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
+
+def initial_admin_credentials():
+    """Use public defaults unless this installation has a local override."""
+    local_path = Path(__file__).resolve().parents[2] / "spirit-admin.local.json"
+    local = json.loads(local_path.read_text(encoding="utf-8")) if local_path.exists() else {}
+    username = os.environ.get("SPIRIT_INITIAL_ADMIN_USER") or local.get("username") or "brandon"
+    configured_password = os.environ.get("SPIRIT_INITIAL_ADMIN_PASSWORD") or local.get("password")
+    password = configured_password or (
+        "password" if username == "brandon" else secrets.token_urlsafe(24)
+    )
+    return username, password, not configured_password and username != "brandon"
 
 def setup_database():
     print("Initializing Database Tables via SQLAlchemy...")
@@ -54,15 +68,13 @@ def setup_database():
         except Exception as e:
             print(f" - Warning: Auto-migration of decks table failed: {e}")
 
-    # Seed a local administrator without a shared, hard-coded password.
-    admin_username = os.environ.get("SPIRIT_INITIAL_ADMIN_USER", "GhostCursesYou")
+    # Seed the original Spirit test administrator unless locally overridden.
+    admin_username, admin_password, generated_password = initial_admin_credentials()
     
     new_account_id = None
     with db_session() as session:
         acc = session.query(Account).filter_by(username=admin_username).first()
         if not acc:
-            admin_password = os.environ.get("SPIRIT_INITIAL_ADMIN_PASSWORD") \
-                or secrets.token_urlsafe(24)
             acc_id = str(uuid.uuid4())
             pwd_hash = hash_password(admin_password)
             new_acc = Account(
@@ -75,7 +87,7 @@ def setup_database():
             session.add(new_acc)
             new_account_id = acc_id
             print(f" - Created administrator: '{admin_username}'.")
-            if not os.environ.get("SPIRIT_INITIAL_ADMIN_PASSWORD"):
+            if generated_password:
                 print(f" - Initial password (save it now): {admin_password}")
         else:
             print(f" - Account '{admin_username}' already exists; credentials and permissions unchanged.")
