@@ -8,9 +8,9 @@ from .base import BaseHandler, handle
 from spirit.shop import shop_manager
 from spirit.game.scripts.products import loader as product_loader
 from spirit.game.attributes import AttrID
-from spirit.database import db_session, Collection
+from spirit.database.deck_products import open_products
 from spirit.database.async_utils import run_db
-from spirit.database.player_data import add_to_collection, remove_from_collection
+from spirit.database.player_data import add_to_collection
 
 def build_item(owner_id: str, archetype_id: str, is_tradable: bool = False) -> dict:
     """Builds the client's Item JSON shape (shared with the trade lots protocol)."""
@@ -30,14 +30,13 @@ class ShopHandler(BaseHandler):
     def _owner_id(self) -> str:
         return self.client.player.account_id if self.client.player else "0"
 
-    def _open_products_sync(self, product_ids, is_tradable_override):
+    def _open_products_sync(self, product_ids, is_tradable_override, purchased=False):
         """Opens products and persists collection changes; runs on a DB worker thread."""
         shop = shop_manager.get_shop()
         account_id = self.client.player.account_id if self.client.player else None
-        owner_id = account_id or "0"
-
-        opened_items = []
-        opened_products = []
+        if not account_id:
+            raise ValueError("Sign in before opening products")
+        products = []
 
         for p_id in product_ids:
             # p_id may be a shop SKU GUID (buy+open) or a real owned pack GUID (open from collection)
@@ -45,44 +44,29 @@ class ShopHandler(BaseHandler):
             product = product_loader.products_by_guid.get(pack_guid) or \
                 product_loader.products_by_guid.get(pack_guid.lower())
             if not product:
-                logging.warning(f"[Shop] Cannot open unknown product: {p_id}")
-                continue
-
-            # 1. Determine if the opened product is tradable
-            is_tradable_pack = True
-            if account_id:
-                with db_session() as session:
-                    item = session.query(Collection).filter_by(
-                        account_id=account_id,
-                        archetype_id=pack_guid
-                    ).first()
-                    if item:
-                        if item.nontradable_count > 0:
-                            is_tradable_pack = False
-                        elif item.tradable_count > 0:
-                            is_tradable_pack = True
-
-            if is_tradable_override is not None:
-                is_tradable_pack = bool(is_tradable_override)
-
-            opened_products.append(build_item(owner_id, pack_guid, is_tradable=is_tradable_pack))
-
-            # Consume the product from collection
-            if account_id:
-                remove_from_collection(account_id, pack_guid, count=1, is_tradable=is_tradable_pack)
-
-            # Generate cards for this product
-            generated_guids = product.open("-1")
-            for g in generated_guids:
-                opened_items.append(build_item(owner_id, g, is_tradable=is_tradable_pack))
-                if account_id:
-                    add_to_collection(account_id, g, count=1, is_tradable=is_tradable_pack)
-
+                raise ValueError(f"Unknown product requested: {p_id}")
+            products.append(product)
+        opened = open_products(account_id, products, purchased=purchased,
+                               tradable_override=is_tradable_override)
+        opened_items = []
+        opened_products = []
+        for guid, contents, tradable in opened:
+            opened_products.append(build_item(account_id, guid, tradable))
+            opened_items.extend(build_item(account_id, card_guid, tradable) for card_guid in contents)
         return opened_items, opened_products
 
-    async def _process_opening(self, request_id, flags, product_ids, is_tradable_override=None):
-        opened_items, opened_products = await run_db(
-            self._open_products_sync, product_ids, is_tradable_override)
+    async def _process_opening(self, request_id, flags, product_ids, is_tradable_override=None,
+                               purchased=False):
+        try:
+            opened_items, opened_products = await run_db(
+                self._open_products_sync, product_ids, is_tradable_override, purchased)
+        except Exception:
+            logging.exception("[Shop] Product opening failed for %s", self._owner_id())
+            await self.send({
+                "messageName": OutboundMsg.PRODUCTS_OPENED_FAILURE.value,
+                "error": {"id": "Unable to open these products. Please try again."},
+            }, request_id)
+            return
 
         response = {
             "messageName": OutboundMsg.PRODUCTS_OPENED.value,
@@ -125,12 +109,20 @@ class ShopHandler(BaseHandler):
         product_ids = message.get("products", [])
         shop = shop_manager.get_shop()
 
+        if any(p_id not in shop.available_products for p_id in product_ids):
+            await self.send({
+                "messageName": OutboundMsg.PRODUCTS_OPENED_FAILURE.value,
+                "error": {"id": "One or more products are unavailable."},
+            }, request_id)
+            return
+
         basket = [(shop.available_products.get(p_id), 1)
                   for p_id in product_ids if p_id in shop.available_products]
         if not await self._charge_for(basket, "PurchaseAndOpen"):
             return
 
-        await self._process_opening(request_id, flags, product_ids, is_tradable_override=message.get("isTradable"))
+        await self._process_opening(request_id, flags, product_ids,
+                                    is_tradable_override=message.get("isTradable"), purchased=True)
 
         # Update wallet UI (unsolicited sync uses request_id=0)
         if self.client.player:

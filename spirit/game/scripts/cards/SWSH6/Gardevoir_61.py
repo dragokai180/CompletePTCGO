@@ -6,8 +6,6 @@ from spirit.game.card_effects.attacks_common import damage_per, count_energy
 
 
 async def shining_arcana(ctx):
-    if not await ctx.ask_yes_no("Look at the top 2 cards of your deck?"):
-        return
     top = ctx.deck_top(2)
     if not top:
         return

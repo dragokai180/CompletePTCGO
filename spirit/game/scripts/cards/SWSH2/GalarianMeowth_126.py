@@ -9,14 +9,14 @@ def _is_galarian_perrserker(card):
 
 
 async def evolution_roar(ctx):
-    await ctx.discard_from_hand(2, prompt="Discard 2 cards to use Evolution Roar")
-    if await ctx.ask_yes_no("Search your deck for a Galarian Perrserker?"):
-        picks = await ctx.search_deck(
-            _is_galarian_perrserker, count=1, minimum=0,
-            prompt="Choose a Galarian Perrserker to put into your hand.",
-        )
-        await ctx.put_in_hand(picks, reveal=True)
-        await ctx.shuffle_deck()
+    if not await ctx.discard_from_hand(2, prompt="Discard 2 cards to use Evolution Roar"):
+        return
+    picks = await ctx.search_deck(
+        _is_galarian_perrserker, count=1, minimum=0,
+        prompt="Choose a Galarian Perrserker to put into your hand.",
+    )
+    await ctx.put_in_hand(picks, reveal=True)
+    await ctx.shuffle_deck()
 
 
 card = PokemonCardDef(

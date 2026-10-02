@@ -254,6 +254,7 @@ __marimo__/
 /spirit/assets/cards/*
 !/spirit/assets/cards/README.md
 /spirit/assets/bundleCache/
+/spirit/assets/generatedBundleCache/
 /spirit/assets/externalCache/
 /spirit/assets/products/**/*.png
 /spirit/server/asset_map.json

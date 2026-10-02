@@ -12,8 +12,7 @@ def _on_bench(board, player_id, pokemon):
 async def vanishing_wings(ctx):
     """Once during your turn, if this Pokemon is on your Bench, you may
     shuffle it and all attached cards into your deck."""
-    if await ctx.ask_yes_no("Shuffle Pidgeot V and all attached cards into your deck?"):
-        await ctx.shuffle_into_deck(full_stack(ctx.source), ctx.player_id)
+    await ctx.shuffle_into_deck(full_stack(ctx.source), ctx.player_id)
 
 
 card = PokemonCardDef(

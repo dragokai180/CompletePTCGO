@@ -16,11 +16,6 @@ async def buzzap_generator(ctx):
     """Once per turn, if benched: you may search up to 2 Lightning Energy
     cards and attach them freely, then shuffle. If you did, this Pokémon is
     Knocked Out."""
-    if not await ctx.ask_yes_no(
-        "Search your deck for up to 2 Lightning Energy cards to attach? "
-        "This Pokémon will be Knocked Out."
-    ):
-        return
     picks = await ctx.search_deck(
         is_lightning_energy, count=2, minimum=0,
         prompt="Choose up to 2 Lightning Energy cards to attach.",

@@ -34,10 +34,6 @@ async def blue_assist(ctx):
     ]
     if not hand_energy:
         return
-    if not await ctx.ask_yes_no(
-        "Attach a Psychic Energy card from your hand to 1 of your Latias?"
-    ):
-        return
     picks = await ctx.choose_cards(
         hand_energy, 1, prompt="Choose a Psychic Energy card to attach",
     )

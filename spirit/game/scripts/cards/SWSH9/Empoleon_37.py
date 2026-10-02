@@ -15,10 +15,6 @@ def emergency_surfacing_condition(board, player_id, pokemon):
 async def emergency_surfacing(ctx):
     """Once per turn, from the discard pile with an empty hand: you may put
     this Pokémon onto your Bench. If you do, draw 3 cards."""
-    if not await ctx.ask_yes_no(
-        "Put Empoleon onto your Bench? If you do, draw 3 cards."
-    ):
-        return
     if await ctx.bench_pokemon(ctx.source):
         await ctx.draw_cards(3)
 

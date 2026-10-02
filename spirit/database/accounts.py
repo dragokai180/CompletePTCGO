@@ -5,6 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from spirit.database import db_session, Account
 from spirit.game.starter_content import grant_starter_content
+from spirit import config
 
 def hash_password(password):
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
@@ -71,8 +72,24 @@ def create_account(username, password):
     except Exception as e:
         logging.error(f"Error granting starter content to new account {username}: {e}")
 
+    if config.GRANT_ALL_CARDS_ON_REGISTRATION:
+        try:
+            from spirit.database.player_data import grant_all_cards
+            if not grant_all_cards(acc_dict['account_id'], count=4, is_tradable=True):
+                logging.error('No cards granted to new account %s; login can retry the grant', username)
+        except Exception:
+            logging.exception('Error granting full collection to new account %s', username)
+
     return acc_dict
 
 def verify_password(stored_hash, provided_password):
     """Verifies a given password against the stored hash."""
     return stored_hash == hash_password(provided_password)
+
+
+def is_legacy_guest_account(account):
+    """Recognize accounts made by the former passwordless guest routes."""
+    return account['password_hash'] in {
+        hash_password('guest_password'),
+        hash_password('mobile_password'),
+    }

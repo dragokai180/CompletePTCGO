@@ -4,8 +4,6 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 
 async def quick_shooting(ctx):
     """Once per turn: you may put 2 damage counters on 1 of your opponent's Pokemon."""
-    if not await ctx.ask_yes_no("Put 2 damage counters on 1 of your opponent's Pokémon?"):
-        return
     targets = ctx.opponent_pokemon_in_play()
     if not targets:
         return

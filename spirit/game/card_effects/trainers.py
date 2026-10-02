@@ -909,7 +909,8 @@ class CollapsedStadiumPassive(Passive):
 async def gapejaw_bog_watch(ctx):
     """Gapejaw Bog: 2 damage counters on any Basic just benched from hand."""
     pokemon = ctx.benched_pokemon
-    if pokemon is None:
+    if pokemon is None or not getattr(ctx, "bench_from_hand", True) \
+            or not is_basic_pokemon(pokemon):
         return
     await ctx.deal_damage(20, target=pokemon, apply_modifiers=False,
                           as_counters=True)
@@ -1205,6 +1206,9 @@ class MemoryCapsulePassive(Passive):
     (energy costs still apply)."""
 
     def granted_attacks(self, board, pokemon, carrier):
+        return [attack for _, attack in self.granted_attack_choices(board, pokemon, carrier)]
+
+    def granted_attack_choices(self, board, pokemon, carrier):
         if carrier_pokemon(carrier) is not pokemon:
             return []
         attacks = []
@@ -1213,7 +1217,7 @@ class MemoryCapsulePassive(Passive):
                 continue
             for ability in getattr(def_for(child.archetype_id), "abilities", None) or []:
                 if isinstance(ability, Attack):
-                    attacks.append(ability)
+                    attacks.append((child, ability))
         return attacks
 
 

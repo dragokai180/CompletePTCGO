@@ -12,8 +12,7 @@ def _magma_gain_condition(board, player_id, pokemon):
 
 
 async def _magma_gain(ctx):
-    if await ctx.ask_yes_no("Heal 50 damage from this Pokémon?"):
-        await ctx.heal(50, ctx.source)
+    await ctx.heal(50, ctx.source)
 
 card = PokemonCardDef(
     guid="46c8d36e-0749-56ba-afd7-459c79c7e575",

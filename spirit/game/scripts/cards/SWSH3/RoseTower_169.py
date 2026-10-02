@@ -8,8 +8,7 @@ def _rose_tower_condition(board, player_id, stadium):
 
 
 async def _rose_tower_effect(ctx):
-    if await ctx.ask_yes_no("Draw cards until you have 3 cards in your hand?"):
-        await ctx.draw_until(3)
+    await ctx.draw_until(3)
 
 
 ROSE_TOWER_ABILITY = Ability(

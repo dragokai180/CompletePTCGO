@@ -16,8 +16,6 @@ async def star_bloom(ctx):
                if PokemonTypes.GRASS.value in (p.get_attribute(AttrID.POKEMON_TYPES) or [])]
     if not targets:
         return
-    if not await ctx.ask_yes_no("Heal 120 damage from each of your Benched Grass Pokémon?"):
-        return
     for pokemon in targets:
         await ctx.heal(120, pokemon)
 

@@ -11,8 +11,7 @@ def _stoked_straw_condition(board, player_id, pokemon):
 
 async def stoked_straw(ctx):
     """Once during your turn: you may draw cards until you have 6 in hand."""
-    if await ctx.ask_yes_no("Draw cards until you have 6 cards in your hand?"):
-        await ctx.draw_until(6)
+    await ctx.draw_until(6)
 
 
 card = PokemonCardDef(

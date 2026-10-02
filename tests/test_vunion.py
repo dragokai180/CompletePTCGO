@@ -68,6 +68,41 @@ class VUnionTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(assembled.guid, loader.cards_by_guid)
             self.assertEqual(prize_value(assembled.guid), 3)
 
+    def test_assembled_foil_comes_from_selected_print_not_original_family(self):
+        from copy import deepcopy
+        from spirit.game.attributes import FoilMasks
+        from spirit.game.data_utils import Foil
+
+        rig = self.rig()
+        parts = [self.add(rig, definition(f'Promo_SWSH.MorpekoVUNION_{n}'), P1, 'discard')
+                 for n in range(287, 291)]
+        face = def_for(parts[0].archetype_id)
+        family = assembled_definition('Morpeko')
+        original = deepcopy(family.to_archetype_dict())
+        foil_keys = [str(attr.value) for attr in (
+            AttrID.FOIL_MASK, AttrID.FOIL_EFFECT, AttrID.FOIL_EFFECTS, AttrID.FOIL_INTENSITY)]
+        for foil in (Foil(mask=FoilMasks.ETCHED, effects=[FoilEffects.SUNPILLAR]), None):
+            with self.subTest(foil=foil):
+                raw = deepcopy(face.to_archetype_dict())
+                for key in foil_keys:
+                    raw['attributes'].pop(key, None)
+                expected = foil.to_attributes() if foil else {}
+                raw['attributes'].update(expected)
+                with patch.object(face, 'to_archetype_dict', return_value=raw):
+                    pokemon = VUnionPokemonEntity(parts)
+                self.assertEqual(pokemon.get_attribute(AttrID.IMAGE_URL), '287to290')
+                self.assertEqual(pokemon.get_attribute(AttrID.HP), SPECS['Morpeko'][2])
+                for attr in (AttrID.FOIL_MASK, AttrID.FOIL_EFFECT, AttrID.FOIL_INTENSITY):
+                    value = expected.get(str(attr.value), {}).get('value')
+                    if foil:
+                        self.assertEqual(pokemon.get_attribute(attr), value)
+                    else:
+                        self.assertIsNone(pokemon.card_obj.get_attribute_value(attr))
+                if not foil:
+                    self.assertEqual(pokemon.get_attribute(AttrID.FOIL_MASK), 0)
+                    self.assertEqual(pokemon.get_attribute(AttrID.FOIL_EFFECT), 0)
+                self.assertEqual(family.to_archetype_dict(), original)
+
     @unittest.skipUnless(Path('tools/card-builder/data/pokemon-tcg-data/cards/en/swshp.json').is_file(),
                          'Optional printed metadata snapshot not installed')
     def test_all_twenty_attacks_match_printed_cost_and_damage(self):
@@ -137,10 +172,8 @@ class VUnionTests(unittest.IsolatedAsyncioTestCase):
                     rig, ctx, pokemon, parts = await self.assembled(name, owner)
                     self.assertEqual(effective_max_hp(rig.board, pokemon), spec[2])
                     self.assertEqual(pokemon.get_attribute(AttrID.IMAGE_URL), f'{spec[0]}to{spec[0]+3}')
-                    # Native PlaymatCardImageRenderer ignores IMAGE_URL here.
-                    # Its lookup is Q.j collector number + S.y's 10020 suffix.
-                    rendered_name = str(pokemon.get_attribute(AttrID.COLLECTOR_NUMBER)).zfill(3) + pokemon.get_attribute(AttrID.IMAGE_FALLBACK_1, '')
-                    self.assertEqual(rendered_name, f'{spec[0]}to{spec[0]+3}')
+                    self.assertEqual(pokemon.get_attribute(AttrID.IMAGE_FALLBACK_1), f'to{spec[0]+3}')
+                    self.assertIsNone(pokemon.get_attribute(AttrID.IMAGE_FALLBACK_2))
                     intro = rig.session._entity_introduced_msg(pokemon)['value']['attributeMap']
                     self.assertEqual(next(a['value'] for a in intro if a['name'] == 10020), f'to{spec[0]+3}')
                     for part in parts:
@@ -148,7 +181,10 @@ class VUnionTests(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse(pokemon.get_attribute(AttrID.IS_LEGEND))
                     self.assertCountEqual(split_pokemon_stack(pokemon)[0], parts)
                     self.assertCountEqual(full_stack(pokemon), parts)
-                    self.assertEqual(pokemon.serialize(owner)['children'], [])
+                    self.assertCountEqual(
+                        [child['entityID'] for child in pokemon.serialize(owner)['children']],
+                        [part.entity_id for part in parts],
+                    )
                     for viewer in (P1, P2):
                         tree = rig.board.serialize(viewer)['entities']
                         def all_ids(entity):
@@ -172,8 +208,13 @@ class VUnionTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('CreateVUnion', sequences)
             self.assertIn('AttachToVUnion', sequences)
             self.assertIn('PlayCard', sequences)
-            moves = [m['value']['entityID'] for m in messages if m['name'] == 'EntityMoved']
+            movement = [m['value'] for m in messages if m['name'] == 'EntityMoved']
+            moves = [m['entityID'] for m in movement]
             self.assertEqual(moves, [p.entity_id for p in parts] + [pokemon.entity_id])
+            self.assertEqual(
+                [m['destinationID'] for m in movement[:4]],
+                [pokemon.entity_id] * 4,
+            )
 
     async def test_union_gain_all_types_up_to_two_and_preserves_energy_identity(self):
         for name, spec in SPECS.items():

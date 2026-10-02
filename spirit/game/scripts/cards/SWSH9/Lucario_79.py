@@ -10,8 +10,6 @@ def _is_fighting_energy_card(card):
 async def roaring_resolve(ctx):
     """Once per turn: you may put 2 damage counters on this Pokémon. If you
     do, search your deck for a Fighting Energy card and attach it here."""
-    if not await ctx.ask_yes_no("Put 2 damage counters on this Pokémon?"):
-        return
     await ctx.deal_damage(20, target=ctx.source, apply_modifiers=False, as_counters=True)
     picks = await ctx.search_deck(
         _is_fighting_energy_card, count=1, minimum=0,

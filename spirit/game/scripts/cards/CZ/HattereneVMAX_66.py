@@ -11,11 +11,6 @@ async def witchs_domain(ctx):
                   if p.get_attribute(AttrID.HP, 0) < ctx.max_hp(p)]
     if not candidates:
         return
-    if not await ctx.ask_yes_no(
-        "Move up to 2 damage counters from your Pokémon to your "
-        "opponent's Active Pokémon?"
-    ):
-        return
     source = await ctx.choose_pokemon(
         candidates, "Choose 1 of your Pokémon to move damage counters from"
     )

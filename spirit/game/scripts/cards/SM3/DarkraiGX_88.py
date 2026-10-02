@@ -51,8 +51,6 @@ def _darkness_energy(card) -> bool:
 async def restoration(ctx):
     """Once per turn from the discard: Bench this Pokemon, then attach a
     Darkness Energy from the discard to it."""
-    if not await ctx.ask_yes_no("Put this Pokémon onto your Bench?"):
-        return
     if not await ctx.bench_pokemon(ctx.source):
         return
     await attach_from_discard(predicate=_darkness_energy, count=1,

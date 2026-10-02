@@ -15,8 +15,6 @@ def _elusive_master_condition(board, player_id, pokemon):
 async def elusive_master(ctx):
     """Once during your turn, if this is your last card in hand, you may
     play it onto your Bench. If you do, draw 3 cards."""
-    if not await ctx.ask_yes_no("Play this Pokémon onto your Bench and draw 3 cards?"):
-        return
     if await ctx.bench_pokemon(ctx.source):
         await ctx.draw_cards(3)
 

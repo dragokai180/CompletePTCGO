@@ -7,8 +7,6 @@ from spirit.game.card_effects.support_common import requires_bench_space
 async def netherworld_gate(ctx):
     """Once per turn, from the discard pile: you may put this Pokemon onto
     your Bench. If you do, put 3 damage counters on it."""
-    if not await ctx.ask_yes_no("Put this Pokémon onto your Bench?"):
-        return
     if await ctx.bench_pokemon(ctx.source):
         await ctx.deal_damage(30, target=ctx.source, apply_modifiers=False,
                               as_counters=True)

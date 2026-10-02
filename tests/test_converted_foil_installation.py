@@ -2,6 +2,8 @@
 import tempfile
 import unittest
 import zipfile
+import os
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -14,7 +16,7 @@ from spirit.tools import import_foil_masks as masks
 class ConvertedFoilInstallationTests(unittest.TestCase):
     def pack(self, root, codes=('PGO',)):
         for code in codes:
-            for kind in installer.REQUIRED_KINDS:
+            for kind in installer.PACK_KINDS[code]:
                 target = root / f'en_US_{code}_wp_{kind}_Foil2' / ('0' * 32) / '__data'
                 target.parent.mkdir(parents=True)
                 target.write_bytes(b'fixture')
@@ -27,15 +29,49 @@ class ConvertedFoilInstallationTests(unittest.TestCase):
                 installer.install(root)
             extract.assert_not_called()
 
-    def test_complete_directory_installs_every_selected_set(self):
+    def test_complete_directory_installs_every_supported_set(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(masks, 'extract_set', return_value=(3, 0)) as extract:
             root = Path(tmp)
             self.pack(root, installer.SETS)
-            self.assertEqual(installer.install(root), 12)
-            self.assertEqual(extract.call_count, 4)
+            self.assertEqual(installer.install(root, installer.SETS), 3 * len(installer.SETS))
+            self.assertEqual(extract.call_count, len(installer.SETS))
             for code, call in zip(installer.SETS, extract.call_args_list):
                 self.assertEqual(call.args, (code, [str(root.resolve())]))
                 self.assertEqual(call.kwargs, {'force': True, 'strict': True, 'container_only': True})
+
+    def test_missing_foil_collection_uses_only_its_exported_mask_kinds(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(masks, 'extract_set', return_value=(4, 0)) as extract:
+            root = Path(tmp)
+            self.pack(root, ('BW11',))
+            self.assertEqual(installer.install(root, ('BW11',)), 4)
+            extract.assert_called_once_with('BW11', [str(root.resolve())],
+                                            force=True, strict=True, container_only=True)
+
+    def test_manifest_restores_verified_metadata_and_companion_art(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(masks, 'extract_set', return_value=(1, 0)):
+            root = Path(tmp) / 'pack'
+            root.mkdir()
+            self.pack(root)
+            payload = b'complete-vunion-art'
+            (root / 'extras').mkdir()
+            (root / 'extras' / 'face.png').write_bytes(payload)
+            (root / 'overlay.json').write_text('{"PROMO_SWSH":{"306":{"mask":"Holo"}}}')
+            (root / installer.MANIFEST_FILE).write_text(
+                '{"schema":1,"metadata_overlay":"overlay.json","assets":['
+                '{"source":"extras/face.png","target":"cards/Promo_SWSH/face.png",'
+                f'"sha256":"{__import__("hashlib").sha256(payload).hexdigest()}"}}]}}'
+            )
+            original = Path.cwd()
+            try:
+                os.chdir(tmp)
+                Path('spirit/game').mkdir(parents=True)
+                Path('spirit/game/foil_metadata.json').write_text('{}')
+                Path('spirit/assets').mkdir(parents=True)
+                installer.install(root, ('PGO',))
+                self.assertEqual(json.loads(Path('spirit/game/foil_metadata.json').read_text())['PROMO_SWSH']['306']['mask'], 'Holo')
+                self.assertEqual(Path('spirit/assets/cards/Promo_SWSH/face.png').read_bytes(), payload)
+            finally:
+                os.chdir(original)
 
     def test_zip_with_wrapper_folder_is_supported(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(masks, 'extract_set', return_value=(3, 0)):

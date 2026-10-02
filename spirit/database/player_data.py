@@ -5,6 +5,7 @@ from spirit.database import db_session, Account, Wallet, Deck, Collection, Arche
 from spirit.game.format_manager import is_basic_energy_card
 from spirit.game.scripts.cards import loader as card_loader
 from spirit.game.scripts.products import loader as product_loader
+from spirit import config
 
 # Resources granted to a brand-new account
 STARTING_COINS = 1000
@@ -12,8 +13,8 @@ STARTING_GEMS = 0
 STARTING_TICKETS = 100
 
 # Coins awarded when a match completes (winner / loser rates)
-COINS_PER_WIN = 1000
-COINS_PER_LOSS = 200
+COINS_PER_WIN = config.MATCH_COINS_PER_WIN
+COINS_PER_LOSS = config.MATCH_COINS_PER_LOSS
 
 
 def get_account_settings(account_id):

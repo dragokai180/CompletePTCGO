@@ -7,15 +7,19 @@ REM ============================================================================
 setlocal
 cd /d "%~dp0"
 
-where python >nul 2>&1
-if errorlevel 1 (
-    echo [error] Python not found on PATH. Install Python 3.10+ ^(tick "Add to PATH"^).
-    exit /b 1
-)
-
 if not exist "venv\Scripts\python.exe" (
+    where python >nul 2>&1
+    if errorlevel 1 (
+        echo [error] Python not found on PATH. Install Python 3.10+ ^(tick "Add to PATH"^) or create the venv first.
+        exit /b 1
+    )
     echo [setup] Creating virtual environment...
     python -m venv venv || ( echo [error] venv creation failed & exit /b 1 )
+)
+"venv\Scripts\python.exe" --version >nul 2>&1
+if errorlevel 1 (
+    echo [error] This venv points to a missing Python installation. Recreate it with the Python installed on this PC.
+    exit /b 1
 )
 call "venv\Scripts\activate.bat"
 

@@ -124,7 +124,7 @@ from .passives import (
     burn_recovery_blocked, effective_bench_capacity, effective_max_hp,
     effective_retreat_cost, energy_attachment_blocked, energy_attach_taxer,
     evolve_heal_amount, extra_manual_energy_attachments,
-    granted_extra_attacks, player_visualizations,
+    player_visualizations,
     retreat_energy_destination, tool_slots_free,
     tool_suppressed, special_energy_suppressed,
     special_conditions_persist_on_evolution,
@@ -144,6 +144,7 @@ from .legal_actions import (
     ability_condition_met,
     compute_legal_actions,
     copy_attack_choice_node,
+    passive_copy_candidates, PASSIVE_COPY_ATTACK,
     energy_provided_count,
     same_stadium_in_play,
     tool_attachment_targets,
@@ -1503,7 +1504,7 @@ class GameSession:
         """
         entity = self.board_state.get_entity(entity_id)
         destination = self.board_state.get_entity(destination_id)
-        if isinstance(destination, CompositePokemonEntity) and entity in destination.physical_parts:
+        if isinstance(destination, LegendPokemonEntity) and entity in destination.physical_parts:
             # Referenced image sources are not additional zoom attachments.
             # Match BoardState.serialize's native LEGEND wire projection while
             # retaining both physical cards in the authoritative rules stack.
@@ -4552,16 +4553,22 @@ class GameSession:
             await self._fire_triggered_abilities(
                 acting_player_id, stadium, trigger, ctx_setup=ctx_setup)
 
-    async def fire_pokemon_benched_triggers(self, benching_player_id: str, pokemon):
-        """ON_POKEMON_BENCHED for a manual from-hand bench play only (Gapejaw
-        Bog does not observe effect-driven benching from the deck)."""
+    async def fire_pokemon_benched_triggers(self, benching_player_id: str, pokemon,
+                                            *, from_hand=True, manual_play=True):
+        """Notify Stadiums when a Pokemon enters the Bench.
+
+        Older passive observers still watch manual plays only. Stadiums such as
+        Risky Ruins also watch effect-driven entries from other zones.
+        """
         def _setup(c):
             c.benching_player_id = benching_player_id
             c.benched_pokemon = pokemon
+            c.bench_from_hand = from_hand
         await self._fire_stadium_triggers(
             benching_player_id, Triggers.ON_POKEMON_BENCHED, _setup)
-        await self._fire_passive_event(
-            benching_player_id, "on_pokemon_benched", _setup)
+        if manual_play:
+            await self._fire_passive_event(
+                benching_player_id, "on_pokemon_benched", _setup)
 
     async def fire_move_to_active_triggers(
         self, pokemon, *, previous_active=None,
@@ -4895,22 +4902,14 @@ class GameSession:
                 continue
             for granted in grants:
                 entries.append(granted.to_dict())
-        # Dedupe on the full printed identity: same-named attacks with a
-        # different cost/damage are genuinely distinct grants and both offer.
-        def _identity(e: Dict[str, Any]):
-            return (
-                (e.get("title") or {}).get("id"),
-                (e.get("gameText") or {}).get("id"),
-                tuple(sorted((e.get("cost") or {}).items())),
-                e.get("damage"), e.get("amountOperator"),
-            )
-        seen = {_identity(e) for e in entries}
-        for attack in granted_extra_attacks(self.board_state, pokemon):
-            row = attack.to_dict()
-            key = _identity(row)
-            if key not in seen:
-                seen.add(key)
-                entries.append(row)
+        # The native attack panel has no pagination. A single menu attack
+        # opens CakeAttackCustomChoiceTargetInformation, whose list has the
+        # same arrows used by Apex Dragon.
+        if self.board_state.active_pokemon(pokemon.owning_player_id) is pokemon \
+                and passive_copy_candidates(
+                    self.board_state, self.turn_state, pokemon.owning_player_id
+                ):
+            entries.append(PASSIVE_COPY_ATTACK.to_dict())
         return entries
 
     async def refresh_granted_abilities(self, pokemon: PokemonEntity):
@@ -6047,7 +6046,11 @@ class GameSession:
         # so "after your opponent chooses a new Active" holds) can keep it.
         keeps = ctx is not None and (
             ctx.attack_keeps_turn or any(
-                passive.attack_keeps_turn(card, ability, ctx, carrier)
+                passive.attack_keeps_turn(
+                    card,
+                    ctx.ability if getattr(ability, "is_passive_copy_menu", False) else ability,
+                    ctx, carrier,
+                )
                 for passive, carrier in active_passives(self.board_state)
             )
         )

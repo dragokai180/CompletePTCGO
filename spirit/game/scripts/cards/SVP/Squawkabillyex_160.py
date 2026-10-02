@@ -44,8 +44,6 @@ def _is_players_first_turn(board, player_id, pokemon=None) -> bool:
 
 async def squawk_and_seize(ctx):
     """You may discard your hand and draw 6 cards."""
-    if not await ctx.ask_yes_no("Discard your hand and draw 6 cards?"):
-        return
     await ctx.discard_cards(ctx.hand())
     await ctx.draw_cards(6)
 

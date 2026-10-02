@@ -377,6 +377,12 @@ class Passive:
         Transformation, Memory Capsule); costs/locks still apply normally."""
         return []
 
+    def granted_attack_choices(
+        self, board: BoardState, pokemon: PokemonEntity, carrier: BoardEntity
+    ) -> List[Tuple[BoardEntity, Any]]:
+        """Attack and its original card for the scrollable copy-attack panel."""
+        return [(pokemon, attack) for attack in self.granted_attacks(board, pokemon, carrier)]
+
     def blocks_trainer_play(
         self, card: BoardEntity, player_id: str, carrier: BoardEntity
     ) -> bool:
@@ -875,13 +881,20 @@ def tool_suppressed(board: BoardState, tool: BoardEntity) -> bool:
 
 def granted_extra_attacks(board: BoardState, pokemon: PokemonEntity) -> List[Any]:
     """All passive-granted extra attacks for `pokemon`, deduped by ability_id."""
-    out: List[Any] = []
+    return [attack for _, attack in granted_extra_attack_choices(board, pokemon)]
+
+
+def granted_extra_attack_choices(
+    board: BoardState, pokemon: PokemonEntity
+) -> List[Tuple[BoardEntity, Any]]:
+    """Passive-granted attacks paired with the card that supplies each one."""
+    out: List[Tuple[BoardEntity, Any]] = []
     seen = set()
     for passive, carrier in active_passives(board):
-        for attack in passive.granted_attacks(board, pokemon, carrier) or []:
+        for source, attack in passive.granted_attack_choices(board, pokemon, carrier) or []:
             if attack.ability_id and attack.ability_id not in seen:
                 seen.add(attack.ability_id)
-                out.append(attack)
+                out.append((source, attack))
     return out
 
 

@@ -5,8 +5,6 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 async def pitch_a_pyukumuku(ctx):
     """From hand: you may reveal this and put it on the bottom of the deck,
     then draw a card."""
-    if not await ctx.ask_yes_no("Reveal this Pokémon and put it on the bottom of your deck?"):
-        return
     await ctx.reveal_cards([ctx.source])
     if await ctx.put_on_bottom_of_deck(ctx.source):
         await ctx.draw_cards(1)

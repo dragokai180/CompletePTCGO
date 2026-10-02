@@ -85,9 +85,12 @@ class CelebrationPassive(Passive):
             and target.owning_player_id != carrier.owning_player_id
 
     def granted_attacks(self, board, pokemon, carrier):
+        return [attack for _, attack in self.granted_attack_choices(board, pokemon, carrier)]
+
+    def granted_attack_choices(self, board, pokemon, carrier):
         if self.title != 'Memory Helix' or pokemon is not carrier:
             return []
-        return [a for p in board.pokemon_in_play(carrier.owning_player_id)
+        return [(p, a) for p in board.pokemon_in_play(carrier.owning_player_id)
                 if area(p) == 'bench'
                 for a in getattr(def_for(p.archetype_id), 'abilities', [])
                 if isinstance(a, Attack)]

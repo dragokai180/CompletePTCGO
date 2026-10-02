@@ -5,8 +5,6 @@ from spirit.game.card_effects.attacks_common import damage_per
 
 async def phantom_star(ctx):
     """VSTAR Power: you may discard your hand and draw 7 cards."""
-    if not await ctx.ask_yes_no("Discard your hand and draw 7 cards?"):
-        return
     await ctx.discard_cards(ctx.hand())
     await ctx.draw_cards(7)
 

@@ -17,10 +17,6 @@ async def lunar_blessing(ctx):
     active = ctx.my_active()
     if active is None:
         return
-    if not await ctx.ask_yes_no(
-        "Heal 20 damage from your Active Pokémon and have it recover from a Special Condition?"
-    ):
-        return
     await ctx.heal(20, active)
     await ctx.cure_all_conditions(active)
 

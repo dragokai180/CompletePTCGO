@@ -11,8 +11,6 @@ def _loopy_lasso_condition(board, player_id, pokemon=None):
 async def loopy_lasso(ctx):
     """Once per turn: you may flip a coin. Heads: switch a Benched opponent
     Pokemon into the Active spot, and it becomes Asleep and Poisoned."""
-    if not await ctx.ask_yes_no("Flip a coin?"):
-        return
     if not (await ctx.flip_coins(1, "Loopy Lasso"))[0]:
         return
     bench = ctx.opponent_bench()

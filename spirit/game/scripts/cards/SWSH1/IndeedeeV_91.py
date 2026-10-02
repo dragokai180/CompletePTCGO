@@ -5,8 +5,7 @@ from spirit.game.card_effects.attacks_common import damage_per, count_energy
 
 async def watch_over(ctx):
     """Once during your turn, you may heal 20 damage from your Active Pokémon."""
-    if await ctx.ask_yes_no("Heal 20 damage from your Active Pokémon?"):
-        await ctx.heal(20)
+    await ctx.heal(20)
 
 
 card = PokemonCardDef(

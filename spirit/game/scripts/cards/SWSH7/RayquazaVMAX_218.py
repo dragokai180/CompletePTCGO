@@ -6,8 +6,6 @@ from spirit.game.card_effects.trainers import is_basic_energy_card
 
 async def azure_pulse(ctx):
     """Once per turn: you may discard your hand and draw 3 cards."""
-    if not await ctx.ask_yes_no("Discard your hand and draw 3 cards?"):
-        return
     await ctx.discard_cards(ctx.hand())
     await ctx.draw_cards(3)
 

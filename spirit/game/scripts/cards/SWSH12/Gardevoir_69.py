@@ -4,9 +4,9 @@ from spirit.game.card_effects.support_common import requires_hand
 
 
 async def refinement(ctx):
-    await ctx.discard_from_hand(1, prompt="Discard a card to use Refinement")
-    if await ctx.ask_yes_no("Draw 2 cards?"):
-        await ctx.draw_cards(2)
+    if not await ctx.discard_from_hand(1, prompt="Discard a card to use Refinement"):
+        return
+    await ctx.draw_cards(2)
 
 
 card = PokemonCardDef(

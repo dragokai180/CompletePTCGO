@@ -5,10 +5,6 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 async def _seething_currents(ctx):
     """You may have either player shuffle their hand into their deck; if
     they did, they draw 4 cards."""
-    if not await ctx.ask_yes_no(
-        "Have either player shuffle their hand and put it on the bottom of their deck?"
-    ):
-        return
     choice = await ctx.choose(
         "Choose a player to shuffle their hand into their deck.",
         ["You", "Your Opponent"], use_panel=False,

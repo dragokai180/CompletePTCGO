@@ -305,6 +305,9 @@ class OutboundMsg(str, Enum):
     # Source: dwd.core.commerce.messages.incoming.CurrentWallet
     CURRENT_WALLET = "CurrentWallet"
 
+    # Source: dwd.core.commerce.messages.incoming.CurrencyCaps
+    CURRENCY_CAPS = "CurrencyCaps"
+
     # Source: pie-core AccountUpdated.cs (ReplaceWith swaps ALL account attributes)
     ACCOUNT_UPDATED = "AccountUpdated"
 
@@ -514,6 +517,9 @@ class OutboundMsg(str, Enum):
 
     # Source: dwd.core.commerce.messages.incoming.ProductsOpened
     PRODUCTS_OPENED = "ProductsOpened"
+
+    # Source: dwd.core.commerce.messages.incoming.ProductsOpenedFailure
+    PRODUCTS_OPENED_FAILURE = "ProductsOpenedFailure"
 
     # Source: dwd.core.commerce.messages.incoming.ProductsPurchased
     PRODUCTS_PURCHASED = "ProductsPurchased"

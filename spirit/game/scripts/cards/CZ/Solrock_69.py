@@ -28,10 +28,6 @@ async def sun_energy(ctx):
     cards = [c for c in ctx.discard_pile() if _is_psychic_energy_card(c)]
     if not lunatones or not cards:
         return
-    if not await ctx.ask_yes_no(
-        "Attach a Psychic Energy card from your discard pile to 1 of your Lunatone?"
-    ):
-        return
     picks = await ctx.choose_cards(cards, 1, prompt="Choose a Psychic Energy card to attach")
     if not picks:
         return

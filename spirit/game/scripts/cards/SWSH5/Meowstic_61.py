@@ -10,11 +10,6 @@ async def ear_moves(ctx):
                   if p.get_attribute(AttrID.HP, 0) < ctx.max_hp(p)]
     if not candidates:
         return
-    if not await ctx.ask_yes_no(
-        "Move 1 damage counter from 1 of your Pokemon to 1 of your "
-        "opponent's Pokemon?"
-    ):
-        return
     source = await ctx.choose_pokemon(
         candidates, "Choose 1 of your Pokemon to move a damage counter from"
     )

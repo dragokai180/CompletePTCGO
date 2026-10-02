@@ -40,10 +40,6 @@ async def _red_assist(ctx):
     targets = _my_latios(ctx)
     if not energies or not targets:
         return
-    if not await ctx.ask_yes_no(
-        "Attach a Psychic Energy card from your hand to 1 of your Latios?"
-    ):
-        return
     picked = await ctx.choose_cards(
         energies, 1, minimum=1, prompt="Choose a Psychic Energy card to attach"
     )

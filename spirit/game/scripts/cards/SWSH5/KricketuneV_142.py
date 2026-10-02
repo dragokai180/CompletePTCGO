@@ -7,8 +7,7 @@ from spirit.game.card_effects.pokemon import in_active_spot
 async def _exciting_stage(ctx):
     """Once per turn: draw to 3 (4 if this Pokémon is Active)."""
     target = 4 if in_active_spot(ctx.board, ctx.player_id, ctx.source) else 3
-    if await ctx.ask_yes_no(f"Draw cards until you have {target} cards in your hand?"):
-        await ctx.draw_until(target)
+    await ctx.draw_until(target)
 
 
 def _exciting_stage_condition(board, player_id, pokemon):

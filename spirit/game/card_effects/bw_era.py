@@ -3307,11 +3307,14 @@ class _BWTextPassive(Passive):
         return types
 
     def granted_attacks(self, board, pokemon, carrier):
+        return [attack for _, attack in self.granted_attack_choices(board, pokemon, carrier)]
+
+    def granted_attack_choices(self, board, pokemon, carrier):
         holder = carrier_pokemon(carrier)
         if "attacks of all pokémon in the lost zone" in self.text:
             if holder is not pokemon:
                 return []
-            return [attack for pid in board.player_ids
+            return [(card, attack) for pid in board.player_ids
                     for card in board.find_player_area(pid, "lostZone").children
                     if is_pokemon_card(card) and _stage(card) != PokemonStage.LEGEND.value
                     for attack in (getattr(def_for(card.archetype_id), "abilities", None) or [])
@@ -3319,7 +3322,7 @@ class _BWTextPassive(Passive):
         if "attacks of all pokémon you have in play that evolve from eevee" in self.text:
             if holder is not pokemon:
                 return []
-            return [attack for card in board.pokemon_in_play(pokemon.owning_player_id)
+            return [(card, attack) for card in board.pokemon_in_play(pokemon.owning_player_id)
                     if card.get_attribute(AttrID.EVOLUTION_LOGIC_FROM) in
                     ("Eevee", "com.direwolfdigital.cake.data.archetypes.pokemon.Eevee.Name")
                     for attack in (getattr(def_for(card.archetype_id), "abilities", None) or [])
@@ -3327,25 +3330,56 @@ class _BWTextPassive(Passive):
         if "attacks of any pokémon in play" in self.text:
             if holder is not pokemon:
                 return []
-            return [ability
+            return [(other, ability)
                     for pid in board.player_ids
                     for other in board.pokemon_in_play(pid)
                     for ability in (getattr(def_for(other.archetype_id), "abilities", None) or [])
                     if isinstance(ability, Attack)]
+        if "attacks of any pokémon-gx or pokémon-ex on your bench or in your discard pile" in self.text:
+            if holder is not pokemon:
+                return []
+            owner = pokemon.owning_player_id
+            discard = _area_from(carrier, owner, "discard")
+            sources = [card for card in board.pokemon_in_play(owner)
+                       if card is not pokemon and not _is_active(card)]
+            sources += list(discard.children if discard else [])
+            return [(card, attack) for card in sources
+                    if is_pokemon_card(card)
+                    and ("GX" in subtypes_for(card.archetype_id)
+                         or "EX" in subtypes_for(card.archetype_id))
+                    for attack in (getattr(def_for(card.archetype_id), "abilities", None) or [])
+                    if isinstance(attack, Attack)]
+        if "attacks of any of your basic pokémon in play" in self.text:
+            if holder is not pokemon:
+                return []
+            return [(card, attack)
+                    for card in board.pokemon_in_play(pokemon.owning_player_id)
+                    if is_basic_pokemon(card)
+                    for attack in (getattr(def_for(card.archetype_id), "abilities", None) or [])
+                    if isinstance(attack, Attack)]
+        if "attacks of your opponent's active pokémon" in self.text:
+            if holder is not pokemon or not _is_active(pokemon):
+                return []
+            return [(card, attack) for pid in board.player_ids
+                    if pid != pokemon.owning_player_id
+                    for card in [board.active_pokemon(pid)] if card is not None
+                    for attack in (getattr(def_for(card.archetype_id), "abilities", None) or [])
+                    if isinstance(attack, Attack)]
         if "previous evolutions" in self.text:
             if pokemon.owning_player_id != carrier.owning_player_id:
                 return []
-            return [ability
+            return [(previous, ability)
                     for previous in full_stack(pokemon)[1:]
                     if isinstance(previous, PokemonEntity)
                     for ability in (getattr(def_for(previous.archetype_id), "abilities", None) or [])
                     if isinstance(ability, Attack)]
-        if "attacks of any basic pokémon in your discard pile" in self.text:
+        if ("attacks of any basic pokémon in your discard pile" in self.text
+                or "attacks of basic pokémon in your discard pile" in self.text):
             if holder is not pokemon:
                 return []
             discard = _area_from(carrier, carrier.owning_player_id, "discard")
             return [
-                ability
+                (card, ability)
                 for card in (discard.children if discard else [])
                 if is_basic_pokemon(card)
                 for ability in (

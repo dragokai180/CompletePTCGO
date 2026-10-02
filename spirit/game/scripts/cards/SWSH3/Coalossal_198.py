@@ -18,11 +18,6 @@ def _is_fighting_energy_card(card):
 async def tar_generator(ctx):
     """Once per turn, you may attach a Fire Energy, a Fighting Energy, or
     1 of each from your discard pile to your Pokémon in any way you like."""
-    if not await ctx.ask_yes_no(
-        "Attach a Fire Energy card, a Fighting Energy card, or 1 of each "
-        "from your discard pile to your Pokémon?"
-    ):
-        return
     picks = []
     fire_cards = [c for c in ctx.discard_pile() if _is_fire_energy_card(c)]
     if fire_cards:

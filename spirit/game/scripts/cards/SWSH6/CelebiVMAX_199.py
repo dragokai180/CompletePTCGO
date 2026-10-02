@@ -5,8 +5,6 @@ from spirit.game.card_effects.support_common import search_to_hand
 
 
 async def _curative_forest(ctx):
-    if not await ctx.ask_yes_no("Heal 20 damage from each of your Grass Pokémon?"):
-        return
     for pokemon in ctx.my_pokemon_in_play():
         types = pokemon.get_attribute(AttrID.POKEMON_TYPES) or []
         if PokemonTypes.GRASS.value in types:

@@ -7,8 +7,6 @@ from spirit.game.card_effects.pokemon import in_active_spot
 async def ocean_search(ctx):
     """You may look at the top 6 cards of your deck, reveal a Pokemon you
     find there, and put it into your hand. Shuffle the rest back."""
-    if not await ctx.ask_yes_no("Look at the top 6 cards of your deck?"):
-        return
     top = ctx.deck_top(6)
     candidates = [c for c in top if is_pokemon_card(c)]
     # No matches still shows the looked-at cards (nothing selectable).

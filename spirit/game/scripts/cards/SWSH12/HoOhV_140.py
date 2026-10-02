@@ -9,8 +9,6 @@ from spirit.game.card_effects.trainers import is_basic_energy_card
 async def reviving_flame(ctx):
     """Once per turn from discard: you may Bench this Pokémon, then attach up
     to 4 basic Energy from discard to it. Using this Ability ends your turn."""
-    if not await ctx.ask_yes_no("Put this Pokémon onto your Bench?"):
-        return
     if not await ctx.bench_pokemon(ctx.source):
         return
     ctx.ends_turn = True

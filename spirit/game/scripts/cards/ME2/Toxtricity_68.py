@@ -22,11 +22,6 @@ async def sinister_surge(ctx):
     Basic Darkness Energy card and attach it to 1 of your Benched Darkness
     Pokémon. Then, shuffle your deck. If you attached Energy to a Pokémon in
     this way, place 2 damage counters on that Pokémon."""
-    if not await ctx.ask_yes_no(
-        "Search your deck for a Basic Darkness Energy card and attach it to "
-        "1 of your Benched Darkness Pokémon?"
-    ):
-        return
     picks = await ctx.search_deck(
         _is_basic_darkness_energy, count=1, minimum=0,
         prompt="Choose a Basic Darkness Energy card to attach.",

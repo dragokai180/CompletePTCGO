@@ -5,8 +5,6 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 
 async def moon_cleave_star(ctx):
     """VSTAR Power: you may put 4 damage counters on 1 of your opponent's Pokemon."""
-    if not await ctx.ask_yes_no("Put 4 damage counters on 1 of your opponent's Pokémon?"):
-        return
     targets = ctx.opponent_pokemon_in_play()
     if not targets:
         return

@@ -16,6 +16,25 @@ def foil_disabled_for_set(set_code: str) -> bool:
     return (set_code or "").upper() in FOIL_DISABLED_SETS
 
 
+def client_foil_record(set_code: str, collector_number: int, record: dict) -> dict:
+    """Explicit, opt-in client approximation for an imported Live printing.
+
+    Mewtwo ex 157 and Mew ex 158 use SvUltra, which PTCGO cannot render. Their coverage
+    and engraving already live in the std mask's A/G channels. Drive that mask
+    with PTCGO's Rainbow material and Etched mask mode, without fabricating
+    texture data or replacing the source material recorded in the catalog.
+    This is a visual approximation, not an implementation of Live's shader.
+    Never enable other prints/sets or override a later native material import.
+    """
+    if (set_code or "").upper() == "ME55" and str(collector_number) in {"157", "158"}:
+        if (record.get("effect") == "SvUltra"
+                and record.get("mask") == "Etched"
+                and record.get("full_art") is True
+                and not record.get("effects")):
+            return {**record, "effect": "Rainbow"}
+    return record
+
+
 # Rotom contains a Cosmos promotional variant under Brilliant Stars Mewtwo's
 # collector number. The expansion printing itself is a regular non-holo card;
 # its separately imported reverse-holo mask remains available in wp_ph.

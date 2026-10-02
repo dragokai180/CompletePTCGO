@@ -5,8 +5,7 @@ from spirit.game.card_effects.attacks_common import damage_per, count_bench
 
 
 async def _fleet_footed(ctx):
-    if await ctx.ask_yes_no("Draw a card?"):
-        await ctx.draw_cards(1)
+    await ctx.draw_cards(1)
 
 
 card = PokemonCardDef(

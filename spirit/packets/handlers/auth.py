@@ -2,7 +2,9 @@ import logging
 
 from spirit.network.protocol import WargFlags
 from spirit.network.message_names import InboundMsg, OutboundMsg
-from spirit.database.accounts import get_account_by_username, create_account, verify_password
+from spirit.database.accounts import (
+    get_account_by_username, create_account, verify_password, is_legacy_guest_account,
+)
 from spirit.game.attributes import AttrID
 from spirit.game.season_manager import VersusSeasonManager
 from spirit.game.account_attributes import build_account_attributes, anchor_versus_animation
@@ -20,11 +22,7 @@ from spirit.server import metrics
 from spirit.config import GRANT_ALL_CARDS_ON_LOGIN
 
 
-def _get_or_create_account(username, password):
-    account = get_account_by_username(username)
-    if not account:
-        account = create_account(username, password)
-    return account
+GUEST_AUTH_DISABLED = "Guest access is disabled. Please sign in with an account."
 
 
 class AuthHandler(BaseHandler):
@@ -50,6 +48,9 @@ class AuthHandler(BaseHandler):
             # This shouldn't happen if the ticket was issued, but safety first
             return await self._send_auth_failed(request_id, "Account sync error.")
 
+        if is_legacy_guest_account(account):
+            return await self._send_auth_failed(request_id, GUEST_AUTH_DISABLED)
+
         # 3. Success!
         logging.info(f"[TCP] [{self.client.addr}] User '{username}' successfully authenticated via CAS.")
         await self._send_auth_success(request_id, account)
@@ -59,14 +60,9 @@ class AuthHandler(BaseHandler):
         auth_type = message.get("authType", "Unknown")
         logging.info(f"[TCP] [{self.client.addr}] Client started authentication sequence. Type: {auth_type}")
         
-        if auth_type == "DeviceID":
-            logging.info(f"[TCP] [{self.client.addr}] Bypassing DeviceID token exchange. Forcing Auth Success.")
-            
-            # Auto-register a guest account based on their IP or a dummy ID for now
-            device_id = f"guest_{self.client.addr[0]}"
-            account = await run_db(_get_or_create_account, device_id, "guest_password")
-
-            return await self._send_auth_success(request_id, account)
+        if str(auth_type).casefold() in {"deviceid", "guest", "mobile"}:
+            logging.info(f"[TCP] [{self.client.addr}] Guest/device authentication rejected.")
+            return await self._send_auth_failed(request_id, GUEST_AUTH_DISABLED)
 
         response = {
             "messageName": OutboundMsg.REQ_AUTH_TOKEN.value
@@ -80,9 +76,16 @@ class AuthHandler(BaseHandler):
         username = str(message.get("userID", ""))
         password = str(message.get("token", ""))
 
+        if not username.strip() or not password:
+            return await self._send_auth_failed(request_id, "Enter a username and password.")
+        if password in {'guest_password', 'mobile_password'}:
+            return await self._send_auth_failed(request_id, GUEST_AUTH_DISABLED)
+
         logging.info(f"[TCP] User {username} is attempting to login...")
         
         account = await run_db(get_account_by_username, username)
+        if account and is_legacy_guest_account(account):
+            return await self._send_auth_failed(request_id, GUEST_AUTH_DISABLED)
 
         # Auto-Register if it doesn't exist
         if not account:
@@ -101,17 +104,14 @@ class AuthHandler(BaseHandler):
 
     @handle(InboundMsg.AUTH_GAS_GUEST)
     async def handle_gas_guest(self, message, request_id, flags):
-        # Guest Login (Usually auto-creates a temporary account based on device ID)
-        device_id = message.get("uniqueID", "guest_unknown")
-        account = await run_db(_get_or_create_account, device_id, "guest_password")
-        await self._send_auth_success(request_id, account)
+        logging.info(f"[TCP] [{self.client.addr}] Guest authentication rejected.")
+        await self._send_auth_failed(request_id, GUEST_AUTH_DISABLED)
 
     @handle(InboundMsg.AUTH_GAS_MOBILE)
     async def handle_gas_mobile(self, message, request_id, flags):
-        # Mobile Login
-        mobile_id = message.get("mobileID", "mobile_unknown")
-        account = await run_db(_get_or_create_account, mobile_id, "mobile_password")
-        await self._send_auth_success(request_id, account)
+        # This route previously created an account from only a device ID.
+        logging.info(f"[TCP] [{self.client.addr}] Mobile device authentication rejected.")
+        await self._send_auth_failed(request_id, GUEST_AUTH_DISABLED)
 
     @staticmethod
     def _active_game(account_id):

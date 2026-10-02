@@ -9,12 +9,8 @@ _vitality_spring_search = search_attach_energy(count=6, distribute=True, shuffle
 async def vitality_spring(ctx):
     """Once during your turn, you may search up to 6 Energy and attach them
     in any way you like. If you do, your turn ends."""
-    if await ctx.ask_yes_no(
-        "Search your deck for up to 6 Energy cards and attach them to "
-        "your Pokémon in any way you like?"
-    ):
-        await _vitality_spring_search(ctx)
-        ctx.ends_turn = True
+    await _vitality_spring_search(ctx)
+    ctx.ends_turn = True
 
 
 card = PokemonCardDef(

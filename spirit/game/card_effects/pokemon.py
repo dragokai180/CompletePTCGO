@@ -205,6 +205,9 @@ class SuddenTransformationPassive(Passive):
     discard pile (energy costs still apply)."""
 
     def granted_attacks(self, board, pokemon, carrier):
+        return [attack for _, attack in self.granted_attack_choices(board, pokemon, carrier)]
+
+    def granted_attack_choices(self, board, pokemon, carrier):
         if carrier is not pokemon:
             return []
         discard = board.find_player_area(pokemon.owning_player_id, "discard")
@@ -214,7 +217,7 @@ class SuddenTransformationPassive(Passive):
                 continue
             for ability in getattr(def_for(card.archetype_id), "abilities", None) or []:
                 if isinstance(ability, Attack):
-                    attacks.append(ability)
+                    attacks.append((card, ability))
         return attacks
 
 

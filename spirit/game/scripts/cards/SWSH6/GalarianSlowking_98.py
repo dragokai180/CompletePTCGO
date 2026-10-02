@@ -5,8 +5,6 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 async def mysterious_potion(ctx):
     """Once per turn: you may choose 1 of your Pokémon and flip a coin. Heads
     heals 90 from it; tails puts 3 damage counters on it."""
-    if not await ctx.ask_yes_no("Choose 1 of your Pokémon and flip a coin?"):
-        return
     target = await ctx.choose_pokemon(
         ctx.my_pokemon_in_play(), "Choose 1 of your Pokémon"
     )

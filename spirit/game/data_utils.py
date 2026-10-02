@@ -4,7 +4,7 @@ import os
 import uuid
 from typing import Any, Callable, Optional, List, Dict, Tuple
 from spirit.game.attributes import AttrID, CardType, TrainerType, PokemonStage, PokemonTypes, ProductType, AbilityTypes, Rarities, CLIENT_POKEMON_TYPE_NAMES, FoilMasks, FoilEffects
-from spirit.game.foil_corrections import apply_foil_corrections, foil_disabled_for_set
+from spirit.game.foil_corrections import apply_foil_corrections, foil_disabled_for_set, client_foil_record
 from spirit.game.text_encoding import fix_mojibake, fix_mojibake_list, with_ascii_aliases
 
 _ABILITY_ID_NAMESPACE = uuid.UUID("a3f2c6e8-9d41-4d7a-8b5f-2e7c90d13a64")
@@ -725,6 +725,7 @@ def _print_foil(
     if record is None:
         return True, None
 
+    record = client_foil_record(set_code, collector_number, record)
     mask = _FOIL_MASK_NAMES.get(record.get("mask"))
     effect_names = [record.get("effect"), *(record.get("effects") or [])]
     effects = [_FOIL_EFFECT_NAMES.get(name) for name in effect_names]

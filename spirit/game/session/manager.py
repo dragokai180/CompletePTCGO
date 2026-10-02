@@ -12,8 +12,6 @@ from .game_session import GameSession
 # is keyed by this string). Real format/tournament names are short.
 _MAX_QUEUE_NAME_LEN = 64
 
-# Seconds an unmatched ranked queue waits before filling with an AI opponent.
-BOT_FILL_SECONDS = 30
 BOT_DISPLAY_NAME = "Bot"
 
 
@@ -123,7 +121,7 @@ class GameSessionManager:
         # MatchQueueEntered transitions the client state machine to Statuses.Waiting
         entered_packet = {
             "messageName": OutboundMsg.MATCH_QUEUE_ENTERED.value,
-            "estimatedWaitTime": BOT_FILL_SECONDS
+            "estimatedWaitTime": 0
         }
 
         # Deck-builder Test (and other SinglePlayer* queues) is a solo practice
@@ -138,7 +136,6 @@ class GameSessionManager:
         if queue:
             # We have a match! Pop the first player
             opponent_entry = queue.pop(0)
-            self._cancel_fill_task(opponent_entry)
             opp_client = opponent_entry["client"]
             opp_deck = opponent_entry["deck"]
 
@@ -185,16 +182,9 @@ class GameSessionManager:
                 "deck": deck_data,
                 "options": client_options,
                 "tournament_context": tournament_context,
-                "fill_task": None,
             }
             queue.append(entry)
             await client.send_packet(entered_packet, request_id)
-            # Ranked/casual queues fill with an AI if nobody else joins;
-            # tournament pairings must stay human-vs-human.
-            if not tournament_context:
-                entry["fill_task"] = self._spawn(
-                    self._bot_fill_after(client, queue_name)
-                )
 
     async def start_solo_match(self, client, deck_data: dict, solitaire_id: str, match_options: dict, request_id: int = 0):
         """Starts a local/offline single player practice match against an AI opponent."""
@@ -209,32 +199,6 @@ class GameSessionManager:
         from spirit.game.starter_content import BOT_DECKS, build_deck_data
         name, decklist = random.choice(BOT_DECKS)
         return build_deck_data(name, decklist)
-
-    def _cancel_fill_task(self, entry: dict):
-        task = entry.pop("fill_task", None) if entry else None
-        if task is not None and not task.done():
-            task.cancel()
-
-    async def _bot_fill_after(self, client, queue_name: str):
-        """If `client` is still waiting after BOT_FILL_SECONDS, start a bot match."""
-        try:
-            await asyncio.sleep(BOT_FILL_SECONDS)
-        except asyncio.CancelledError:
-            return
-        queue = self.queues.get(queue_name) or []
-        entry = next((e for e in queue if e["client"] is client), None)
-        if not entry:
-            return
-        queue.remove(entry)
-        if not queue:
-            self.queues.pop(queue_name, None)
-        logging.info(
-            f"[Matchmaking] Queue '{queue_name}' timed out for "
-            f"{client.player.username}; filling with AI"
-        )
-        await self._start_bot_match(
-            client, entry["deck"], entry.get("options") or {}, queue_name,
-        )
 
     async def _start_bot_match(self, client, human_deck: dict, options: dict,
                                queue_name: str, solitaire_id: str = "basic_bot_id",
@@ -452,7 +416,6 @@ class GameSessionManager:
             kept = []
             for entry in entries:
                 if entry["client"] == client:
-                    self._cancel_fill_task(entry)
                     removed = True
                 else:
                     kept.append(entry)

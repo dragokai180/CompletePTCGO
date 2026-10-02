@@ -6,10 +6,6 @@ from spirit.game.session.effects import is_basic_pokemon
 
 async def delicious_aroma(ctx):
     """You may flip a coin; on heads switch an opposing Benched Basic in."""
-    if not await ctx.ask_yes_no(
-            "Flip a coin to switch 1 of your opponent's Benched Basic "
-            "Pokémon with their Active Pokémon?"):
-        return
     heads = (await ctx.flip_coins(1, "Delicious Aroma"))[0]
     if not heads:
         return

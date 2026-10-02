@@ -5,8 +5,6 @@ from spirit.game.card_effects.pokemon import energy_provides_type
 
 async def glaciated_world(ctx):
     """Once per turn, discard the top deck card; if Water Energy, attach it."""
-    if not await ctx.ask_yes_no("Discard the top card of your deck?"):
-        return
     top = ctx.deck_top(1)
     if not top:
         return

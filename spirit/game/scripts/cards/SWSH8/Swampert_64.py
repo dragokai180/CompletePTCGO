@@ -13,10 +13,6 @@ def _is_water_or_fighting_energy(card):
 async def muddy_maker(ctx):
     """Once per turn, you may attach a Water or Fighting Energy card from
     your hand to 1 of your Pokemon."""
-    if not await ctx.ask_yes_no(
-        "Attach a Water Energy card or a Fighting Energy card from your hand to 1 of your Pokémon?"
-    ):
-        return
     energies = [c for c in ctx.hand() if _is_water_or_fighting_energy(c)]
     if not energies:
         return

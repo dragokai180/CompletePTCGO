@@ -10,8 +10,7 @@ def _stadium_in_play_condition(board, player_id, pokemon):
 async def poisonous_puddle(ctx):
     """Once during your turn, if a Stadium is in play, you may make your
     opponent's Active Pokemon Poisoned."""
-    if await ctx.ask_yes_no("Make your opponent's Active Pokémon Poisoned?"):
-        await ctx.apply_special_condition(ctx.defender, SpecialConditions.POISONED)
+    await ctx.apply_special_condition(ctx.defender, SpecialConditions.POISONED)
 
 
 card = PokemonCardDef(

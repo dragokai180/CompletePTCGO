@@ -4,8 +4,7 @@ from spirit.game.card_effects.support_common import heal_targets, requires_damag
 
 
 async def bright_heal(ctx):
-    if await ctx.ask_yes_no("Heal 20 damage from each of your Pokémon?"):
-        await heal_targets(20, "each_own")(ctx)
+    await heal_targets(20, "each_own")(ctx)
 
 
 card = PokemonCardDef(

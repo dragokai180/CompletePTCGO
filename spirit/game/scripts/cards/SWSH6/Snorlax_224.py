@@ -5,8 +5,7 @@ from spirit.game.card_effects.pokemon import in_active_spot
 
 
 async def gormandize(ctx):
-    if await ctx.ask_yes_no("Draw cards until you have 7 cards in your hand?"):
-        await ctx.draw_until(7)
+    await ctx.draw_until(7)
 
 card = PokemonCardDef(
     guid="c2dcd121-1cd4-563a-8e5e-0f1f31829146",

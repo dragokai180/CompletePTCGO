@@ -5,8 +5,7 @@ from spirit.game.card_effects.attacks_common import bonus_if
 
 async def hurried_gait(ctx):
     """Once during your turn, you may draw a card."""
-    if await ctx.ask_yes_no("Draw a card?"):
-        await ctx.draw_cards(1)
+    await ctx.draw_cards(1)
 
 
 def _same_hand_size(ctx):

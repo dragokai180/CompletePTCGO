@@ -8,8 +8,7 @@ async def make_do(ctx):
     """Discard a card from your hand. Then, you may draw 2 cards."""
     if not await ctx.discard_from_hand(1, prompt="Discard a card for Make Do"):
         return
-    if await ctx.ask_yes_no("Draw 2 cards?"):
-        await ctx.draw_cards(2)
+    await ctx.draw_cards(2)
 
 
 async def energy_assist(ctx):

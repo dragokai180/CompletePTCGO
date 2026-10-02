@@ -273,19 +273,25 @@ class VUnionPokemonEntity(CompositePokemonEntity):
     def __init__(self, parts):
         definition = assembled_definition(def_for(parts[0].archetype_id).vunion_name)
         raw = definition.to_archetype_dict()
+        face = def_for(parts[0].archetype_id)
+        face_attributes = face.to_archetype_dict()['attributes']
+        # Stats/rules come from the assembled family; foil rendering belongs
+        # to the selected physical printing (including alternate etched art).
+        for attr in (AttrID.FOIL_MASK, AttrID.FOIL_EFFECT,
+                     AttrID.FOIL_EFFECTS, AttrID.FOIL_INTENSITY):
+            key = str(attr.value)
+            raw['attributes'].pop(key, None)
+            if key in face_attributes:
+                raw['attributes'][key] = dict(face_attributes[key])
         model = VUnionCard(definition.guid, definition.key, raw['attributes'],
                            definition.display_name, definition.searchable_by, definition.subtypes)
-        face = def_for(parts[0].archetype_id)
         model.combined_texture = face.vunion_texture
         super().__init__(model, parts[0].owning_player_id)
         self.physical_parts = tuple(parts)
         self.set_attribute(AttrID.ARCHETYPE_ID, parts[0].archetype_id)
         self.set_attribute(AttrID.COLLECTION_ID, parts[0].archetype_id)
-        # PlaymatCardImageRenderer.textureLookup uses the padded collector
-        # number + attribute 10020, not IMAGE_URL (10510). A plain first-part
-        # collector number otherwise draws only that quarter on the playmat.
-        # _match_render_attributes strips 10020 for ordinary cards, so set the
-        # native suffix explicitly on the assembled entity, never its pieces.
+        # The native playmat uses the collector number plus this suffix to
+        # resolve its composed V-UNION texture.
         start = int(face.vunion_texture.split('to')[0])
         self.set_attribute(AttrID.COLLECTOR_NUMBER, start)
         self.set_attribute(AttrID.IMAGE_FALLBACK_1, f'to{start + 3}')

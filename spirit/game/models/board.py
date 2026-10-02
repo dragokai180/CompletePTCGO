@@ -305,12 +305,6 @@ class PokemonEntity(CardEntity):
 class CompositePokemonEntity(PokemonEntity):
     """One in-play Pokemon backed by multiple physical cards, never a deck card."""
 
-    def serialize(self, viewer_id: Optional[str] = None) -> Dict[str, Any]:
-        tree = super().serialize(viewer_id)
-        part_ids = {part.entity_id for part in self.physical_parts}
-        tree['children'] = [c for c in tree['children'] if c['entityID'] not in part_ids]
-        return tree
-
 
 class LegendPokemonEntity(CompositePokemonEntity):
     """Native in-play composite, not a third physical card.
@@ -877,7 +871,7 @@ class BoardState:
             wire_out = next(c for c in entities['children'] if c['entityID'] == out.entity_id)
             for owner in self.player_ids:
                 for pokemon in self.pokemon_in_play(owner):
-                    if isinstance(pokemon, CompositePokemonEntity):
+                    if isinstance(pokemon, LegendPokemonEntity):
                         for half in pokemon.physical_parts:
                             if half.parent is pokemon:
                                 wire_half = half.serialize(viewer_id)

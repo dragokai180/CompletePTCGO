@@ -7,8 +7,7 @@ from spirit.game.card_effects.pokemon import in_active_spot
 async def rapid_fire_poison(ctx):
     """Once during your turn, if this Pokemon is in the Active Spot, you may
     make your opponent's Active Pokemon Poisoned."""
-    if await ctx.ask_yes_no("Make your opponent's Active Pokémon Poisoned?"):
-        await ctx.apply_special_condition(ctx.defender, SpecialConditions.POISONED)
+    await ctx.apply_special_condition(ctx.defender, SpecialConditions.POISONED)
 
 
 card = PokemonCardDef(

@@ -8,11 +8,7 @@ from spirit.game.card_effects.trainers import opponent_has_bench
 async def intimidating_roar(ctx):
     """Once during your turn, you may have your opponent switch their Active
     Pokémon with 1 of their Benched Pokémon."""
-    if await ctx.ask_yes_no(
-        "Have your opponent switch their Active Pokémon with 1 of their "
-        "Benched Pokémon?"
-    ):
-        await opponent_switches(ctx)
+    await opponent_switches(ctx)
 
 
 card = PokemonCardDef(

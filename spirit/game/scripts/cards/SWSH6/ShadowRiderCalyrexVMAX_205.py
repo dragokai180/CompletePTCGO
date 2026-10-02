@@ -28,10 +28,6 @@ async def underworld_door(ctx):
     energies = [c for c in ctx.hand() if _is_psychic_energy(c)]
     if not bench or not energies:
         return
-    if not await ctx.ask_yes_no(
-            "Attach a Psychic Energy card from your hand to 1 of your "
-            "Benched Psychic Pokémon?"):
-        return
     picked = await ctx.choose_cards(
         energies, 1, minimum=1, prompt="Choose a Psychic Energy card to attach"
     )

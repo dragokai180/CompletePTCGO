@@ -54,8 +54,6 @@ async def resetting_hole(ctx):
     and everything attached to it."""
     if ctx.stadium_in_play() is None:
         return
-    if not await ctx.ask_yes_no("Discard the Stadium in play?"):
-        return
     if await ctx.discard_stadium() is None:
         return
     await ctx.discard_cards(full_stack(ctx.source))

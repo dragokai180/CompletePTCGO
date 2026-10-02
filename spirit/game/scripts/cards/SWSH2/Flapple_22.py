@@ -4,9 +4,6 @@ from spirit.game.session.effects import full_stack
 
 
 async def apple_drop(ctx):
-    if not await ctx.ask_yes_no(
-            "Put 2 damage counters on 1 of your opponent's Pokémon?"):
-        return
     candidates = ctx.opponent_pokemon_in_play()
     if not candidates:
         return

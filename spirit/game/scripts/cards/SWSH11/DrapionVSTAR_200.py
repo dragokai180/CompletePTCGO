@@ -3,15 +3,12 @@ from spirit.game.attributes import AttrID, PokemonTypes, PokemonStage, Rarities,
 
 
 async def hazard_star(ctx):
-    if await ctx.ask_yes_no(
-        "Make your opponent's Active Pokémon Paralyzed and Poisoned?"
-    ):
-        defender = ctx.opponent_active()
-        if defender is not None:
-            await ctx.apply_special_condition(defender, SpecialConditions.PARALYZED)
-            await ctx.apply_special_condition(
-                defender, SpecialConditions.POISONED, poison_counters=3
-            )
+    defender = ctx.opponent_active()
+    if defender is not None:
+        await ctx.apply_special_condition(defender, SpecialConditions.PARALYZED)
+        await ctx.apply_special_condition(
+            defender, SpecialConditions.POISONED, poison_counters=3
+        )
 
 
 async def big_bang_arm(ctx):

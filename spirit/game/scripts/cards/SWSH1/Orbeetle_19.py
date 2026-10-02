@@ -4,11 +4,6 @@ from spirit.game.card_effects.attacks_common import count_energy, damage_per
 
 
 async def bugs_radar(ctx):
-    if not await ctx.ask_yes_no(
-        "Look at the top 3 cards of your opponent's deck and put them back "
-        "in any order?"
-    ):
-        return
     await ctx.reorder_deck_top(3, player_id=ctx.opponent_id)
 
 

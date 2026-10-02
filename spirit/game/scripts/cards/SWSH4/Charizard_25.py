@@ -9,8 +9,6 @@ def _is_leon(card):
 
 
 async def _battle_sense(ctx):
-    if not await ctx.ask_yes_no("Look at the top 3 cards of your deck?"):
-        return
     top = ctx.deck_top(3)
     if not top:
         return

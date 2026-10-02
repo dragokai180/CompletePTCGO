@@ -14,9 +14,6 @@ async def witch_rondo(ctx):
     bench = ctx.my_bench()
     if not bench:
         return
-    if not await ctx.ask_yes_no(
-            "Switch your Active Pokémon with 1 of your Benched Pokémon?"):
-        return
     target = await ctx.choose_pokemon(bench, "Choose your new Active Pokémon")
     if target is None:
         return

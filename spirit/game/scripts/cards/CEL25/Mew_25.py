@@ -7,8 +7,6 @@ from spirit.game.card_effects.pokemon import in_active_spot
 async def mysterious_tail(ctx):
     """You may look at the top 6 cards of your deck, reveal an Item card you
     find there, and put it into your hand. Shuffle the rest back."""
-    if not await ctx.ask_yes_no("Look at the top 6 cards of your deck?"):
-        return
     top = ctx.deck_top(6)
     candidates = [c for c in top if is_item_card(c)]
     # No matches still shows the looked-at cards (nothing selectable).

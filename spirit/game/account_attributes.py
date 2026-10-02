@@ -5,6 +5,7 @@ from spirit.game.season_manager import VersusSeasonManager
 
 # Client setting numbers inside the account-settings dict (attr 10230, K.L.GetSetting)
 VERSUS_LAST_SEEN_POINTS_SETTING = 109  # LastKnownSeasonPointTotal (ladder animation anchor)
+VISITED_SCENES_ATTRIBUTE = 202101
 
 
 def anchor_versus_animation(account_id):
@@ -28,6 +29,9 @@ def build_account_attributes(account_id):
         account_id, season.season_id if season else "")
     return [
         {"name": AttrID.ACCOUNT_SETTINGS.value, "value": get_account_settings(account_id)},
+        # The client shows the constructed-deck tutorial unless VersusUpdate
+        # is present in this string-array account attribute.
+        {"name": VISITED_SCENES_ATTRIBUTE, "value": ["VersusUpdate"]},
         {"name": AttrID.SCREEN_NAME.value, "value": get_screen_name(account_id)},
         {"name": AttrID.FRIEND_CHAT_MODE.value, "value": "OpenChat"},
         {"name": AttrID.FRIEND_MODE.value, "value": "Open"},

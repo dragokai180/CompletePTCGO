@@ -5,6 +5,12 @@ import re
 import argparse
 import copy
 import hashlib
+import tempfile
+
+if __package__:
+    from .bundle_integrity import ensure_asset_bundle
+else:
+    from bundle_integrity import ensure_asset_bundle
 
 # Ensure UnityPy is available
 try:
@@ -207,9 +213,22 @@ def create_card_set_bundle(png_mapping, template_path, target_bundle_name, keep_
             new_info = copy.copy(proto_info)
             new_info.asset = copy.copy(proto_info.asset)
             new_info.asset.m_PathID = new_path_id
+            # AssetBundle.LoadAsset uses the preload slice as well as the
+            # container's asset pointer. A copied AssetInfo still points its
+            # preload slice at the template texture, leaving newly appended
+            # cards inaccessible to the native Unity client.
+            new_info.preloadIndex = len(asset_bundle_data.m_PreloadTable)
+            new_info.preloadSize = 1
+            asset_bundle_data.m_PreloadTable.append(copy.copy(new_info.asset))
 
             # Set up variants for this card asset
             variants = [asset_name]
+            # The native card zoom requests CardImage ("to166") directly,
+            # while the playmat prepends the collector number ("163to166").
+            # Both names must resolve to the same combined V-UNION texture.
+            vunion_range = re.fullmatch(r'\d+to(\d+)', asset_name)
+            if vunion_range:
+                variants.append(f'to{vunion_range.group(1)}')
             # "072", "foil_072", "072_energypip" also map without leading zeros
             num_match = re.match(r'^(foil_)?(\d+)(_energypip|_toolpip)?$', asset_name)
             if num_match:
@@ -229,6 +248,11 @@ def create_card_set_bundle(png_mapping, template_path, target_bundle_name, keep_
                     set_code = set_match.group(1)
                     # Strip part number suffix (e.g. SWSH12_1 -> SWSH12)
                     set_code = re.sub(r'_\d+$', '', set_code)
+                    # Dedicated type bundles still answer the card's set key.
+                    set_code = re.sub(
+                        r'_(grass|fire|water|lightning|psychic|fighting|'
+                        r'darkness|metal|fairy|dragon|colorless|trainer)$',
+                        '', set_code)
                     new_mappings.append((f"{set_code}/{v}", new_info))
                     new_mappings.append((f"{set_code}_{v}", new_info))
 
@@ -276,8 +300,18 @@ def create_card_set_bundle(png_mapping, template_path, target_bundle_name, keep_
     if len(env.assets) > 0:
         env.assets[0].name = new_cab
 
-    with open(final_data_path, "wb") as f:
-        f.write(env.file.save(packer="lz4"))
+    bundle_bytes = env.file.save(packer="lz4")
+    del env
+    bundle_bytes = ensure_asset_bundle(bundle_bytes)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=structure_path, suffix=".tmp", delete=False) as f:
+            temporary = f.name
+            f.write(bundle_bytes)
+        os.replace(temporary, final_data_path)
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.remove(temporary)
     
     print(f"Successfully created SET bundle: {final_data_path}")
     

@@ -4,8 +4,6 @@ from spirit.game.card_effects.pokemon import in_active_spot, is_energy_card
 
 
 async def _woodland_stroll(ctx):
-    if not await ctx.ask_yes_no("Look at the top 6 cards of your deck?"):
-        return
     top = ctx.deck_top(6)
     if not top:
         return

@@ -6,8 +6,6 @@ from spirit.game.session.effects import is_pokemon_card
 
 async def mind_hat(ctx):
     """Once per turn: each player discards a card from their hand (opponent first)."""
-    if not await ctx.ask_yes_no("Each player discards a card from their hand?"):
-        return
     await ctx.discard_from_hand(
         1, minimum=0, player_id=ctx.opponent_id,
         prompt="Discard a card from your hand.",

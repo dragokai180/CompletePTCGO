@@ -4,8 +4,7 @@ from spirit.game.card_effects.attacks_common import flip_or_nothing
 
 
 async def industrious_incisors(ctx):
-    if await ctx.ask_yes_no("Draw cards until you have 5 cards in your hand?"):
-        await ctx.draw_until(5)
+    await ctx.draw_until(5)
 
 
 def _hand_below_five(board, player_id, pokemon):

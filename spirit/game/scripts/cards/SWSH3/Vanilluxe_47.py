@@ -5,8 +5,6 @@ from spirit.game.card_effects.pokemon import in_active_spot
 
 async def bitter_cold(ctx):
     """Once per turn, in the Active spot: you may flip a coin. Heads paralyzes the opponent's Active."""
-    if not await ctx.ask_yes_no("Flip a coin?"):
-        return
     if not (await ctx.flip_coins(1, "Bitter Cold"))[0]:
         return
     target = ctx.opponent_active()

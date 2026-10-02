@@ -10,8 +10,6 @@ async def puppet_offering(ctx):
     supporters = [c for c in ctx.discard_pile() if is_supporter_card(c)]
     if not supporters:
         return
-    if not await ctx.ask_yes_no("Put a Supporter card from your discard pile into your hand?"):
-        return
     picks = await ctx.choose_cards(
         supporters, 1, minimum=1,
         prompt="Choose a Supporter card to put into your hand.",

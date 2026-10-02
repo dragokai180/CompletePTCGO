@@ -9,8 +9,7 @@ def _moisture_star_condition(board, player_id, pokemon):
 
 
 async def moisture_star(ctx):
-    if await ctx.ask_yes_no("Heal all damage from this Pokémon?"):
-        await ctx.heal(9999, target=ctx.source)
+    await ctx.heal(9999, target=ctx.source)
 
 
 card = PokemonCardDef(

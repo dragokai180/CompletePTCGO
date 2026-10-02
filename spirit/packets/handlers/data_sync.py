@@ -703,6 +703,12 @@ class DataSyncHandler(BaseHandler):
 
     @handle(InboundMsg.GET_WALLET)
     async def handle_get_wallet(self, message, request_id, flags):
+        # Versus Play interprets a missing Trainer Token cap as zero and shows
+        # a limit confirmation regardless of the actual wallet balance.
+        await self.client.send_packet({
+            "messageName": OutboundMsg.CURRENCY_CAPS.value,
+            "currencies": [{"name": AttrID.TRAINER_TOKENS.value, "value": 25000}],
+        }, 0)
         if self.client.player and self.client.player.wallet:
             w_data = self.client.player.get_wallet_data()
             w_data["messageName"] = OutboundMsg.CURRENT_WALLET.value

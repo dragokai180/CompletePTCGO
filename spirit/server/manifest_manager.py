@@ -9,6 +9,7 @@ import zlib
 import UnityPy
 
 from spirit import config
+from spirit.server.bundle_variants import SPLIT_TYPES, asset_number, card_partitions, variant_version
 
 class ManifestManager:
     """
@@ -18,6 +19,9 @@ class ManifestManager:
     def __init__(self, asset_dirs: list):
         self.asset_dirs = asset_dirs
         self.manifest_cache = None
+        # Main refreshes after the card catalog is loaded. The early manifest
+        # scan at import time must not load every card script a second time.
+        self.card_partitions = {}
         # Use timestamp to force refresh
         self.manifest_version = int(time.time())
 
@@ -68,6 +72,7 @@ class ManifestManager:
 
         # Dictionary to store unique descriptors by their logical name
         unique_descriptors = {}
+        partitions = self.card_partitions
 
         # Walk through all registered asset directories
         for asset_dir in self.asset_dirs:
@@ -267,6 +272,13 @@ class ManifestManager:
                         logging.error(f"[Manifest] Failed to dynamically load cosmetic/product assets for {bundle_name_raw}: {e}")
 
                 if exact_assets:
+                    exact_assets = list(exact_assets)
+                    for asset_key in tuple(exact_assets):
+                        vunion_range = re.fullmatch(r'\d+to(\d+)', asset_key)
+                        if vunion_range:
+                            zoom_key = f'to{vunion_range.group(1)}'
+                            if zoom_key not in exact_assets:
+                                exact_assets.append(zoom_key)
                     # Extract set code more reliably
                     set_code = None
                     if bundle_name_raw.startswith("en_US_"):
@@ -339,17 +351,27 @@ class ManifestManager:
                     pat in lower_entry
                     for pat in ["cardsleeves", "coins", "deckboxes", "deckboxflats", "packs", "pcdboxes", "avatar", "landingpage", "_wp_"]
                 ):
-                    card_types = [
-                        "grass", "fire", "water", "lightning", "psychic", "fighting",
-                        "darkness", "metal", "fairy", "dragon", "colorless", "trainer"
-                    ]
-                    for t_name in card_types:
+                    # The assembled V-UNION face is requested through the
+                    # Pokemon-type bundle. Its numbered range must be visible
+                    # in that descriptor as well as in the physical set bundle.
+                    combined_faces = [key for key in exact_assets
+                                      if re.fullmatch(r'\d+to\d+', key)]
+                    for t_name in SPLIT_TYPES:
                         virtual_name = f"{set_code}_{t_name}"
                         # Ensure we don't overwrite if physical file already exists
                         if virtual_name not in unique_descriptors:
+                            virtual_assets = [{"name": virtual_name}]
+                            for face in combined_faces:
+                                zoom_key = f"to{face.split('to', 1)[1]}"
+                                virtual_assets.extend((
+                                    {"name": f"{virtual_name}/{face}"},
+                                    {"name": f"{virtual_name}_{face}"},
+                                    {"name": f"{virtual_name}/{zoom_key}"},
+                                    {"name": f"{virtual_name}_{zoom_key}"},
+                                ))
                             unique_descriptors[virtual_name] = {
                                 "name": virtual_name,
-                                "assets": [{"name": virtual_name}],
+                                "assets": virtual_assets,
                                 "versionings": [
                                     {
                                         "platform": "pc",
@@ -361,8 +383,40 @@ class ManifestManager:
                                 ],
                                 "precached": [],
                                 "timesensitive": 0,
-                                "WebPath": f"en_US/{bundle_name_raw}.unity3d"
+                                # AssetBundleManager caches requests by WebPath.
+                                # Each virtual type bundle needs its own URL so a
+                                # physical set request cannot be reused for a
+                                # different CAB and vice versa.
+                                "WebPath": f"en_US/en_US_{virtual_name}.unity3d"
                             }
+
+                    # Route numbered artwork to the matching type bundle. Keep
+                    # unclassified assets such as combined V-UNION faces in the
+                    # physical bundle and every advertised virtual descriptor.
+                    membership = partitions.get(set_code, {})
+                    if membership:
+                        retained = []
+                        for asset in descriptor["assets"]:
+                            number = asset_number(asset["name"], set_code)
+                            if number not in membership:
+                                retained.append(asset)
+                                continue
+                            for kind in membership[number]:
+                                virtual = unique_descriptors.get(f"{set_code}_{kind}")
+                                if virtual is not None:
+                                    virtual["assets"].append(asset)
+                        descriptor["assets"] = retained
+                        version = variant_version(bundle_file_path, membership)
+                        for kind in SPLIT_TYPES:
+                            virtual = unique_descriptors.get(f"{set_code}_{kind}")
+                            if virtual is not None:
+                                dedicated = os.path.join(
+                                    asset_dir, f"en_US_{set_code}_{kind}",
+                                    "00000000000000000000000001000000", "__data")
+                                virtual["versionings"][0]["version"] = (
+                                    self._calculate_crc(dedicated) & 0x7fffffff or 1
+                                    if os.path.isfile(dedicated) else version
+                                )
 
         bundle_descriptors = list(unique_descriptors.values())
         actual_preloads = [n for n in preload_names if any(b['name'] == n for b in bundle_descriptors)]
@@ -383,5 +437,6 @@ class ManifestManager:
 
     def refresh(self):
         """Invalidates the cache and increments version."""
+        self.card_partitions = card_partitions()
         self.manifest_version += 1
         self.generate_manifest(force_refresh=True)

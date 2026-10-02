@@ -7,9 +7,9 @@ from spirit.game.card_effects.support_common import requires_hand
 async def reconstitute(ctx):
     """Discard 2 cards from your hand. Once during your turn, you may draw a
     card."""
-    await ctx.discard_from_hand(2, prompt="Discard 2 cards to use Reconstitute")
-    if await ctx.ask_yes_no("Draw a card?"):
-        await ctx.draw_cards(1)
+    if not await ctx.discard_from_hand(2, prompt="Discard 2 cards to use Reconstitute"):
+        return
+    await ctx.draw_cards(1)
 
 
 card = PokemonCardDef(

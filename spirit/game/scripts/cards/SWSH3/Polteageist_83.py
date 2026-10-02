@@ -15,8 +15,7 @@ async def tea_break(ctx):
     )
     if not picks:
         return
-    if await ctx.ask_yes_no("Draw 2 cards?"):
-        await ctx.draw_cards(2)
+    await ctx.draw_cards(2)
 
 
 card = PokemonCardDef(

@@ -2269,12 +2269,14 @@ class EffectContext:
         """Puts a Pokemon from a non-hand zone onto its owner's bench.
 
         "Put onto your Bench" is not "play from hand": on-play triggered
-        abilities deliberately do NOT fire.
+        abilities deliberately do NOT fire. Stadiums may still observe the
+        new Benched Pokemon.
         """
         owner = card.owning_player_id or self.player_id
         bench = self.board.find_player_area(owner, "bench")
         if not self.can_bench_pokemon(card):
             return False
+        origin_zone = card._containing_area_name()
         self._note_visual_source(card)
         # Lowest free SLOT (client stamp), not list length -- gaps left by
         # promoted/KO'd Pokemon must be filled or cards render overlapped.
@@ -2289,6 +2291,11 @@ class EffectContext:
         self.session.turn_state.mark_entered_play(card.entity_id)
         # Entering play from any zone is public knowledge.
         self._queue_intro_and_move(card, bench.entity_id, position)
+        # The client must see the new Bench occupant before a Stadium places
+        # counters on it. Effect-driven entry is distinct from a manual play.
+        await self.flush_choreography()
+        await self.session.fire_pokemon_benched_triggers(
+            owner, card, from_hand=origin_zone == "hand", manual_play=False)
         return True
 
     async def evolve_pokemon(self, target: PokemonEntity,
@@ -3015,6 +3022,15 @@ async def resolve_attack(session, player_id: str, attacker: PokemonEntity,
         await ctx.deal_damage()
     else:
         await effect(ctx)
+
+    # A passive copier uses a synthetic menu row only to reach the native
+    # scrollable picker. Rules that inspect the last attack must see the
+    # attack actually chosen, unlike Apex Dragon (which remains Apex Dragon).
+    if getattr(ability, "is_passive_copy_menu", False) and ctx.ability is not ability:
+        title = ctx.ability.title
+        session.turn_state.attacks_used[-1] = (
+            attacker.entity_id, attacker.archetype_id, title
+        )
 
     await _send_attack_bracket(session, ctx, action_id, title)
     # The attack bracket has consumed every message queued by the attack

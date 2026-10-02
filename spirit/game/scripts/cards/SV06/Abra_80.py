@@ -7,10 +7,6 @@ from spirit.game.session.effects import full_stack
 async def teleporter(ctx):
     """Once during your turn, if Active, shuffle this Pokémon and all attached
     cards into your deck."""
-    if not await ctx.ask_yes_no(
-        "Shuffle this Pokémon and all attached cards into your deck?"
-    ):
-        return
     was_active = ctx.source is ctx.my_active()
     await ctx.shuffle_into_deck(full_stack(ctx.source), ctx.player_id)
     if was_active:

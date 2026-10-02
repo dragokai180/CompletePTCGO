@@ -16,15 +16,19 @@ from spirit import config
 import spirit.server.state as state
 
 from spirit.server.state import issue_ticket
-from spirit.database.accounts import get_account_by_username, verify_password, create_account
+from spirit.database.accounts import get_account_by_username, verify_password, create_account, is_legacy_guest_account
 from spirit.server import metrics
 from spirit.server.manifest_manager import ManifestManager
+from spirit.server.bundle_variants import DiskBundleCache, trim_textures, variant_version
 from urllib.parse import parse_qs
 from urllib.parse import urlparse
 
 # Global manifest manager instance
 ASSET_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'assets'))
 BUNDLE_CACHE_DIR = os.path.join(ASSET_DIR, 'bundleCache')
+VARIANT_DISK_CACHE = DiskBundleCache(
+    os.environ.get('SPIRIT_BUNDLE_DISK_CACHE_DIR', os.path.join(ASSET_DIR, 'generatedBundleCache')),
+    int(os.environ.get('SPIRIT_BUNDLE_DISK_CACHE_BYTES', str(8 * 1024**3))))
 
 # We'll prioritize our local bundleCache
 ASSET_PATHS = [BUNDLE_CACHE_DIR]
@@ -88,6 +92,12 @@ def _bundle_build_lock(key):
             _VIRTUAL_BUILD_LOCKS[key] = lock
         return lock
 
+
+def _virtual_cache_key(source, name):
+    set_code = name.rsplit('_', 1)[0]
+    membership = manifest_manager.card_partitions.get(set_code, {})
+    return f"{os.path.abspath(source)}:{name}:{variant_version(source, membership)}"
+
 def _bundle_cache_get(key):
     with _VIRTUAL_BUNDLE_LOCK:
         data = VIRTUAL_BUNDLE_CACHE.get(key)
@@ -98,6 +108,8 @@ def _bundle_cache_get(key):
 def _bundle_cache_put(key, data):
     global _VIRTUAL_BUNDLE_BYTES
     with _VIRTUAL_BUNDLE_LOCK:
+        if VIRTUAL_BUNDLE_CACHE_MAX_BYTES <= 0 or len(data) > VIRTUAL_BUNDLE_CACHE_MAX_BYTES:
+            return
         old = VIRTUAL_BUNDLE_CACHE.get(key)
         if old is not None:
             _VIRTUAL_BUNDLE_BYTES -= len(old)
@@ -460,25 +472,41 @@ class MockHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             _asset_path_cache_put(filename, asset_full_path)
 
         if asset_full_path and os.path.exists(asset_full_path):
-            is_virtual_split = (clean_base_stripped != clean_base)
+            # A dedicated type bundle is already complete and has its own CAB.
+            # Repacking it as a virtual split can corrupt native Unity offsets.
+            source_bundle_name = os.path.basename(
+                os.path.dirname(os.path.dirname(asset_full_path)))
+            is_virtual_split = (
+                clean_base_stripped != clean_base
+                and source_bundle_name.lower() != f"en_US_{clean_base}".lower()
+            )
 
-            cached_bytes = _bundle_cache_get(filename) if is_virtual_split else None
+            cache_key = _virtual_cache_key(asset_full_path, clean_base) if is_virtual_split else None
+            cached_bytes = _bundle_cache_get(cache_key) if is_virtual_split else None
             if cached_bytes is not None:
                 file_bytes = cached_bytes
                 logging.debug(f"[HTTP] Serving customized CAB for {filename} from MEMORY CACHE")
             elif is_virtual_split:
                 # Serialize concurrent first-requests for this key onto ONE rebuild.
-                build_lock = _bundle_build_lock(filename)
+                build_lock = _bundle_build_lock(cache_key)
                 with build_lock:
-                    cached_bytes = _bundle_cache_get(filename)
+                    cached_bytes = _bundle_cache_get(cache_key)
+                    if cached_bytes is None:
+                        cached_bytes = VARIANT_DISK_CACHE.get(cache_key)
+                        if cached_bytes is not None:
+                            _bundle_cache_put(cache_key, cached_bytes)
                     if cached_bytes is not None:
                         file_bytes = cached_bytes
                     else:
                         file_bytes = self._build_virtual_split(
                             filename, asset_full_path, clean_base)
+                        VARIANT_DISK_CACHE.put(cache_key, file_bytes)
+                        _bundle_cache_put(cache_key, file_bytes)
             else:
-                with open(asset_full_path, 'rb') as f:
-                    file_bytes = f.read()
+                file_bytes = None
+
+            if file_bytes is None:
+                return self._send_bundle_file(asset_full_path)
 
             self.send_response(200)
             self.send_header('Content-type', 'application/vnd.unity')
@@ -491,7 +519,8 @@ class MockHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Cache-Control', 'no-cache, must-revalidate')
             self.send_header('Pragma', 'no-cache')
             self.end_headers()
-            self.wfile.write(file_bytes)
+            for offset in range(0, len(file_bytes), 256 * 1024):
+                self.wfile.write(file_bytes[offset:offset + 256 * 1024])
             logging.debug(f"[HTTP] Asset Sent Successfully: {filename} from {asset_full_path}")
             return
         else:
@@ -499,6 +528,52 @@ class MockHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(404)
             self.send_header('Content-Length', '0')
             self.end_headers()
+
+    def _send_bundle_file(self, path):
+        """Stream a physical bundle, allowing the client to resume large downloads."""
+        size = os.path.getsize(path)
+        start, end = 0, size - 1
+        byte_range = self.headers.get('Range')
+        if byte_range:
+            match = re.fullmatch(r'bytes=(\d*)-(\d*)', byte_range.strip())
+            if match and (match.group(1) or match.group(2)):
+                first, last = match.groups()
+                if first:
+                    start = int(first)
+                    end = min(int(last), size - 1) if last else size - 1
+                else:
+                    suffix = int(last)
+                    start = max(0, size - suffix)
+                if start >= size or end < start or (not first and not suffix):
+                    match = None
+            else:
+                match = None
+            if match is None:
+                self.send_response(416)
+                self.send_header('Content-Range', f'bytes */{size}')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
+
+        partial = bool(byte_range)
+        self.send_response(206 if partial else 200)
+        self.send_header('Content-type', 'application/vnd.unity')
+        self.send_header('Content-Length', str(end - start + 1))
+        self.send_header('Accept-Ranges', 'bytes')
+        if partial:
+            self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+        self.send_header('Cache-Control', 'no-cache, must-revalidate')
+        self.send_header('Pragma', 'no-cache')
+        self.end_headers()
+        with open(path, 'rb') as bundle:
+            bundle.seek(start)
+            remaining = end - start + 1
+            while remaining:
+                chunk = bundle.read(min(256 * 1024, remaining))
+                if not chunk:
+                    raise OSError(f'Bundle ended before the advertised Content-Length: {path}')
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
 
     def _build_virtual_split(self, filename, asset_full_path, clean_base):
         """CAB-renames a virtual-split bundle and caches the result. Caller holds
@@ -518,6 +593,10 @@ class MockHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         try:
             # Parse and safely rename inside the AssetBundle structure using UnityPy
             env: Any = UnityPy.load(file_bytes)
+            set_code, kind = clean_base.rsplit('_', 1)
+            membership = manifest_manager.card_partitions.get(set_code, {})
+            if membership:
+                trim_textures(env, set_code, kind, membership)
 
             # 1. Rename the entry key in env.file.files
             if hasattr(env, 'file') and hasattr(env.file, 'files'):
@@ -532,8 +611,7 @@ class MockHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
             # 3. Serialize back with LZ4 packer
             file_bytes = env.file.save(packer="lz4")
-            _bundle_cache_put(filename, file_bytes)
-            logging.info(f"[HTTP] Customized CAB via UnityPy for {filename} -> {new_cab_name} and cached.")
+            logging.info(f"[HTTP] Built {filename}: {os.path.getsize(asset_full_path)} -> {len(file_bytes)} bytes.")
         except Exception as e:
             logging.warning(f"[HTTP] UnityPy CAB customize failed ({e}); raw byte replacement fallback.")
             # Fallback to byte replacement for non-standard/mock asset bundles (e.g. in test suites)
@@ -549,7 +627,6 @@ class MockHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             if old_cab_phys in file_bytes:
                 file_bytes = file_bytes.replace(old_cab_phys, new_cab_bytes)
 
-            _bundle_cache_put(filename, file_bytes)
         return file_bytes
 
     def handle_config(self):
@@ -637,12 +714,12 @@ class MockHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
             # 2. Validate Password
             account = get_account_by_username(username)
-            if not account:
+            if not account and username.strip() and password and password not in {'guest_password', 'mobile_password'}:
                 # Auto-register for this private server
                 logging.info(f"[HTTP] User '{username}' not found. Auto-registering...")
                 account = create_account(username, password)
 
-            if account and verify_password(account['password_hash'], password):
+            if username.strip() and password and account and not is_legacy_guest_account(account) and verify_password(account['password_hash'], password):
                 # 3. Success! Generate a Ticket (never log the ticket — it is a live
                 # bearer credential valid for the CAS TTL).
                 ticket = f"ST-{uuid.uuid4()}"

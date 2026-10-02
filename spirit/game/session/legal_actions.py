@@ -18,7 +18,7 @@ from spirit.game.attributes import (
     SpecialConditions,
     TrainerType,
 )
-from spirit.game.data_utils import ABILITIES_BY_ID, Activations, def_for, subtypes_for
+from spirit.game.data_utils import ABILITIES_BY_ID, Activations, Attack, def_for, subtypes_for
 from spirit.game.legend import complementary_halves
 from spirit.game.models.board import (
     BoardState,
@@ -46,6 +46,7 @@ from .passives import (
     effective_retreat_cost,
     effective_supporter_limit,
     extra_manual_energy_attachments,
+    granted_extra_attack_choices,
     energy_attachment_blocked,
     energy_provided_options,
     evolution_blocked,
@@ -92,6 +93,30 @@ LOCK_UNTIL_LEAVES_ACTIVE = 10 ** 9
 def action_id_for(entity_id: str, verb: str) -> str:
     """Deterministic GUID action ID (must be a GUID: the client runs new Guid(id))."""
     return str(uuid.uuid5(_ACTION_ID_NAMESPACE, f"{entity_id}:{verb}"))
+
+
+async def _use_passive_copied_attack(ctx):
+    candidates = passive_copy_candidates(
+        ctx.board, ctx.session.turn_state, ctx.player_id
+    )
+    if candidates:
+        picked = await ctx.choose_attack_to_copy(candidates, "Choose an attack to copy")
+        if picked is not None:
+            await ctx.use_attack(picked[1])
+
+
+# A single ordinary attack opens the same scrollable list Apex Dragon uses.
+# Passive grants are no longer expanded into rows on the playmat attack panel.
+PASSIVE_COPY_ATTACK = Attack(
+    title="Choose a copied attack",
+    game_text="Choose an attack this Pokémon can use from another card.",
+    effect=_use_passive_copied_attack,
+    usable_first_turn=True,
+    usable_despite_conditions=True,
+)
+PASSIVE_COPY_ATTACK.is_passive_copy_menu = True
+PASSIVE_COPY_ATTACK.ability_id = action_id_for("passive-copied-attacks", "menu")
+ABILITIES_BY_ID[PASSIVE_COPY_ATTACK.ability_id] = PASSIVE_COPY_ATTACK
 
 
 class EffectExpiry(int):
@@ -1078,6 +1103,47 @@ def same_stadium_in_play(board: BoardState, card: TrainerEntity) -> bool:
         or getattr(existing, "archetype_id", None) == card.archetype_id
         for existing in (stadium_area.children if stadium_area else [])
     )
+
+
+def passive_copy_candidates(
+    board: BoardState, state: TurnState, player_id: str,
+) -> List[Tuple[Any, Attack]]:
+    """Passive-granted attacks currently legal to use through the copy menu."""
+    active = board.active_pokemon(player_id)
+    if active is None or attacks_blocked(board, active):
+        return []
+    immobilized = _active_immobilized(board, player_id)
+    if immobilized and can_attack_despite_conditions(board, active):
+        immobilized = False
+    own = {a.ability_id for a in (getattr(def_for(active.archetype_id), "abilities", None) or [])}
+    previous = active.break_previous_stage()
+    if previous is not None:
+        own.update(a.ability_id for a in (
+            getattr(def_for(previous.archetype_id), "abilities", None) or []
+        ))
+    energies = board.attached_energies(active)
+    candidates = []
+    for source, attack in granted_extra_attack_choices(board, active):
+        if attack.ability_id in own or state.attack_locked(active.entity_id, attack.ability_id):
+            continue
+        if immobilized and not attack.usable_despite_conditions:
+            continue
+        if state.turn_number == 1 and not attack.usable_first_turn \
+                and not can_attack_on_first_turn(board, active):
+            continue
+        if attack.vstar and player_id in state.vstar_used:
+            continue
+        if attack.gx and (player_id in state.gx_locked_players or (
+                player_id in state.gx_used and not state.can_repeat_gx(player_id, active))):
+            continue
+        if attack.condition is not None and not attack.condition(board, player_id, active):
+            continue
+        cost = effective_attack_cost(
+            board, active, attack.to_dict().get("cost") or {}, attack=attack
+        )
+        if attack_cost_satisfied(cost, energies, board):
+            candidates.append((source, attack))
+    return candidates
 
 
 def _attack_entries(

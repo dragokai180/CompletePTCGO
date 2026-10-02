@@ -1,12 +1,15 @@
 from spirit.game.data_utils import StadiumCardDef, Ability, Triggers
 from spirit.game.attributes import AttrID, PokemonTypes, Rarities
+from spirit.game.session.effects import is_basic_pokemon
 
 
 async def risky_ruins_watch(ctx):
     """Whenever any player puts a Basic non-Darkness Pokémon onto their Bench
     during their turn, place 2 damage counters on that Pokémon."""
     pokemon = ctx.benched_pokemon
-    if pokemon is None:
+    if pokemon is None or not is_basic_pokemon(pokemon):
+        return
+    if ctx.session.turn_state.active_player_id != ctx.benching_player_id:
         return
     types = pokemon.get_attribute(AttrID.POKEMON_TYPES) or []
     if PokemonTypes.DARKNESS.value in types:

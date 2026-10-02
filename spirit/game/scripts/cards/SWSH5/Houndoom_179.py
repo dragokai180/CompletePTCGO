@@ -15,11 +15,6 @@ async def single_strike_roar(ctx):
     """Once per turn: you may search for a Single Strike Energy card and
     attach it to 1 of your Single Strike Pokémon; if you did, put 2 damage
     counters on that Pokémon."""
-    if not await ctx.ask_yes_no(
-        "Search your deck for a Single Strike Energy card and attach it to "
-        "1 of your Single Strike Pokémon?"
-    ):
-        return
     picks = await ctx.search_deck(
         _is_single_strike_energy, count=1, minimum=0,
         prompt="Choose a Single Strike Energy card to attach.",
