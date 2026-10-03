@@ -6873,12 +6873,21 @@ async def bw_legacy_attack(ctx):
     conditional_optional_recoil = "you may do" in text and "if you do" in text
     if recoil and (not conditional_optional_recoil or optional_recoil_taken) \
             and _attack_clause_allowed(ctx, text, recoil.start(), heads, coin_count):
-        # Older self-damage still applies Weakness/Resistance to the Active.
-        # This also matters when Mew copies a differently typed attacker.
+        # Older self-damage can apply Weakness/Resistance to the Active, except
+        # where the recoil's own text explicitly excludes either one.  Scope
+        # the exception to this clause so Bench-damage notes do not change it.
         legacy_recoil = getattr(ctx.ability, 'printed_set_code', None) in (
             'HGSS1', 'HGSS2', 'HGSS3', 'HGSS4', 'COL', 'Promo_HGSS')
+        recoil_exception = re.match(
+            r"\s*[,\.]?\s*(?:and\s+)?(?:don't|do not) apply "
+            r"(weakness(?: and resistance)?|resistance) to this damage",
+            text[recoil.end():],
+        )
+        excluded = recoil_exception.group(1) if recoil_exception else ''
         await ctx.deal_damage(int(recoil.group(1)), target=ctx.attacker,
-                              apply_modifiers=legacy_recoil and 'weakness and resistance' not in text)
+                              apply_modifiers=legacy_recoil,
+                              ignore_weakness='weakness' in excluded,
+                              ignore_resistance='resistance' in excluded)
 
     # Special Conditions.  A heads/tails split is honored when present.
     condition_map = {

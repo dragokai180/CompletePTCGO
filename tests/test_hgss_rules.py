@@ -48,6 +48,25 @@ class HgssRulesTests(unittest.IsolatedAsyncioTestCase):
         card.owning_player_id = pid
         return card
 
+    async def test_recoil_weakness_uses_only_its_own_printed_exception(self):
+        cases = (
+            ('HGSS2.RaikouSuicuneLEGEND_92', 'Thunderbolt Spear', 50),
+            ('HGSS1.Weezing_34', 'Super Explosion', 90),
+            ('HGSS2.Larvitar_50', 'Reckless Charge', 20),
+            ('HGSS4.Lunatone_25', 'Selfdestruct', 120),
+        )
+        for path, title, expected_recoil in cases:
+            with self.subTest(card=path):
+                rig, e, ctx = self.ctx(path, title)
+                attacker = e['target']
+                attacker.set_attribute(AttrID.HP, 300)
+                attacker.set_attribute(
+                    AttrID.WEAKNESS_TYPES,
+                    [attacker.get_attribute(AttrID.POKEMON_TYPES)[0]],
+                )
+                await ctx.ability.effect(ctx)
+                self.assertEqual(attacker.get_attribute(AttrID.HP), 300 - expected_recoil)
+
     async def test_poke_power_special_condition_restriction(self):
         rig, e, ctx = self.ctx('HGSS2.Kingdra_85', 'Spray Splash')
         for condition in ('Asleep', 'Burned', 'Confused', 'Paralyzed', 'Poisoned'):
