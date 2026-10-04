@@ -4850,7 +4850,9 @@ class GameSession:
                 str(value).casefold()
                 for value in (subtypes_for(pokemon.archetype_id) or [])
             }
-            if wanted in ("team aqua pokémon", "team magma pokémon"):
+            if wanted == "pokémon":
+                pass  # Technical Machines grant their attack to any holder.
+            elif wanted in ("team aqua pokémon", "team magma pokémon"):
                 if wanted.removesuffix(" pokémon") not in subtypes:
                     return False
             else:
@@ -5893,8 +5895,8 @@ class GameSession:
             return
 
         # Response passives resolve before any selected Energy or Pokémon is
-        # moved.  A failed Slimy Sliding flip therefore leaves the board and
-        # the once-per-turn Retreat allowance untouched.
+        # moved. Slimy Sliding's tails cancels payment and movement, but the
+        # declared Retreat still uses the turn's once-per-turn allowance.
         retreat_ctx = EffectContext(self, player_id, card, None)
         seen_retreat_rules = set()
         for passive, carrier in list(active_passives(self.board_state)):
@@ -5905,6 +5907,7 @@ class GameSession:
             if key is not None:
                 seen_retreat_rules.add(key)
             if not allowed:
+                self.turn_state.retreated = True
                 if retreat_ctx._messages:
                     await self._flush_effect_runs(retreat_ctx)
                 return

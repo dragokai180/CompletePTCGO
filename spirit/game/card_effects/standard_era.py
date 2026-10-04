@@ -31,7 +31,7 @@ from spirit.game.data_utils import (
 )
 from spirit.game.session.passives import (
     Passive, TurnDamageModifier, effective_max_hp, effective_pokemon_types,
-    effective_bench_capacity,
+    effective_bench_capacity, pokemon_entry_blocked,
 )
 from spirit.game.session.effects import (
     full_stack,
@@ -88,6 +88,12 @@ def normalize_standard_card_definition(definition) -> None:
     pile merely because their text mentioned one).  Normalize only shared-
     interpreter abilities; bespoke scripts remain authoritative.
     """
+    # Tool/Energy attacks are stored outside the holder's printed abilities,
+    # but their printed prerequisites still gate the granted attack menu.
+    for granted in getattr(definition, "granted_abilities", ()) or ():
+        if isinstance(granted, Attack) and granted.effect is bw_legacy_attack:
+            from spirit.game.card_effects.attack_requirements import install_attack_requirement
+            install_attack_requirement(granted)
     for ability in getattr(definition, "abilities", ()) or ():
         if isinstance(ability, Attack):
             if ability.effect is bw_legacy_attack:
@@ -356,6 +362,12 @@ def standard_ability_condition(game_text: str):
             activation_clause = activation_clause.replace(source_name, "this pokémon")
         if not ability_position_allowed(board, player_id, source, text):
             return False
+        if "if this pokémon is in your discard pile" in activation_clause \
+                and re.search(r"\bput (?:this pokémon|it) onto your bench\b", text):
+            if source is None or source not in discard \
+                    or not has_bench_space(player_id) \
+                    or pokemon_entry_blocked(board, player_id, source, source=source):
+                return False
         from spirit.game.card_effects.lost_zone import hand_energy_payment, payment_candidates
         lost_payment = hand_energy_payment(text)
         if lost_payment and (len(payment_candidates(hand, lost_payment)) < int(lost_payment[1])

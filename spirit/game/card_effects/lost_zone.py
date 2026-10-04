@@ -64,9 +64,6 @@ async def resolve_lost_zone_ability(ctx, text):
     if len(cards) < count or ctx.opponent_active() is None:
         ctx.suppress_announce = True
         return True
-    if not await ctx.ask_yes_no(f'Use {ctx.ability.title}?'):
-        ctx.suppress_announce = True
-        return True
     picks = await ctx.choose_cards(cards, count, minimum=count,
                                    prompt='Choose Energy cards to put in the Lost Zone')
     if len(picks) != count:

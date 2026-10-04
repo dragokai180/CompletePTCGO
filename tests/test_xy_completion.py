@@ -380,11 +380,16 @@ class XyCompletionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(ctx.ability.condition(rig.board, P1, ctx.source))
                 self.choose_first(ctx)
                 before_hand = len(ctx.hand())
-                ctx.ask_yes_no = AsyncMock(return_value=True)
+                ctx.ask_yes_no = AsyncMock(
+                    side_effect=AssertionError('redundant confirmation')
+                    if title == 'Farewell Letter' else None,
+                    return_value=True,
+                )
                 await ctx.ability.effect(ctx)
                 if title == 'Victory Kiss':
                     self.assertEqual(active.get_attribute(AttrID.HP), 30)
                 elif title == 'Farewell Letter':
+                    ctx.ask_yes_no.assert_not_awaited()
                     self.assertIn(ctx.source, ctx.discard_pile())
                     self.assertEqual(len(ctx.hand()), before_hand + 1)
                 elif title == 'Stand In':

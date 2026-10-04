@@ -112,9 +112,11 @@ class LostZoneAuditTests(unittest.IsolatedAsyncioTestCase):
             self.energy(rig, kind=PokemonTypes.FIRE)
             self.assertEqual(ctx.ability.condition(rig.board, P1, ctx.source), count == 2)
             ctx.choose_cards = AsyncMock(return_value=cards)
-            ctx.ask_yes_no = AsyncMock(return_value=True)
+            ctx.ask_yes_no = AsyncMock(
+                side_effect=AssertionError('redundant confirmation'))
             ctx.apply_special_condition = AsyncMock()
             await ctx.ability.effect(ctx)
+            ctx.ask_yes_no.assert_not_awaited()
             self.assertEqual(ctx.apply_special_condition.await_count, int(count == 2))
             self.assertEqual(len(ctx.lost_zone()), count if count == 2 else 0)
 
@@ -197,14 +199,16 @@ class LostZoneAuditTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(protected, ctx.discard_pile(P2))
         self.assertIn(other, ctx.lost_zone(P2))
 
-    async def test_unseen_flash_can_be_declined(self):
+    async def test_unseen_flash_cancelled_payment_has_no_effect(self):
         rig, e, ctx = self.ctx('SM8.Ampharos_78', 'Unseen Flash')
         for _ in range(2): self.energy(rig)
-        ctx.ask_yes_no = AsyncMock(return_value=False)
-        ctx.choose_cards = AsyncMock()
+        ctx.ask_yes_no = AsyncMock(
+            side_effect=AssertionError('redundant confirmation'))
+        ctx.choose_cards = AsyncMock(return_value=[])
         ctx.apply_special_condition = AsyncMock()
         await ctx.ability.effect(ctx)
-        ctx.choose_cards.assert_not_awaited()
+        ctx.ask_yes_no.assert_not_awaited()
+        ctx.choose_cards.assert_awaited_once()
         ctx.apply_special_condition.assert_not_awaited()
         self.assertFalse(ctx.lost_zone())
 

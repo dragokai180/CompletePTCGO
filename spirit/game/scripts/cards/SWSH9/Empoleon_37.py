@@ -1,15 +1,20 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.attacks_common import snipe_attack
-from spirit.game.session.constants import BENCH_CAPACITY
+from spirit.game.session.passives import effective_bench_capacity
 
 
 def emergency_surfacing_condition(board, player_id, pokemon):
     hand = board.find_player_area(player_id, "hand")
     if hand and hand.children:
         return False
+    discard = board.find_player_area(player_id, "discard")
     bench = board.find_player_area(player_id, "bench")
-    return bench is not None and BENCH_CAPACITY - len(bench.children) >= 1
+    return bool(
+        pokemon is not None and discard is not None
+        and pokemon in discard.children and bench is not None
+        and len(bench.children) < effective_bench_capacity(board, player_id)
+    )
 
 
 async def emergency_surfacing(ctx):

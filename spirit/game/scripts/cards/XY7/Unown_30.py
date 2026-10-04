@@ -26,14 +26,14 @@ from spirit.game.card_effects.support_common import (
     remove_self_from_play, requires_benched,
 )
 
-_discard_self = remove_self_from_play(destination="discard", optional=True)
+_discard_self = remove_self_from_play(destination="discard")
 
 
 async def farewell_letter(ctx):
     """Discard this Benched Pokemon and everything attached, then draw 1."""
     before = ctx.source.parent
     await _discard_self(ctx)
-    if ctx.source.parent is before:      # the player declined
+    if ctx.source.parent is before:      # discard could not be completed
         return
     await ctx.draw_cards(1)
 

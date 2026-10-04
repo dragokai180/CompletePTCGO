@@ -2552,6 +2552,39 @@ class _BWTextPassive(Passive):
                 if entry[0] == attacker.entity_id]
         return len(uses) == 1
 
+    def _self_evolution_timing_allowed(self, pokemon, carrier):
+        """Evaluate the condition on a Pokemon's own evolution Ability."""
+        if carrier_pokemon(carrier) is not pokemon \
+                or "this pokémon can evolve during" not in self.text:
+            return False
+        board = _board_for(pokemon)
+        if "if you go second" in self.text:
+            state = getattr(board, "turn_state", None)
+            if state is None or state.turn_number != 2 \
+                    or state.active_player_id != pokemon.owning_player_id:
+                return False
+        if "if you have shelmet in play" in self.text \
+                and not any(_name(ally) == "Shelmet" for ally in
+                            board.pokemon_in_play(pokemon.owning_player_id)):
+            return False
+        if "if you have karrablast in play" in self.text \
+                and not any(_name(ally) == "Karrablast" for ally in
+                            board.pokemon_in_play(pokemon.owning_player_id)):
+            return False
+        if "if your opponent's active pokémon" in self.text:
+            opponent_id = next((pid for pid in board.player_ids
+                                if pid != pokemon.owning_player_id), None)
+            opposing = board.active_pokemon(opponent_id) if opponent_id else None
+            if opposing is None:
+                return False
+            subtypes = set(subtypes_for(opposing.archetype_id) or [])
+            if "a pokémon ex" in self.text and "ex" not in subtypes:
+                return False
+            if "a pokémon-gx or pokémon-ex" in self.text \
+                    and not ({"GX", "EX"} & subtypes):
+                return False
+        return True
+
     def may_evolve_early(self, pokemon, carrier):
         # Forest of Giant Plants waives BOTH timing gates. The separate
         # same-turn hook deliberately retains the first-turn restriction
@@ -2560,8 +2593,13 @@ class _BWTextPassive(Passive):
                 and "first turn" in self.text:
             return PokemonTypes.GRASS.value in effective_pokemon_types(
                 _board_for(pokemon), pokemon)
-        return "you may play this card from your hand to evolve a pokémon" \
-            in self.text
+        if "you may play this card from your hand to evolve a pokémon" \
+                in self.text:
+            board = _board_for(carrier)
+            return carrier.parent is board.find_player_area(
+                carrier.owning_player_id, "hand")
+        return "first turn" in self.text \
+            and self._self_evolution_timing_allowed(pokemon, carrier)
 
     def heal_on_evolve(self, evolved, pre_evolution, player_id, carrier,
                        *, from_hand=True):
@@ -3035,9 +3073,11 @@ class _BWTextPassive(Passive):
             and "isn't removed even if the result is heads" in self.text
 
     def may_evolve_same_turn(self, pokemon, carrier, evolution_card):
-        return "grass pokémon can evolve during" in self.text \
-            and PokemonTypes.GRASS.value in effective_pokemon_types(
+        if "grass pokémon can evolve during" in self.text:
+            return PokemonTypes.GRASS.value in effective_pokemon_types(
                 _board_for(pokemon), pokemon)
+        return "turn you play it" in self.text \
+            and self._self_evolution_timing_allowed(pokemon, carrier)
 
     def modify_burn_counters(self, counters, pokemon, carrier):
         if pokemon.owning_player_id == carrier.owning_player_id:
@@ -5365,6 +5405,8 @@ async def bw_legacy_attack(ctx):
     # remain centralized in the engine.
     if "choose 1 of your opponent's pokémon's attacks and use it as this attack" in text \
             or "choose an attack from 1 of your opponent's pokémon in play" in text:
+        if "flip a coin" in text and not (await ctx.flip_coins(1, ctx.ability.title))[0]:
+            return
         candidates = [
             (pokemon, attack)
             for pokemon in ctx.opponent_pokemon_in_play()
@@ -6555,6 +6597,25 @@ async def bw_legacy_attack(ctx):
                 damage, target=target,
                 apply_modifiers=True if bench_wr else None,
             )
+
+    # Grenade Hammer, Raging Thunder and Overhead Throw select the user's
+    # Bench. This is separate from opposing Bench snipes and the "each"
+    # spread below, so only the chosen Pokemon take the extra damage.
+    own_bench_hit = re.search(
+        r"does (\d+) damage to (\d+) of your benched pokémon", text)
+    if own_bench_hit and _attack_clause_allowed(
+            ctx, text, own_bench_hit.start(), heads, coin_count) \
+            and not (heads == 0 and "attack does nothing" in text):
+        damage, count = map(int, own_bench_hit.groups())
+        bench = list(ctx.my_bench())
+        count = min(count, len(bench))
+        if count:
+            picks = bench if count == len(bench) else await ctx.choose_cards(
+                bench, count, minimum=count,
+                prompt="Choose your Benched Pokémon to damage")
+            for target in picks:
+                await ctx.deal_damage(damage, target=target,
+                                      apply_modifiers=False)
 
     # Spread damage has no selection and never applies W/R to the Bench.
     # Earthquake hits the user's Bench; Blizzard chooses the side by coin.
@@ -11125,6 +11186,8 @@ async def bw_legacy_ability(ctx):
         count = int((re.search(r"choose (\d+) random", text) or [None, 1])[1])
         if "flip 2 coins" in text:
             count = sum(await ctx.flip_coins(2, ctx.ability.title))
+        elif "flip a coin" in text:
+            count = int(bool((await ctx.flip_coins(1, ctx.ability.title))[0]))
         hand = list(ctx.hand(ctx.opponent_id))
         chosen = random.sample(hand, min(count, len(hand))) if count and hand else []
         if chosen:
@@ -11831,6 +11894,8 @@ async def bw_legacy_ability(ctx):
     # Search the deck for an Evolution and put it directly on this Pokemon.
     if "search your deck for a card that evolves from this pokémon" in text \
             or "search your deck for an unfezant" in text:
+        if "flip a coin" in text and not (await ctx.flip_coins(1, ctx.ability.title))[0]:
+            return
         logic = ctx.source.get_attribute(AttrID.EVOLUTION_LOGIC_NAME)
         names = {"unfezant", "unfezant ex"} if "unfezant" in text else None
         def can_evolve(card):
@@ -11990,6 +12055,8 @@ async def bw_legacy_ability(ctx):
     if any(phrase in text for phrase in (
             "opponent reveal their hand", "opponent reveals their hand",
             "look at your opponent's hand")):
+        if "flip a coin" in text and not (await ctx.flip_coins(1, ctx.ability.title))[0]:
+            return
         revealed = await ctx.reveal_hand(ctx.opponent_id, ctx.player_id)
         if "discard a card" in text or "choose a card" in text and "discard it" in text:
             chosen = await _choose_one(ctx, revealed, "Choose a card to discard") \
@@ -12055,6 +12122,8 @@ async def bw_legacy_ability(ctx):
     # Direct removal of opposing Energy/Tools on play/evolution.
     if "discard a special energy from" in text \
             or "discard an energy attached to your opponent's active" in text:
+        if "flip a coin" in text and not (await ctx.flip_coins(1, ctx.ability.title))[0]:
+            return
         pool = [
             energy for pokemon in ctx.opponent_pokemon_in_play()
             for energy in ctx.attached_energies(pokemon)
@@ -12513,6 +12582,14 @@ async def bw_legacy_ability(ctx):
                     await ctx.shuffle_into_deck(full_stack(target),
                                                 player_id=ctx.opponent_id)
             return
+
+    if "discard a random card from your opponent's hand" in text:
+        if "flip a coin" in text and not heads:
+            return
+        hand = list(ctx.hand(ctx.opponent_id))
+        if hand:
+            await ctx.discard_cards([random.choice(hand)])
+        return
 
     if "opponent's active pokémon with 1 of his or her benched pokémon" in text \
             or "switch 1 of your opponent's benched pokémon with his or her active" in text:
