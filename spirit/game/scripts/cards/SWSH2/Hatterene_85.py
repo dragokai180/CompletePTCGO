@@ -6,12 +6,20 @@ from spirit.game.session.effects import is_pokemon_card
 
 async def mind_hat(ctx):
     """Once per turn: each player discards a card from their hand (opponent first)."""
-    await ctx.discard_from_hand(
-        1, minimum=0, player_id=ctx.opponent_id,
+    opponent_discarded = await ctx.discard_from_hand(
+        1, player_id=ctx.opponent_id,
         prompt="Discard a card from your hand.",
     )
+    # Show the chosen card, then let the discard/reveal animation finish before
+    # the player sees their own hand-selection prompt.
+    public_discarded = [card for card in opponent_discarded
+                        if card._containing_area_name() in ("discard", "lostZone")]
+    if public_discarded:
+        await ctx.reveal_cards(public_discarded, to_player=ctx.player_id)
+    await ctx.flush_choreography()
+    await ctx.session._wait_for_client_catchup(ctx.player_id)
     await ctx.discard_from_hand(
-        1, minimum=0, player_id=ctx.player_id,
+        1, player_id=ctx.player_id,
         prompt="Discard a card from your hand.",
     )
 

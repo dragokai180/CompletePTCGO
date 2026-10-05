@@ -73,6 +73,8 @@ class LegacyReprintTests(unittest.TestCase):
         self.assertFalse(validator.validate([LEGACY])[0]["valid"])
 
     def test_changed_hp_or_ability_text_does_not_match(self):
+        # Keep this equivalence check independent of local explicit exceptions.
+        self.configure(sets=sorted(LEGACY_SETS))
         card = self.card("ZSV10PT5", 31)
         self.manager._legacy_reprints(self.manager.by_guid(LEGACY))
         definition = def_for(card.guid)

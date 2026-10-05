@@ -669,6 +669,8 @@ def compute_legal_actions(
 
     for card in hand_area.children:
         if isinstance(card, PokemonEntity):
+            if state.play_locked(player_id, card):
+                continue
             if pokemon_play_blocked(board, player_id, card):
                 continue
             stage = card.get_attribute(AttrID.STAGE)
@@ -905,6 +907,8 @@ def _out_of_zone_ability_entries(
     for zone in ("hand", "discard"):
         area = board.find_player_area(player_id, zone)
         for card in (area.children if area else []):
+            if zone == "hand" and state.play_locked(player_id, card):
+                continue
             for entry in card.get_attribute(AttrID.PIE_ABILITIES) or []:
                 if not isinstance(entry, dict):
                     continue

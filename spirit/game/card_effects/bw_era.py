@@ -1519,7 +1519,7 @@ class _BWTextPassive(Passive):
         if "that have any metal energy attached" in t \
                 and not _has_energy_type(calc.target, PokemonTypes.METAL):
             return
-        if "that has any water energy attached" in t \
+        if re.search(r"that (?:has|have) any water energy attached", t) \
                 and not _has_energy_type(calc.target, PokemonTypes.WATER):
             return
         for word, ptype in (
@@ -1816,6 +1816,20 @@ class _BWTextPassive(Passive):
             return holder is calc.attacker and holder is calc.target
         if not calc.is_opposing and "opponent" in t and "both yours and your opponent's" not in t:
             return False
+        if "your pokémon that have any grass energy attached" in t \
+                and "opponent's ultra beasts" in t:
+            return bool(
+                calc.target.owning_player_id == carrier.owning_player_id
+                and _has_energy_type(calc.target, PokemonTypes.GRASS)
+                and _has_subtype(calc.attacker, "Ultra Beast")
+            )
+        if "your metal pokémon by attacks from your opponent's pokémon" in t \
+                and "special energy attached to them" in t:
+            return bool(
+                calc.target.owning_player_id == carrier.owning_player_id
+                and PokemonTypes.METAL.value in effective_pokemon_types(calc.board, calc.target)
+                and any(is_special_energy(card) for card in _attached(calc.attacker))
+            )
         # Plasma Steel protects every Metal Pokémon on Klinklang's side,
         # rather than only Klinklang itself.
         if "your metal pokémon" in self.text and "pokémon-ex" in self.text:
@@ -3908,6 +3922,109 @@ def _damage_counter_count(ctx, pokemon) -> int:
     return max(0, (ctx.max_hp(pokemon) - pokemon.get_attribute(AttrID.HP, 0)) // 10)
 
 
+def _distinct_bench_type_count(ctx, subject: str) -> Optional[int]:
+    if not re.search(r"different types? of pokémon on your "
+                     r"(?:opponent's )?bench", subject):
+        return None
+    bench = ctx.opponent_bench() if "your opponent's bench" in subject \
+        else ctx.my_bench()
+    return len({pokemon_type for pokemon in bench
+                for pokemon_type in effective_pokemon_types(ctx.board, pokemon)})
+
+
+def _scoped_in_play_pokemon_count(ctx, subject: str) -> Optional[int]:
+    """Count the side and kind of Pokémon named by a damage formula."""
+    named_groups = {
+        "pineco and forretress": {"Pineco", "Forretress"},
+        "drifloon and drifblim": {"Drifloon", "Drifblim"},
+        "beedrill and beedrill ex": {"Beedrill", "Beedrill ex"},
+        "wishiwashi and wishiwashi-gx": {"Wishiwashi", "Wishiwashi-GX"},
+        "maushold": {"Maushold"},
+        "reuniclus": {"Reuniclus"},
+    }
+    named_group = next((names for phrase, names in named_groups.items()
+                        if phrase in subject), None)
+    if ("pokémon" not in subject and named_group is None
+            and "ultra beasts" not in subject) or (
+            "in play" not in subject and "round attack" not in subject):
+        return None
+    if "attached to" in subject or "damage counter" in subject:
+        return None
+
+    if "both yours and your opponent's" in subject or re.search(
+            r"(?:each|all|other|the number of) pokémon in play", subject):
+        pokemon = ctx.my_pokemon_in_play() + ctx.opponent_pokemon_in_play()
+    elif "your opponent's" in subject or "your opponent has in play" in subject:
+        pokemon = ctx.opponent_pokemon_in_play()
+    elif "your" in subject or "you have in play" in subject:
+        pokemon = ctx.my_pokemon_in_play()
+    else:
+        pokemon = ctx.my_pokemon_in_play() + ctx.opponent_pokemon_in_play()
+
+    if "other pokémon in play" in subject:
+        pokemon = [p for p in pokemon if p is not ctx.attacker]
+
+    if "that has the round attack" in subject \
+            or "that have the round attack" in subject:
+        pokemon = [p for p in pokemon if _has_attack_named(p, "Round")]
+    if "that has an ability" in subject:
+        pokemon = [p for p in pokemon if _has_pokemon_ability(p)]
+    if "that evolves from eevee" in subject:
+        pokemon = [p for p in pokemon if evolves_from(p.archetype_id, "Eevee")]
+    if "has alolan in its name" in subject:
+        pokemon = [p for p in pokemon if "alolan" in _name(p).casefold()]
+    named = re.findall(r'"([^"]+)"', subject)
+    if named and "in its name" in subject:
+        pokemon = [p for p in pokemon if any(
+            name in _name(p).casefold() for name in named)]
+
+    if "stage 1 pokémon" in subject:
+        pokemon = [p for p in pokemon if _stage(p) == PokemonStage.STAGE1.value]
+    elif "stage 2 pokémon" in subject:
+        pokemon = [p for p in pokemon if _stage(p) == PokemonStage.STAGE2.value]
+    elif re.search(r"\bevolution (?:[a-z]+ )?pokémon\b", subject):
+        pokemon = [p for p in pokemon if is_evolution_pokemon(p)]
+    elif "basic pokémon" in subject:
+        pokemon = [p for p in pokemon if _stage(p) == PokemonStage.BASIC.value]
+
+    if "pokémon-gx and pokémon-ex" in subject:
+        pokemon = [p for p in pokemon if _has_exact_subtype(p, "GX")
+                   or _pokemon_ex(p)]
+    elif "pokémon ex and pokémon v" in subject:
+        pokemon = [p for p in pokemon if _has_exact_subtype(p, "ex")
+                   or is_pokemon_v(p.archetype_id)]
+    elif "pokémon ex" in subject:
+        pokemon = [p for p in pokemon if _has_exact_subtype(p, "ex")]
+    elif "pokémon-gx" in subject:
+        pokemon = [p for p in pokemon if _has_exact_subtype(p, "GX")]
+    elif "pokémon-ex" in subject:
+        pokemon = [p for p in pokemon if _pokemon_ex(p)]
+
+    for label in ("ancient", "tag team"):
+        if f"{label} pokémon" in subject:
+            pokemon = [p for p in pokemon if _has_subtype(p, label)]
+    if "team plasma pokémon" in subject:
+        pokemon = [p for p in pokemon if _team_plasma(p)]
+    if "ultra beasts" in subject:
+        pokemon = [p for p in pokemon if _has_subtype(p, "Ultra Beast")]
+    if named_group is not None:
+        pokemon = [p for p in pokemon if _name(p) in named_group]
+    for prefix in ("erika's", "team rocket's"):
+        if f"{prefix} pokémon" in subject:
+            pokemon = [p for p in pokemon
+                       if _name(p).casefold().startswith(prefix)]
+
+    types = re.findall(
+        r"\b(grass|fire|water|lightning|psychic|fighting|darkness|metal|"
+        r"fairy|dragon|colorless) pokémon\b", subject)
+    if types:
+        wanted = {getattr(PokemonTypes, word.upper()).value for word in types}
+        pokemon = [p for p in pokemon
+                   if wanted.intersection(effective_pokemon_types(ctx.board, p))]
+
+    return len(pokemon)
+
+
 def _formula_damage(ctx, text: str) -> Optional[int]:
     printed = getattr(ctx.ability, "damage", 0) or 0
     tool_mult = re.search(
@@ -3943,24 +4060,20 @@ def _formula_damage(ctx, text: str) -> Optional[int]:
             return per * _damage_counter_count(ctx, ctx.attacker)
         if "damage counters on the defending pokémon" in subject:
             return per * _damage_counter_count(ctx, ctx.defender)
+        distinct_types = _distinct_bench_type_count(ctx, subject)
+        if distinct_types is not None:
+            return per * distinct_types
         if "your benched pokémon" in subject:
             return per * len(ctx.my_bench())
-        if "your pokémon that have the round attack" in subject:
-            return per * sum(_has_attack_named(p, "Round")
-                             for p in ctx.my_pokemon_in_play())
-        if "reuniclus you have in play" in subject:
-            return per * sum(_name(p) == "Reuniclus"
-                             for p in ctx.my_pokemon_in_play())
-        if "team plasma pokémon you have in play" in subject:
-            return per * sum(_team_plasma(p) for p in ctx.my_pokemon_in_play())
         if "pokémon tool card attached to pokémon in play" in subject:
             return per * sum(
                 is_pokemon_tool(card)
                 for p in ctx.my_pokemon_in_play() + ctx.opponent_pokemon_in_play()
                 for card in full_stack(p)[1:]
             )
-        if "pokémon in play" in subject:
-            return per * (len(ctx.my_pokemon_in_play()) + len(ctx.opponent_pokemon_in_play()))
+        scoped_pokemon = _scoped_in_play_pokemon_count(ctx, subject)
+        if scoped_pokemon is not None:
+            return per * scoped_pokemon
         if "prize cards you have taken" in subject:
             return per * ctx.prizes_taken()
         if "prize cards both players have taken" in subject:
@@ -3986,7 +4099,7 @@ def _formula_damage(ctx, text: str) -> Optional[int]:
 
     # Printed base + N for each Energy/counter/bench member.
     more = re.search(
-        r"does (\d+) more damage "
+        r"(?:does \d+ damage plus |does )(\d+) more damage "
         r"(?:for each|times (?:the amount|the number) of) (.+?)(?:\.|$)",
         text,
     )
@@ -4021,10 +4134,16 @@ def _formula_damage(ctx, text: str) -> Optional[int]:
             return printed + per * len(ctx.opponent_bench())
         if "nidoqueen on your bench" in subject:
             return printed + per * sum(_name(p) == "Nidoqueen" for p in ctx.my_bench())
+        distinct_types = _distinct_bench_type_count(ctx, subject)
+        if distinct_types is not None:
+            return printed + per * distinct_types
         # Despair Ray counts the chosen discards in its pre-damage step,
         # not the Pokemon that remain on the Bench after that step.
         if "benched pokémon" in subject and "discarded" not in subject:
             return printed + per * len(ctx.my_bench())
+        scoped_pokemon = _scoped_in_play_pokemon_count(ctx, subject)
+        if scoped_pokemon is not None:
+            return printed + per * scoped_pokemon
         if "prize card your opponent has taken" in subject:
             return printed + per * ctx.prizes_taken(ctx.opponent_id)
         if "pokémon in your discard pile" in subject:
@@ -8216,6 +8335,7 @@ async def bw_legacy_attack(ctx):
     if "search your deck for" in text:
         search_position = text.index("search your deck for")
         search_allowed = _attack_clause_allowed(ctx, text, search_position, heads, coin_count)
+        placed_on_top = False
         search_per_head = "for each heads" in text[
             text.rfind(".", 0, search_position) + 1:search_position]
         search_count = _ability_search_count(text)
@@ -8343,6 +8463,23 @@ async def bw_legacy_attack(ctx):
                     if candidates else None
                 if target is not None:
                     await ctx.attach_energy(energy, target)
+        elif search_allowed and "put those cards on top" in text:
+            # Time Manipulation uses the same search, shuffle, then stack
+            # order as Mallow.  The common fallback would put them in hand.
+            deck_cards = list(ctx.deck())
+            pred = _ability_search_predicate(text)
+            matches = [card for card in deck_cards
+                       if pred is None or pred(card)]
+            picks = await ctx.choose_cards(
+                matches, search_count, minimum=min(search_count, len(matches)),
+                ordered=search_count > 1 and "in any order" in text,
+                prompt="Choose cards to put on top of your deck, in order",
+                display_cards=deck_cards,
+            )
+            await ctx.shuffle_deck()
+            for card in reversed(picks):
+                await ctx.put_on_top_of_deck(card)
+            placed_on_top = True
         elif search_allowed:
             count = search_count
             pred = _ability_search_predicate(text)
@@ -8357,7 +8494,7 @@ async def bw_legacy_attack(ctx):
             picks = await _search_printed_cards(ctx, text, pred, count,
                                                 minimum=minimum, reveal=reveal)
             await ctx.put_in_hand(picks, reveal=reveal)
-        if search_allowed:
+        if search_allowed and not placed_on_top:
             await ctx.shuffle_deck()
 
     # Public-discard Pokémon entering either player's Bench.

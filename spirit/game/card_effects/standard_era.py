@@ -1220,6 +1220,24 @@ async def _generic_search(ctx, text: str, *, count_override: int | None = None) 
     reveals = "reveal" in text or "show it to your opponent" in text
     optional_search = "you may search your deck" in text
     minimum = 0 if predicate is not None or reveals or "up to" in text or optional_search else count
+    if re.search(r"put (?:that card|those cards|it|them) on top of", text):
+        deck_cards = list(ctx.deck())
+        matches = [card for card in deck_cards
+                   if predicate is None or predicate(card)]
+        picks = await ctx.choose_cards(
+            matches, count, minimum=minimum,
+            ordered=count > 1 and "in any order" in text,
+            prompt="Choose cards to put on top of your deck, in order",
+            display_cards=deck_cards,
+        )
+        if reveals and picks:
+            await ctx.reveal_cards(picks)
+        await ctx.shuffle_deck()
+        # The first selected card is the new top; moving cards in reverse
+        # preserves that order after the required shuffle.
+        for card in reversed(picks):
+            await ctx.put_on_top_of_deck(card)
+        return True
     picks = await ctx.search_deck(
         predicate,
         count=count,
@@ -1246,9 +1264,6 @@ async def _generic_search(ctx, text: str, *, count_override: int | None = None) 
                 await ctx.attach_energy(energy, target)
     elif "discard" in text and "put" not in text:
         await ctx.discard_cards(picks)
-    elif "on top of" in text:
-        for card in reversed(picks):
-            await ctx.put_on_top_of_deck(card)
     else:
         await ctx.put_in_hand(picks, reveal=reveals)
 

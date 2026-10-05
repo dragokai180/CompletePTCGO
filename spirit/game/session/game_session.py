@@ -4335,6 +4335,8 @@ class GameSession:
 
     async def _execute_play_basic(self, player_id: str, card):
         """Plays a Basic Pokemon from hand onto the bench."""
+        if self.turn_state.play_locked(player_id, card):
+            return
         if pokemon_play_blocked(self.board_state, player_id, card):
             return
         from spirit.game.legend import is_legend, complementary_halves, legend_pairs
@@ -5150,6 +5152,9 @@ class GameSession:
     async def _execute_use_ability(self, player_id, card, entry) -> bool:
         """Activates a Pokemon's usable ability (once-per-turn / VSTAR).
         Returns True when the ability ends the turn (Ability.ends_turn)."""
+        if card._containing_area_name() == "hand" \
+                and self.turn_state.play_locked(player_id, card):
+            return False
         action_id = entry["selectableAction"]["actionID"]
         ability = ABILITIES_BY_ID.get(action_id)
         if ability is None:
@@ -5182,6 +5187,8 @@ class GameSession:
 
     async def _execute_evolve(self, player_id, card, entry, target_ids):
         """Evolves the target: the evolution takes its slot, the old stack tucks underneath."""
+        if self.turn_state.play_locked(player_id, card):
+            return False
         target_id = self._validated_target(entry, target_ids)
         target = self.board_state.get_entity(target_id) if target_id else None
         if not target or not target.parent:

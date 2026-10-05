@@ -67,6 +67,7 @@ from .passives import (
     damage_counters_blocked,
     moving_damage_counters_blocked,
     move_to_hand_blocked,
+    special_energy_suppressed,
     forced_coin_result,
     trainer_end_turn_blocked,
 )
@@ -2261,6 +2262,8 @@ class EffectContext:
         return (
             bench is not None
             and len(bench.children) < effective_bench_capacity(self.board, owner)
+            and not (card._containing_area_name() == "hand"
+                     and self.session.turn_state.play_locked(owner, card))
             and not pokemon_entry_blocked(self.board, self.player_id, card,
                                           source=self.source, ability=self.ability)
         )
@@ -2310,6 +2313,9 @@ class EffectContext:
             if isinstance(evolution_card, CardEntity) else None
         from_hidden = area_name in CardEntity.HIDDEN_FROM_OWNER_AREAS
         owner = evolution_card.owning_player_id or self.player_id
+        if area_name == "hand" and self.session.turn_state.play_locked(
+                owner, evolution_card):
+            return False
         await self.flush_choreography()
         return await self.session.perform_evolution(
             owner, evolution_card, target, from_zone_intro=from_hidden
@@ -2406,6 +2412,10 @@ class EffectContext:
         """
         if energy is None or pokemon is None:
             return False
+        owner = energy.owning_player_id or self.player_id
+        if energy._containing_area_name() == "hand" \
+                and self.session.turn_state.play_locked(owner, energy):
+            return False
         position = len(pokemon.children)
         if not self.board.attach_card(energy.entity_id, pokemon.entity_id):
             return False
@@ -2416,7 +2426,8 @@ class EffectContext:
         if getattr(def_for(energy.archetype_id), "granted_abilities", None):
             await self.session.refresh_granted_abilities(pokemon)
         hook = getattr(def_for(energy.archetype_id), "on_attach_anywhere", None)
-        if hook is not None and hook is not unimplemented:
+        if hook is not None and hook is not unimplemented \
+                and not special_energy_suppressed(self.board, energy):
             await hook(self, energy, pokemon)
         if counts_as_attachment:
             self.deferred_actions.append(
@@ -2444,7 +2455,9 @@ class EffectContext:
         while self.pokemon_is_in_play(self.source) \
                 and not ability_locked(self.board, self.source, self.ability) \
                 and ability_condition_met(self.ability, self.board, self.player_id, self.source):
-            pool = [c for c in self.hand() if is_energy_card(c) and predicate(c)]
+            pool = [c for c in self.hand()
+                    if is_energy_card(c) and predicate(c)
+                    and not self.session.turn_state.play_locked(self.player_id, c)]
             candidates = [p for p in targets() if self.pokemon_is_in_play(p)]
             if not pool or not candidates:
                 break
@@ -2488,6 +2501,9 @@ class EffectContext:
         if card is None or pokemon is None:
             return False
         from_hand = card.parent is self.board.find_player_area(card.owning_player_id, 'hand')
+        if from_hand and self.session.turn_state.play_locked(
+                card.owning_player_id, card):
+            return False
         position = len(pokemon.children)
         if not self.board.attach_card(card.entity_id, pokemon.entity_id):
             return False
@@ -2521,7 +2537,8 @@ class EffectContext:
         if getattr(def_for(energy.archetype_id), "granted_abilities", None):
             await self.session.refresh_granted_abilities(to_pokemon)
         hook = getattr(def_for(energy.archetype_id), "on_attach_anywhere", None)
-        if hook is not None and hook is not unimplemented:
+        if hook is not None and hook is not unimplemented \
+                and not special_energy_suppressed(self.board, energy):
             await hook(self, energy, to_pokemon)
         if old_holder is not None:
             self._shift_max_hp(old_holder, max_before_old)
@@ -3334,6 +3351,10 @@ async def resolve_energy_on_attach(session, player_id: str, energy: EnergyEntity
     universal = getattr(definition, "on_attach_anywhere", None)
     if (hook is None or hook is unimplemented) \
             and (universal is None or universal is unimplemented):
+        return None
+    # Attachment costs are paid before the card enters play. Once attached,
+    # Temple of Sinnoh turns off its on-attach effects as well as its passive.
+    if special_energy_suppressed(session.board_state, energy):
         return None
     ctx = EffectContext(session, player_id, energy, None, attached_to=target)
     if hook is not None and hook is not unimplemented:

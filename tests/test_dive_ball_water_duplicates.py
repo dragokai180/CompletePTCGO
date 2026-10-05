@@ -1,6 +1,6 @@
 """Private search failure and effect-driven Stage 1 bench placement."""
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from tests import test_hgss_rules as fixtures
 from tests.test_hgss_rules import definition
@@ -82,7 +82,15 @@ class DiveBallWaterDuplicatesTests(unittest.IsolatedAsyncioTestCase):
         ctx.choose_cards = AsyncMock(side_effect=lambda pool, count, **kw:
                                      [c for c in pool if c in frogs][:count])
         ctx.shuffle_deck = AsyncMock()
-        await ctx.ability.effect(ctx)
+        sent_messages = []
+        original_flush = rig.session._flush_effect_runs
+
+        async def record_flush(effect_ctx):
+            sent_messages.extend(effect_ctx._messages)
+            await original_flush(effect_ctx)
+
+        with patch.object(rig.session, "_flush_effect_runs", side_effect=record_flush):
+            await ctx.ability.effect(ctx)
         self.assertEqual(ctx.my_bench(), frogs)
         self.assertNotIn(other, ctx.choose_cards.await_args.args[0])
         self.assertEqual(ctx.choose_cards.await_args.args[1], 3)
@@ -90,7 +98,7 @@ class DiveBallWaterDuplicatesTests(unittest.IsolatedAsyncioTestCase):
         for frog in frogs:
             self.assertEqual(rig.session.turn_state.entered_play_turn[frog.entity_id],
                              rig.session.turn_state.turn_number)
-        self.assertTrue(ctx._messages)  # Public intro/move choreography is queued.
+        self.assertTrue(sent_messages)  # Public intro/move choreography was sent.
         ctx.shuffle_deck.assert_awaited_once()
 
     async def test_water_duplicates_respects_bench_capacity(self):
