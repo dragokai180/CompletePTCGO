@@ -21,6 +21,8 @@ from spirit.game.card_effects.bw_era import (
     _ability_attached_energy_discard_cost,
     _ability_cost_handled_inline,
     _ability_hand_discard_cost,
+    _has_exact_subtype,
+    _pokemon_ex,
     bw_legacy_ability,
     bw_legacy_attack,
     bw_legacy_passive,
@@ -318,6 +320,19 @@ def ability_position_allowed(board, player_id, source, game_text: str) -> bool:
         bench = board.find_player_area(player_id, "bench")
         if source is None or bench is None or source not in bench.children:
             return False
+    required_status = re.search(
+        r"if this pokémon is (confused|asleep|paralyzed|poisoned|burned)\b",
+        clause,
+    )
+    if required_status:
+        # Special Conditions only persist in the Active Spot.  Checking the
+        # printed condition also prevents a status-gated Ability from being
+        # offered while the Active Pokémon has a different condition.
+        if board is None or source is None or board.active_pokemon(player_id) is not source:
+            return False
+        if required_status.group(1).capitalize() not in (
+                source.get_attribute(AttrID.SPECIAL_CONDITIONS) or []):
+            return False
     return True
 
 
@@ -362,6 +377,45 @@ def standard_ability_condition(game_text: str):
             activation_clause = activation_clause.replace(source_name, "this pokémon")
         if not ability_position_allowed(board, player_id, source, text):
             return False
+        if "if you have no cards in your hand" in activation_clause and hand:
+            return False
+        opposing_prizes = re.search(
+            r"if your opponent has (\d+) or fewer prize cards remaining",
+            activation_clause,
+        )
+        if opposing_prizes:
+            prizes = board.find_player_area(opponent_id, "prizePile") if opponent_id else None
+            if prizes is None or len(prizes.children) > int(opposing_prizes.group(1)):
+                return False
+        if "if you have a stadium in play" in activation_clause:
+            stadium = board.find_global_area("activeStadium")
+            if stadium is None or not stadium.children:
+                return False
+        attached_energy_requirement = re.search(
+            r"if this pokémon has any (basic )?(grass|fire|water|lightning|"
+            r"psychic|fighting|darkness|metal|fairy)? ?energy attached",
+            activation_clause,
+        )
+        if attached_energy_requirement:
+            basic, type_name = attached_energy_requirement.groups()
+            energy_type = getattr(PokemonTypes, type_name.upper(), None) if type_name else None
+            if source is None or not any(
+                (not basic or is_basic_energy(energy))
+                and (energy_type is None or energy_provides_type(energy, energy_type.value))
+                for energy in board.attached_energies(source)
+            ):
+                return False
+        remaining_hp = re.search(r"if this pokémon's remaining hp is (\d+) or less", activation_clause)
+        if remaining_hp and (source is None or source.get_attribute(AttrID.HP, 0) > int(remaining_hp.group(1))):
+            return False
+        # Named partners in a printed activation clause must be present.
+        # Bespoke cards may impose additional restrictions in their callbacks.
+        for required in re.findall(r"if you have ([a-z][a-z0-9' -]+?) in play", activation_clause):
+            if required.startswith(("a ", "any ", "at least ", "no ")) or "pokémon" in required:
+                continue
+            names = [part.strip() for part in re.split(r",|\band\b", required)]
+            if not all(any(card_name(pokemon) == name for pokemon in own) for name in names):
+                return False
         if "if this pokémon is in your discard pile" in activation_clause \
                 and re.search(r"\bput (?:this pokémon|it) onto your bench\b", text):
             if source is None or source not in discard \
@@ -681,6 +735,11 @@ def standard_ability_condition(game_text: str):
                                              "subtypes", ()) or ())]
                 if not legal_targets:
                     return False
+            if "except pokémon-gx or pokémon-ex" in text and not any(
+                not _has_exact_subtype(pokemon, "GX") and not _pokemon_ex(pokemon)
+                for pokemon in own
+            ):
+                return False
         return True
 
     condition.__name__ = "standard_ability_text_condition"
@@ -2868,7 +2927,7 @@ def standard_trainer_effect(game_text: str):
         # card makes no subsequent choice (Hand Scope/Alph Lithograph).
         if "opponent reveals" in text and "hand" in text \
                 or "look at your opponent's hand" in text:
-            revealed = await ctx.reveal_hand(ctx.opponent_id, ctx.player_id)
+            revealed = list(ctx.hand(ctx.opponent_id))
             opposing_discard = re.search(
                 r"discard (?:up to )?(\d+) (item|energy) cards? "
                 r"(?:from it|you find there)", text,
@@ -2877,16 +2936,20 @@ def standard_trainer_effect(game_text: str):
                 count, kind = int(opposing_discard.group(1)), opposing_discard.group(2)
                 predicate = is_item_card if kind == "item" else is_energy_card
                 candidates = [card for card in revealed if predicate(card)]
-                picks = await ctx.choose_cards(
+                picks = await ctx.choose_from_revealed_hand(
                     candidates, min(count, len(candidates)),
                     minimum=0 if "up to" in opposing_discard.group(0)
                     else min(count, len(candidates)),
+                    of_player=ctx.opponent_id,
                     prompt="Choose cards to discard",
-                ) if candidates else []
+                )
                 await ctx.discard_cards(picks)
             elif "choose a card you find there and put it on the bottom" in text:
-                chosen = await _choose_one(ctx, revealed, "Choose a card") \
-                    if revealed else None
+                picks = await ctx.choose_from_revealed_hand(
+                    revealed, 1, of_player=ctx.opponent_id,
+                    prompt="Choose a card",
+                )
+                chosen = picks[0] if picks else None
                 if chosen is not None:
                     await ctx.put_on_bottom_of_deck(chosen)
                     if "opponent may draw a card" in text and await ctx.ask_yes_no(
@@ -2895,29 +2958,41 @@ def standard_trainer_effect(game_text: str):
                         await ctx.draw_cards(1, player_id=ctx.opponent_id)
             elif "choose an energy card you find there and put it on the bottom" in text:
                 candidates = [card for card in revealed if is_energy_card(card)]
-                chosen = await _choose_one(ctx, candidates, "Choose an Energy") \
-                    if candidates else None
+                picks = await ctx.choose_from_revealed_hand(
+                    candidates, 1, of_player=ctx.opponent_id,
+                    prompt="Choose an Energy",
+                )
+                chosen = picks[0] if picks else None
                 if chosen is not None:
                     await ctx.put_on_bottom_of_deck(chosen)
             elif "put a pokémon you find there on the bottom" in text:
                 candidates = [card for card in revealed if is_pokemon_card(card)]
-                chosen = await _choose_one(ctx, candidates, "Choose a Pokémon") \
-                    if candidates else None
+                picks = await ctx.choose_from_revealed_hand(
+                    candidates, 1, of_player=ctx.opponent_id,
+                    prompt="Choose a Pokémon",
+                )
+                chosen = picks[0] if picks else None
                 if chosen is not None:
                     await ctx.put_on_bottom_of_deck(chosen)
             elif "draw 2 cards for each supporter card you find there" in text:
+                await ctx.reveal_hand(ctx.opponent_id, ctx.player_id)
                 await ctx.draw_cards(2 * sum(is_supporter_card(c) for c in revealed))
             elif "draw a card for each pokémon you find there" in text:
+                await ctx.reveal_hand(ctx.opponent_id, ctx.player_id)
                 await ctx.draw_cards(sum(is_pokemon_card(c) for c in revealed))
             elif "put a basic pokémon you find there onto your opponent's bench" in text:
                 basics = [card for card in revealed if is_basic_pokemon(card)]
-                chosen = await _choose_one(ctx, basics, "Choose a Basic Pokémon") \
-                    if basics else None
+                picks = await ctx.choose_from_revealed_hand(
+                    basics, 1, of_player=ctx.opponent_id,
+                    prompt="Choose a Basic Pokémon",
+                )
+                chosen = picks[0] if picks else None
                 if chosen is not None:
                     await ctx.bench_pokemon(chosen)
                     if "switch in that pokémon to the active spot" in text:
                         await ctx.switch_active(ctx.opponent_id, chosen)
             elif "discard as many cards as you like from your hand" in text:
+                await ctx.reveal_hand(ctx.opponent_id, ctx.player_id)
                 picks = await ctx.choose_cards(
                     ctx.hand(), len(ctx.hand()), minimum=0,
                     prompt="Choose cards to discard",
@@ -2927,12 +3002,15 @@ def standard_trainer_effect(game_text: str):
             elif "put any number of basic pokémon" in text:
                 basics = [card for card in revealed if is_basic_pokemon(card)]
                 maximum = min(len(basics), max(0, 5 - len(ctx.opponent_bench())))
-                picks = await ctx.choose_cards(
+                picks = await ctx.choose_from_revealed_hand(
                     basics, maximum, minimum=0,
+                    of_player=ctx.opponent_id,
                     prompt="Choose Basic Pokémon for your opponent's Bench",
-                ) if maximum else []
+                )
                 for pokemon in picks:
                     await ctx.bench_pokemon(pokemon)
+            else:
+                await ctx.reveal_hand(ctx.opponent_id, ctx.player_id)
             return
 
         # Flower Shop Lady selects two separate categories, not three cards
@@ -3473,7 +3551,7 @@ def standard_trainer_effect(game_text: str):
             )
 
         if "opponent reveals their hand" in text or "opponent reveal their hand" in text:
-            revealed = await ctx.reveal_hand(ctx.opponent_id, ctx.player_id)
+            revealed = list(ctx.hand(ctx.opponent_id))
             opposing_discard = re.search(
                 r"discard (?:up to )?(\d+) (item|energy) cards? "
                 r"(?:from it|you find there)", text,
@@ -3482,16 +3560,20 @@ def standard_trainer_effect(game_text: str):
                 count, kind = int(opposing_discard.group(1)), opposing_discard.group(2)
                 predicate = is_item_card if kind == "item" else is_energy_card
                 candidates = [card for card in revealed if predicate(card)]
-                picks = await ctx.choose_cards(
+                picks = await ctx.choose_from_revealed_hand(
                     candidates, min(count, len(candidates)),
                     minimum=0 if "up to" in opposing_discard.group(0)
                     else min(count, len(candidates)),
+                    of_player=ctx.opponent_id,
                     prompt="Choose cards to discard",
-                ) if candidates else []
+                )
                 await ctx.discard_cards(picks)
             elif "choose a card you find there and put it on the bottom" in text:
-                chosen = await _choose_one(ctx, revealed, "Choose a card") \
-                    if revealed else None
+                picks = await ctx.choose_from_revealed_hand(
+                    revealed, 1, of_player=ctx.opponent_id,
+                    prompt="Choose a card",
+                )
+                chosen = picks[0] if picks else None
                 if chosen is not None:
                     await ctx.put_on_bottom_of_deck(chosen)
                     if "opponent may draw a card" in text and await ctx.ask_yes_no(
@@ -3499,17 +3581,24 @@ def standard_trainer_effect(game_text: str):
                     ):
                         await ctx.draw_cards(1, player_id=ctx.opponent_id)
             elif "draw 2 cards for each supporter card you find there" in text:
+                await ctx.reveal_hand(ctx.opponent_id, ctx.player_id)
                 await ctx.draw_cards(2 * sum(is_supporter_card(c) for c in revealed))
             elif "draw a card for each pokémon you find there" in text:
+                await ctx.reveal_hand(ctx.opponent_id, ctx.player_id)
                 await ctx.draw_cards(sum(is_pokemon_card(c) for c in revealed))
             elif "put a basic pokémon you find there onto your opponent's bench" in text:
                 basics = [card for card in revealed if is_basic_pokemon(card)]
-                chosen = await _choose_one(ctx, basics, "Choose a Basic Pokémon") \
-                    if basics else None
+                picks = await ctx.choose_from_revealed_hand(
+                    basics, 1, of_player=ctx.opponent_id,
+                    prompt="Choose a Basic Pokémon",
+                )
+                chosen = picks[0] if picks else None
                 if chosen is not None:
                     await ctx.bench_pokemon(chosen)
                     if "switch in that pokémon to the active spot" in text:
                         await ctx.switch_active(ctx.opponent_id, chosen)
+            else:
+                await ctx.reveal_hand(ctx.opponent_id, ctx.player_id)
 
         # ------------------------------------------------------------------
         # Recurring families which are neither searches nor fixed draws.

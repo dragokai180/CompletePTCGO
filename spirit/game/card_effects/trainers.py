@@ -567,6 +567,8 @@ async def catcher_switch_both(ctx):
     my_bench = ctx.my_bench()
     if not my_bench:
         return
+    await ctx.flush_choreography()
+    await ctx.session._wait_for_client_catchup(ctx.player_id)
     mine = await ctx.choose_pokemon(
         my_bench, "Choose your new Active Pokémon"
     )
@@ -621,6 +623,7 @@ async def escape_rope(ctx):
         # Flush the opponent's swap so both clients see it land before the
         # Escape Rope player is prompted for their own switch.
         await ctx.flush_choreography()
+        await ctx.session._wait_for_client_catchup(ctx.player_id)
     my_bench = ctx.my_bench()
     if my_bench:
         target = await ctx.choose_pokemon(

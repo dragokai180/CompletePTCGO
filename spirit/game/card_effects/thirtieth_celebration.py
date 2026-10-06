@@ -350,9 +350,11 @@ async def attack_effect(ctx):
                 await ctx.identity_swap(ctx.attacker, picks[0], destination='deck', transfer=True)
             await ctx.shuffle_deck()
     elif title == 'Fetch and Hide':
-        await ctx.reveal_hand(ctx.opponent_id)
-        picks = await ctx.choose_cards([c for c in ctx.hand(ctx.opponent_id) if is_item_card(c)], 1,
-                                        prompt='Choose an Item to put at the bottom of their deck')
+        picks = await ctx.choose_from_revealed_hand(
+            [c for c in ctx.hand(ctx.opponent_id) if is_item_card(c)], 1,
+            of_player=ctx.opponent_id,
+            prompt='Choose an Item to put at the bottom of their deck',
+        )
         for c in picks:
             await ctx.put_on_bottom_of_deck(c)
     elif title == 'Bouncy Circle':

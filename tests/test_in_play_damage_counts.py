@@ -118,6 +118,14 @@ class InPlayDamageCountTests(unittest.IsolatedAsyncioTestCase):
         await ctx.ability.effect(ctx)
         self.assertEqual(ctx.deal_damage.call_args.args[0], 80)
 
+    async def test_energy_blow_deals_damage_for_attached_energy(self):
+        _, _, ctx = self.ctx('SM10.WhimsicottGX_140', 'Energy Blow')
+        self.assertEqual(len(ctx.attached_energies(ctx.attacker)), 3)
+        self.assertEqual(self.formula(ctx), 100)
+        ctx.deal_damage = AsyncMock(return_value=0)
+        await ctx.ability.effect(ctx)
+        self.assertEqual(ctx.deal_damage.call_args.args[0], 100)
+
 
 if __name__ == '__main__':
     unittest.main()

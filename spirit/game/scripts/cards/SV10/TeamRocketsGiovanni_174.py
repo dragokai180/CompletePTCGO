@@ -36,10 +36,13 @@ async def team_rockets_giovanni(ctx):
     )
     if target is None:
         return
-    await ctx.switch_active(ctx.player_id, target)
+    if not await ctx.switch_active(ctx.player_id, target):
+        return
     opp_bench = ctx.opponent_bench()
     if not opp_bench:
         return
+    await ctx.flush_choreography()
+    await ctx.session._wait_for_client_catchup(ctx.player_id)
     opp_target = await ctx.choose_pokemon(
         opp_bench, "Choose the opponent's new Active Pokémon"
     )

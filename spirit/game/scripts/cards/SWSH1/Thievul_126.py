@@ -6,11 +6,9 @@ async def thief(ctx):
     """20 damage. Reveal the opponent's hand and put a card found there on
     the bottom of their deck."""
     await ctx.deal_damage()
-    opponent_hand = await ctx.reveal_hand(of_player=ctx.opponent_id)
-    if not opponent_hand:
-        return
-    picks = await ctx.choose_cards(
-        opponent_hand, 1, minimum=1,
+    picks = await ctx.choose_from_revealed_hand(
+        list(ctx.hand(ctx.opponent_id)), 1, minimum=1,
+        of_player=ctx.opponent_id,
         prompt="Choose a card to put on the bottom of your opponent's deck",
     )
     for card_entity in picks:

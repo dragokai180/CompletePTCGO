@@ -10,8 +10,12 @@ async def rapid_spin(ctx):
     if not bench:
         return
     target = await ctx.choose_pokemon(bench, "Choose your new Active Pokémon")
-    await ctx.switch_active(ctx.player_id, target or bench[0])
+    if not await ctx.switch_active(ctx.player_id, target or bench[0]):
+        return
+    if not ctx.opponent_bench():
+        return
     await ctx.flush_choreography()
+    await ctx.session._wait_for_client_catchup(ctx.opponent_id)
     await opponent_switches(ctx)
 
 

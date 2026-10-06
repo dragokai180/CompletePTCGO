@@ -15,7 +15,9 @@ class WonderKissPassive(Passive):
             return 0
         if not is_in_active_spot(pokemon):
             return 0
-        heads = await ctx.flip_coins(1, "Wonder Kiss", source=carrier)
+        heads = await ctx.flip_coins(
+            1, "Wonder Kiss", source=carrier,
+            player_id=carrier.owning_player_id)
         return 1 if heads and heads[0] else 0
 
 

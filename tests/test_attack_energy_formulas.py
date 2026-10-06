@@ -144,6 +144,129 @@ class AttackEnergyFormulaTests(unittest.TestCase):
         )
         self.assertEqual(_formula_damage(ctx, text), 90)
 
+    @patch("spirit.game.card_effects.bw_era.energy_provided_options", _options)
+    def test_energy_blow_counts_energy_units_on_attacker(self):
+        ctx = self._ctx(10)
+        ctx.attacker.energies = [
+            _Energy("Fairy Energy", self.fire),
+            _Energy("Double Colorless Energy", self.colorless, self.colorless),
+        ]
+        text = "this attack does 30 more damage times the amount of energy attached to this pokémon."
+        self.assertEqual(_formula_damage(ctx, text), 100)
+
+    @patch("spirit.game.card_effects.bw_era.energy_provided_options", _options)
+    def test_more_damage_for_each_energy_on_attacker(self):
+        ctx = self._ctx(10)
+        ctx.attacker.energies = [_Energy("Double Colorless Energy", self.colorless, self.colorless)]
+        text = "this attack does 50 more damage for each energy attached to this pokémon."
+        self.assertEqual(_formula_damage(ctx, text), 110)
+
+    @patch("spirit.game.card_effects.bw_era.energy_provided_options", _options)
+    def test_energy_on_both_active_pokemon(self):
+        ctx = self._ctx(20)
+        ctx.attacker.energies = [_Energy("Double Colorless Energy", self.colorless, self.colorless)]
+        ctx.defender.energies = [_Energy("Lightning Energy", self.lightning)]
+        more = "this attack does 20 more damage times the amount of energy attached to both active pokémon."
+        multiplier = "this attack does 30 damage for each energy attached to both active pokémon."
+        self.assertEqual(_formula_damage(ctx, more), 80)
+        self.assertEqual(_formula_damage(ctx, multiplier), 90)
+
+    @patch("spirit.game.card_effects.bw_era.is_basic_energy",
+           lambda energy: energy.name.endswith("Energy") and not energy.name.startswith("Double"))
+    @patch("spirit.game.card_effects.bw_era.energy_provided_options", _options)
+    def test_different_basic_energy_types_and_basic_only(self):
+        ctx = self._ctx(20)
+        ctx.attacker.energies = [
+            _Energy("Fire Energy", self.fire),
+            _Energy("Fire Energy", self.fire),
+            _Energy("Darkness Energy", self.darkness),
+            _Energy("Double Colorless Energy", self.colorless, self.colorless),
+        ]
+        distinct = "does 20 more damage for each different type of basic energy attached to this pokémon."
+        basic = "this attack does 40 more damage times the amount of basic energy attached to this pokémon."
+        self.assertEqual(_formula_damage(ctx, distinct), 60)
+        self.assertEqual(_formula_damage(ctx, basic), 140)
+
+    @patch("spirit.game.card_effects.bw_era.is_special_energy",
+           lambda energy: energy.name.startswith("Double"))
+    @patch("spirit.game.card_effects.bw_era.energy_provided_options", _options)
+    def test_special_energy_cards_count_cards_not_energy_units(self):
+        ctx = self._ctx(0)
+        ctx.attacker.energies = [
+            _Energy("Double Colorless Energy", self.colorless, self.colorless),
+            _Energy("Fire Energy", self.fire),
+        ]
+        text = "this attack does 70 damage for each special energy card attached to this pokémon."
+        self.assertEqual(_formula_damage(ctx, text), 70)
+
+    @patch("spirit.game.card_effects.bw_era.is_basic_energy",
+           lambda energy: not energy.name.startswith("Double"))
+    @patch("spirit.game.card_effects.bw_era.energy_provided_options", _options)
+    def test_distinct_basic_energy_types_across_field(self):
+        ctx = self._ctx(10)
+        ctx._mine[0].energies = [_Energy("Fire Energy", self.fire)]
+        ctx._mine[1].energies = [
+            _Energy("Fire Energy", self.fire),
+            _Energy("Darkness Energy", self.darkness),
+            _Energy("Double Colorless Energy", self.colorless, self.colorless),
+        ]
+        text = "this attack does 50 damage for each type of basic energy attached to all of your pokémon."
+        self.assertEqual(_formula_damage(ctx, text), 100)
+
+    @patch("spirit.game.card_effects.bw_era.is_basic_energy",
+           lambda energy: not energy.name.startswith("Double"))
+    @patch("spirit.game.card_effects.bw_era.energy_provided_options", _options)
+    def test_two_basic_energy_types_across_field(self):
+        ctx = self._ctx(0)
+        ctx._mine[0].energies = [
+            _Energy("Fire Energy", self.fire),
+            _Energy("Darkness Energy", self.darkness),
+            _Energy("Double Colorless Energy", self.colorless, self.colorless),
+        ]
+        ctx._mine[1].energies = [_Energy("Fire Energy", self.fire)]
+        text = "this attack does 30 damage times the amount of basic fire and basic darkness energy attached to your pokémon."
+        self.assertEqual(_formula_damage(ctx, text), 90)
+
+    @patch("spirit.game.card_effects.bw_era.energy_provided_options", _options)
+    def test_less_damage_for_opponents_energy_has_zero_floor(self):
+        ctx = self._ctx(90)
+        ctx.defender.energies = [_Energy("Double Colorless Energy", self.colorless, self.colorless)]
+        text = "this attack does 30 less damage times the amount of energy attached to your opponent's active pokémon."
+        self.assertEqual(_formula_damage(ctx, text), 30)
+        ctx.defender.energies.append(_Energy("Fire Energy", self.fire))
+        self.assertEqual(_formula_damage(ctx, text), 0)
+
+    @patch("spirit.game.card_effects.bw_era._damage_counter_count",
+           lambda _ctx, pokemon: pokemon.counters)
+    def test_less_damage_for_own_counters(self):
+        ctx = self._ctx(150)
+        ctx.attacker.counters = 4
+        text = "this attack does 10 less damage for each damage counter on this pokémon."
+        self.assertEqual(_formula_damage(ctx, text), 110)
+
+    @patch("spirit.game.card_effects.bw_era._damage_counter_count",
+           lambda _ctx, pokemon: pokemon.counters)
+    def test_more_damage_for_counters_on_each_benched_pokemon(self):
+        ctx = self._ctx(10)
+        ctx.attacker.counters = 3
+        ctx._mine[1].counters = 2
+        text = "does 10 more damage for each damage counter on each of your benched pokémon."
+        self.assertEqual(_formula_damage(ctx, text), 30)
+
+    @patch("spirit.game.card_effects.bw_era.effective_retreat_cost",
+           lambda _board, _pokemon: 3)
+    def test_damage_from_defenders_retreat_cost(self):
+        ctx = self._ctx(100)
+        subject = "colorless in your opponent's active pokémon's retreat cost."
+        self.assertEqual(_formula_damage(
+            ctx, "this attack does 20 more damage for each " + subject), 160)
+        self.assertEqual(_formula_damage(
+            ctx, "this attack does 30 damage for each " + subject), 90)
+        self.assertEqual(_formula_damage(
+            ctx, "this attack does 40 less damage for each " + subject), 0)
+        self.assertEqual(_formula_damage(
+            ctx, "does 80 damage minus 20 damage for each " + subject), 20)
+
 
 if __name__ == "__main__":
     unittest.main()

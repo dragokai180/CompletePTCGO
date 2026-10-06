@@ -12,12 +12,9 @@ async def oleana_effect(ctx):
     )
     if len(discarded) < 2:
         return
-    opp_hand = await ctx.reveal_hand(of_player=ctx.opponent_id)
-    trainers = [c for c in opp_hand if is_trainer_card(c)]
-    if not trainers:
-        return
-    picks = await ctx.choose_cards(
-        trainers, 1, minimum=1, display_cards=opp_hand,
+    trainers = [c for c in ctx.hand(ctx.opponent_id) if is_trainer_card(c)]
+    picks = await ctx.choose_from_revealed_hand(
+        trainers, 1, minimum=1, of_player=ctx.opponent_id,
         prompt="Choose a Trainer card to put on the bottom of your opponent's deck",
     )
     for card in picks:

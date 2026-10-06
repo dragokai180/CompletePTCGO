@@ -82,10 +82,13 @@ async def psychic_javelin(ctx):
 
 
 async def pulling_currents(ctx):
-    viewed = await ctx.reveal_hand(ctx.opponent_id, ctx.player_id)
+    viewed = list(ctx.hand(ctx.opponent_id))
     pool = [c for c in viewed if is_basic_pokemon(c) and ctx.can_bench_pokemon(c)]
     free = max(0, effective_bench_capacity(ctx.board, ctx.opponent_id) - len(ctx.opponent_bench()))
-    picks = await ctx.choose_cards(pool, min(2, free), minimum=0, display_cards=viewed)
+    picks = await ctx.choose_from_revealed_hand(
+        pool, min(2, free), minimum=0, of_player=ctx.opponent_id,
+        prompt='Choose Basic Pokémon for your opponent\'s Bench',
+    )
     for card in picks:
         await ctx.bench_pokemon(card)
 

@@ -49,13 +49,44 @@ class PowerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(bill, ctx.hand(P2))
         self.assertIs(ctx.source, e['target'])
 
+    async def test_portrait_shows_whole_hand_in_selection_browser(self):
+        rig, e, ctx = self.ctx('HGSS3.Smeargle_8', 'Portrait')
+        bill = self.add(rig, definition('HGSS1.Bill_89'), P2, 'hand')
+        full_hand = list(ctx.hand(P2))
+        ctx.reveal_hand = AsyncMock()
+        ctx.choose_cards = AsyncMock(return_value=[])
+        await ctx.ability.effect(ctx)
+        ctx.reveal_hand.assert_not_awaited()
+        args, kwargs = ctx.choose_cards.await_args
+        self.assertIn(bill, args[0])
+        self.assertEqual(kwargs['display_cards'], full_hand)
+
+    async def test_revealed_hand_choice_uses_one_full_hand_offer(self):
+        rig, e, ctx = self.ctx('HGSS3.Smeargle_8', 'Portrait')
+        bill = self.add(rig, definition('HGSS1.Bill_89'), P2, 'hand')
+        other = self.add(rig, definition('HGSS1.Pikachu_78'), P2, 'hand')
+        ctx.session.prompt_card_chooser = AsyncMock(return_value=[bill.entity_id])
+        ctx.session.prompt_view_cards = AsyncMock()
+        picks = await ctx.choose_from_revealed_hand(
+            [bill], 1, of_player=P2, prompt='Choose a Supporter effect',
+        )
+        self.assertEqual(picks, [bill])
+        ctx.session.prompt_view_cards.assert_not_awaited()
+        args = ctx.session.prompt_card_chooser.await_args.args
+        self.assertEqual(args[0], P1)
+        self.assertEqual(args[2], [bill])
+        self.assertIn(other, args[7])
+        self.assertEqual(args[7], list(ctx.hand(P2)))
+
     async def test_portrait_cannot_copy_twins_with_equal_prizes(self):
         rig, e, ctx = self.ctx('HGSS3.Smeargle_8', 'Portrait')
         for card in list(ctx.hand(P2)):
             rig.to_area(card, P2, 'deck')
         self.add(rig, definition('HGSS4.Twins_89'), P2, 'hand')
+        ctx.reveal_hand = AsyncMock(return_value=list(ctx.hand(P2)))
         ctx.choose_cards = AsyncMock()
         await ctx.ability.effect(ctx)
+        ctx.reveal_hand.assert_awaited_once_with(P2, P1)
         ctx.choose_cards.assert_not_awaited()
 
     async def test_transfer_eligibility_and_destinations(self):

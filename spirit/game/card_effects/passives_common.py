@@ -557,7 +557,8 @@ class FlipPreventDamagePassive(Passive):
         if not self.protects(target, carrier):
             return None
         heads = await ctx.flip_coins(1, self.title,
-                                     source=carrier_pokemon(carrier) or carrier)
+                                     source=carrier_pokemon(carrier) or carrier,
+                                     player_id=target.owning_player_id)
         if heads and heads[0]:
             calc.prevented = True
             return 0
@@ -595,7 +596,8 @@ class GutsSurvivePassive(Passive):
             return None
         if self.flip:
             heads = await ctx.flip_coins(1, self.title,
-                                         source=carrier_pokemon(carrier) or carrier)
+                                         source=carrier_pokemon(carrier) or carrier,
+                                         player_id=target.owning_player_id)
             if not (heads and heads[0]):
                 return None
         return max(0, current - self.hp_floor)

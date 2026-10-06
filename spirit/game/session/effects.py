@@ -1148,6 +1148,9 @@ class EffectContext:
             nested = EffectContext(
                 self.session, player_id, source or self.source, self.ability
             )
+            # A defending Pokemon's flip is not one of the attacker's own
+            # attack coins (Blunder Policy and similar followups inspect this).
+            nested._in_interceptor = self._in_interceptor
             results = await nested.flip_coins(count, title, source=source)
             self._messages.extend(nested._messages)
             self.coin_results.extend(nested.coin_results)
@@ -1708,6 +1711,25 @@ class EffectContext:
         )
         return cards
 
+    async def choose_from_revealed_hand(
+        self, candidates: Sequence[CardEntity], count: int, *,
+        of_player: str, prompt: str, minimum: Optional[int] = None,
+        player_id: Optional[str] = None,
+    ) -> List[CardEntity]:
+        """Show the whole hand in one browser while selecting eligible cards.
+
+        A preceding view-only reveal would require a redundant Done before
+        opening this choice. With no legal choice, still show the whole hand.
+        """
+        viewer = player_id or self.player_id
+        if count <= 0 or not candidates:
+            await self.reveal_hand(of_player, viewer)
+            return []
+        return await self.choose_cards(
+            candidates, count, minimum=minimum, prompt=prompt,
+            player_id=viewer, display_cards=list(self.hand(of_player)),
+        )
+
     async def present_card_choice(
         self, card: CardEntity, prompt: str, buttons: List[str],
         player_id: Optional[str] = None,
@@ -1960,14 +1982,27 @@ class EffectContext:
             slot = getattr(picked, "board_slot", None)
             if slot is None:
                 slot = prizes.index(picked)
+            # The picker has already seen the Prize fan.  Explicitly show only
+            # the chosen Basic to the opponent while it is still in the Prize
+            # pile; introducing its attributes alongside the hand move alone
+            # does not play the client's reveal animation.
+            opponent_viewer = session.players[opponent]
+            await session.send_game_sequence(
+                [opponent_viewer], GameSequence.SERIAL_SEQUENCE,
+                [session._entity_introduced_msg(picked)],
+            )
+            await session.send_game_sequence(
+                [opponent_viewer], GameSequence.GROUPED_MOVE,
+                [session._reveal_card_msg(picked.entity_id, True),
+                 session._entity_moved_msg(picked.entity_id, prize_area.entity_id, slot)],
+            )
             hand = self.board.find_player_area(self.player_id, "hand")
             # Take the Basic to hand via WithOpenPrizeCards: once a Prize is
             # picked, r.B's own cleanup skips the fan teardown and defers to
             # this bracket, which cancels the explore command, flips+flies the
             # taken card to hand and CLOSES the present (blackout off,
             # PrizesDisplayed false). A plain GroupedMove leaves the fan on
-            # screen. Both viewers get intro+move so the Basic is revealed
-            # (d.t's introduceAndFlipPrizeIfNeeded flips it face-up).
+            # screen. The opponent's reveal above precedes this hand move.
             pos = len(hand.children)
             self.board.move_card(picked.entity_id, hand.entity_id)
             take = [session._entity_introduced_msg(picked),
@@ -2413,9 +2448,25 @@ class EffectContext:
         if energy is None or pokemon is None:
             return False
         owner = energy.owning_player_id or self.player_id
-        if energy._containing_area_name() == "hand" \
+        definition = def_for(energy.archetype_id)
+        from_hand = energy._containing_area_name() == "hand"
+        if from_hand \
                 and self.session.turn_state.play_locked(owner, energy):
             return False
+        if from_hand:
+            condition = getattr(definition, "attach_condition", None)
+            if condition is not None and not condition(self.board, owner):
+                return False
+            cost = getattr(definition, "attach_cost", None)
+            if cost is not None:
+                await self.flush_choreography()
+                cost_ctx = EffectContext(
+                    self.session, owner, energy, None, attached_to=pokemon)
+                if not await cost(cost_ctx):
+                    return False
+                await cost_ctx.flush_choreography()
+                self.knockouts.extend(cost_ctx.knockouts)
+                self.deferred_actions.extend(cost_ctx.deferred_actions)
         position = len(pokemon.children)
         if not self.board.attach_card(energy.entity_id, pokemon.entity_id):
             return False
@@ -2423,9 +2474,21 @@ class EffectContext:
         if energy.entity_id not in attached_this_turn:
             attached_this_turn.append(energy.entity_id)
         self._queue_intro_and_move(energy, pokemon.entity_id, position)
-        if getattr(def_for(energy.archetype_id), "granted_abilities", None):
+        if getattr(definition, "granted_abilities", None):
             await self.session.refresh_granted_abilities(pokemon)
-        hook = getattr(def_for(energy.archetype_id), "on_attach_anywhere", None)
+        hand_hook = getattr(definition, "on_attach", None)
+        if from_hand and hand_hook is not None and hand_hook is not unimplemented \
+                and not special_energy_suppressed(self.board, energy):
+            # The effect's source is the Energy, not the Ability that attached
+            # it. Show the attachment before opening its search/draw prompt.
+            await self.flush_choreography()
+            energy_ctx = EffectContext(
+                self.session, owner, energy, None, attached_to=pokemon)
+            await hand_hook(energy_ctx)
+            self._messages.extend(energy_ctx._messages)
+            self.knockouts.extend(energy_ctx.knockouts)
+            self.deferred_actions.extend(energy_ctx.deferred_actions)
+        hook = getattr(definition, "on_attach_anywhere", None)
         if hook is not None and hook is not unimplemented \
                 and not special_energy_suppressed(self.board, energy):
             await hook(self, energy, pokemon)
@@ -2455,9 +2518,14 @@ class EffectContext:
         while self.pokemon_is_in_play(self.source) \
                 and not ability_locked(self.board, self.source, self.ability) \
                 and ability_condition_met(self.ability, self.board, self.player_id, self.source):
-            pool = [c for c in self.hand()
-                    if is_energy_card(c) and predicate(c)
-                    and not self.session.turn_state.play_locked(self.player_id, c)]
+            pool = []
+            for card in self.hand():
+                if not is_energy_card(card) or not predicate(card) \
+                        or self.session.turn_state.play_locked(self.player_id, card):
+                    continue
+                condition = getattr(def_for(card.archetype_id), "attach_condition", None)
+                if condition is None or condition(self.board, self.player_id):
+                    pool.append(card)
             candidates = [p for p in targets() if self.pokemon_is_in_play(p)]
             if not pool or not candidates:
                 break

@@ -39,6 +39,7 @@ async def cross_switcher(ctx):
         return
     # Flush the gust so both clients see it land before the own-side pick.
     await ctx.flush_choreography()
+    await ctx.session._wait_for_client_catchup(ctx.player_id)
     mine = await ctx.choose_pokemon(my_bench, "Choose your new Active Pokémon")
     if mine is not None:
         await ctx.switch_active(ctx.player_id, mine)

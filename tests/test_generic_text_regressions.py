@@ -6,7 +6,7 @@ from tests import test_hgss_rules as fixtures
 from spirit.game.attributes import AttrID, PokemonTypes
 from spirit.game.card_effects.bw_era import bw_legacy_ability
 from spirit.game.data_utils import def_for
-from spirit.game.session.legal_actions import _ability_entries
+from spirit.game.session.legal_actions import _ability_entries, ability_condition_met
 from spirit.tools.effect_smoke import P1, P2
 
 
@@ -15,6 +15,100 @@ class GenericTextRegressions(unittest.IsolatedAsyncioTestCase):
     rig = fixtures.HgssRulesTests.rig
     ctx = fixtures.HgssRulesTests.ctx
     add = fixtures.HgssRulesTests.add
+
+    async def test_upside_down_evolution_requires_active_confused_inkay(self):
+        rig, e, ctx = self.ctx('XY1.Inkay_74', 'Upside-Down Evolution')
+        source = ctx.source
+        allowed = lambda: ability_condition_met(ctx.ability, rig.board, P1, source)
+        ctx.search_deck = AsyncMock(return_value=[])
+        ctx.shuffle_deck = AsyncMock()
+        self.assertFalse(allowed())
+        await ctx.ability.effect(ctx)
+        ctx.search_deck.assert_not_awaited()
+
+        source.set_attribute(AttrID.SPECIAL_CONDITIONS, ['Confused'])
+        self.assertTrue(allowed())
+        await ctx.ability.effect(ctx)
+        ctx.search_deck.assert_awaited_once()
+        rig.to_area(source, P1, 'bench')
+        self.assertFalse(allowed())
+        ctx.search_deck.reset_mock()
+        await ctx.ability.effect(ctx)
+        ctx.search_deck.assert_not_awaited()
+
+    async def test_flashing_draw_requires_and_pays_basic_lightning_from_source(self):
+        rig, e, ctx = self.ctx('SV09.IonosKilowattrel_55', 'Flashing Draw')
+        source = ctx.source
+        for card in list(ctx.hand())[2:]:
+            rig.to_area(card, P1, 'discard')
+        allowed = lambda: ability_condition_met(ctx.ability, rig.board, P1, source)
+        for energy in list(ctx.attached_energies(source)):
+            rig.to_area(energy, P1, 'discard')
+        self.assertFalse(allowed())
+        lightning = self.add(rig, def_for(self.energies[PokemonTypes.LIGHTNING.value]), P1, 'hand')
+        rig.attach(lightning, source)
+        self.assertTrue(allowed())
+        ctx.discard_energy_from = AsyncMock(return_value=[])
+        ctx.draw_until = AsyncMock()
+        await ctx.ability.effect(ctx)
+        ctx.draw_until.assert_not_awaited()
+        ctx.discard_energy_from.return_value = [lightning]
+        await ctx.ability.effect(ctx)
+        ctx.draw_until.assert_awaited_once_with(6)
+
+    async def test_printed_public_activation_requirements(self):
+        for path, title, partner in (
+            ('Promo_SM.Lucario_95', 'Precognitive Aura', 'SM5.Garchomp_99'),
+            ('SM12.Lunala_102', 'Blessing of the Moone', 'SM12.Solgaleo_142'),
+        ):
+            with self.subTest(path=path):
+                rig, e, ctx = self.ctx(path, title)
+                allowed = lambda: ability_condition_met(ctx.ability, rig.board, P1, ctx.source)
+                self.assertFalse(allowed())
+                self.add(rig, fixtures.definition(partner), P1, 'bench')
+                self.assertTrue(allowed())
+
+        rig, e, ctx = self.ctx('ME5.Silvally_70', 'Call a Buddy')
+        allowed = lambda: ability_condition_met(ctx.ability, rig.board, P1, ctx.source)
+        self.assertFalse(allowed())
+        for card in list(ctx.hand()):
+            rig.to_area(card, P1, 'discard')
+        self.assertTrue(allowed())
+
+        rig, e, ctx = self.ctx('SWSH10.HeatranVMAX_26', 'Magma Gain')
+        ctx.source.set_attribute(AttrID.HP, ctx.source.get_attribute(AttrID.HP) - 50)
+        allowed = lambda: ability_condition_met(ctx.ability, rig.board, P1, ctx.source)
+        self.assertFalse(allowed())
+        stadium = self.add(rig, fixtures.definition('SV1.Mesagoza_178'), P1, 'hand')
+        rig.board.move_card(stadium.entity_id, rig.board.find_global_area('activeStadium').entity_id)
+        self.assertTrue(allowed())
+
+        rig, e, ctx = self.ctx('SV05.Pidove_133', 'Emergency Evolution')
+        allowed = lambda: ability_condition_met(ctx.ability, rig.board, P1, ctx.source)
+        self.assertFalse(allowed())
+        ctx.source.set_attribute(AttrID.HP, 30)
+        self.assertTrue(allowed())
+
+        rig, e, ctx = self.ctx('XY9.HoOhEX_92', 'Purifying Fire')
+        ctx.source.set_attribute(AttrID.HP, ctx.source.get_attribute(AttrID.HP) - 50)
+        allowed = lambda: ability_condition_met(ctx.ability, rig.board, P1, ctx.source)
+        for energy in list(ctx.attached_energies(ctx.source)):
+            rig.to_area(energy, P1, 'discard')
+        self.assertFalse(allowed())
+        fire = self.add(rig, def_for(self.energies[PokemonTypes.FIRE.value]), P1, 'hand')
+        rig.attach(fire, ctx.source)
+        self.assertTrue(allowed())
+
+        rig, e, ctx = self.ctx('SV085.SandyShocksex_56', 'Magnetic Absorption')
+        allowed = lambda: ability_condition_met(ctx.ability, rig.board, P1, ctx.source)
+        opponent_prizes = rig.board.find_player_area(P2, 'prizePile')
+        while len(opponent_prizes.children) > 5:
+            rig.to_area(opponent_prizes.children[0], P2, 'discard')
+        while len(opponent_prizes.children) < 5:
+            self.add(rig, self.filler, P2, 'prizePile')
+        self.assertFalse(allowed())
+        rig.to_area(opponent_prizes.children[0], P2, 'discard')
+        self.assertTrue(allowed())
 
     async def test_flare_witch_attaches_without_damage(self):
         rig, e, ctx = self.ctx('XY10.DelphoxBREAK_14', 'Flare Witch')

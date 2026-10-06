@@ -5,6 +5,17 @@ from spirit.game.card_effects.standard_era import (
 )
 
 
+async def bench_manipulation(ctx):
+    coins = await ctx.flip_coins(
+        len(ctx.opponent_bench()), "Bench Manipulation",
+        source=ctx.defender, player_id=ctx.opponent_id,
+    )
+    await ctx.deal_damage(
+        80 * sum(not result for result in coins),
+        ignore_weakness=True, ignore_resistance=True,
+    )
+
+
 card = PokemonCardDef(
     guid="26ecbe66-3edb-5bcd-b2af-ed5a6d7aa787",
     key="SV10",
@@ -38,7 +49,7 @@ card = PokemonCardDef(
             cost={PokemonTypes.PSYCHIC: 3},
             damage=80,
             damage_operator="x",
-            effect=standard_attack,
+            effect=bench_manipulation,
         ),
     ],
 )

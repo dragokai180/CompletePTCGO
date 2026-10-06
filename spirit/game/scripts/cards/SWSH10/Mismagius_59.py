@@ -6,12 +6,14 @@ from spirit.game.card_effects.attacks_common import condition_attack
 async def ominous_prose(ctx):
     """Opponent reveals their hand. If 4+ cards, choose all but 3 to shuffle
     into their deck."""
-    hand = await ctx.reveal_hand(of_player=ctx.opponent_id, to_player=ctx.player_id)
+    hand = list(ctx.hand(ctx.opponent_id))
     if len(hand) < 4:
+        await ctx.reveal_hand(of_player=ctx.opponent_id, to_player=ctx.player_id)
         return
     count = len(hand) - 3
-    picks = await ctx.choose_cards(
+    picks = await ctx.choose_from_revealed_hand(
         hand, count, minimum=count,
+        of_player=ctx.opponent_id,
         prompt="Choose cards to shuffle into your opponent's deck.",
         player_id=ctx.player_id,
     )

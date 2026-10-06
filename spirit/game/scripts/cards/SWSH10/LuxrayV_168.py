@@ -6,14 +6,10 @@ from spirit.game.session.effects import is_trainer_card
 async def fang_snipe(ctx):
     """30 damage. Opponent reveals their hand; discard a Trainer card found there."""
     await ctx.deal_damage()
-    hand = await ctx.reveal_hand(of_player=ctx.opponent_id)
-    matches = [c for c in hand if is_trainer_card(c)]
-    if not matches:
-        return
-    picks = await ctx.choose_cards(
-        matches, 1, minimum=1,
+    matches = [c for c in ctx.hand(ctx.opponent_id) if is_trainer_card(c)]
+    picks = await ctx.choose_from_revealed_hand(
+        matches, 1, minimum=1, of_player=ctx.opponent_id,
         prompt="Choose a Trainer card to discard from your opponent's hand.",
-        display_cards=hand,
     )
     await ctx.discard_cards(picks)
 

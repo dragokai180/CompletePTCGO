@@ -292,7 +292,9 @@ async def resolve_hgss_attack(ctx, text, printed):
         await ctx.deal_damage(printed + (0, 20, 40, 100)[heads])
         return True
     if title == 'Bench Manipulation':
-        coins = await ctx.flip_coins(len(ctx.opponent_bench()), title, player_id=ctx.opponent_id)
+        coins = await ctx.flip_coins(
+            len(ctx.opponent_bench()), title,
+            source=ctx.defender, player_id=ctx.opponent_id)
         await ctx.deal_damage(40 * sum(not c for c in coins), ignore_weakness=True, ignore_resistance=True)
         return True
     if title == 'Destructive Tsunami':
@@ -468,10 +470,10 @@ async def resolve_hgss_power(ctx, text):
                 await ctx.attach_energy(cards[0], ctx.source)
         return True
     if title == 'Portrait':
-        from spirit.game.card_effects.bw_era import _choose_one, _use_trainer_effect_as_attack
+        from spirit.game.card_effects.bw_era import _use_trainer_effect_as_attack
         from spirit.game.data_utils import def_for
         from spirit.game.session.legal_actions import trainer_condition_met
-        cards = await ctx.reveal_hand(ctx.opponent_id, ctx.player_id)
+        cards = list(ctx.hand(ctx.opponent_id))
         supporters = []
         for card in cards:
             if not is_supporter_card(card):
@@ -479,7 +481,11 @@ async def resolve_hgss_power(ctx, text):
             condition = getattr(def_for(card.archetype_id), 'condition', None)
             if condition is None or trainer_condition_met(condition, ctx.board, ctx.player_id, card):
                 supporters.append(card)
-        chosen = await _choose_one(ctx, supporters, 'Choose a Supporter effect') if supporters else None
+        picks = await ctx.choose_from_revealed_hand(
+            supporters, 1, of_player=ctx.opponent_id,
+            prompt='Choose a Supporter effect',
+        )
+        chosen = picks[0] if picks else None
         if chosen is not None:
             await _use_trainer_effect_as_attack(ctx, chosen)
         return True

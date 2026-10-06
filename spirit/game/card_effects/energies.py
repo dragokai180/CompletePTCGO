@@ -9,11 +9,11 @@ card says they do.
 from spirit.game.attributes import AttrID, PokemonTypes, SpecialConditions
 from spirit.game.data_utils import is_pokemon_v, subtypes_for
 from spirit.game.models.board import PokemonEntity
-from spirit.game.session.constants import BENCH_CAPACITY
 from spirit.game.session.effects import is_basic_pokemon
 from spirit.game.session.passives import (
     Passive,
     carrier_pokemon,
+    effective_bench_capacity,
     effective_pokemon_types,
 )
 
@@ -79,7 +79,7 @@ async def aurora_attach_cost(ctx) -> bool:
 
 async def capture_on_attach(ctx):
     """On attach from hand: search the deck for a Basic onto the Bench."""
-    if len(ctx.my_bench()) == BENCH_CAPACITY:
+    if len(ctx.my_bench()) >= effective_bench_capacity(ctx.board, ctx.player_id):
         return
     
     picks = await ctx.search_deck(

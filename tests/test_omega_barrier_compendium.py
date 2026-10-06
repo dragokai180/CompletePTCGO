@@ -90,12 +90,14 @@ class OmegaBarrierCompendiumTests(unittest.IsolatedAsyncioTestCase):
                 rig, e, ctx, card = self.setup_trainer('XY11.CaptivatingPokPuff_99')
                 target = self.add(rig, 'Promo_XY.Regirock_49' if protected else 'BW1.Snivy_1', P2, 'hand')
                 self.assertTrue(trainer_condition_met(card.condition, rig.board, P1, ctx.source))
-                # Preserve effect processing; only replace the visual hand browser.
-                ctx.reveal_hand = AsyncMock(return_value=list(ctx.hand(P2)))
+                # The choice browser itself must show the full opponent hand.
+                full_hand = list(ctx.hand(P2))
+                ctx.reveal_hand = AsyncMock()
                 ctx.choose_cards = AsyncMock(return_value=[target])
                 ctx.choose_pokemon = AsyncMock(return_value=target)
                 await card.effect(ctx)
-                ctx.reveal_hand.assert_awaited_once()
+                ctx.reveal_hand.assert_not_awaited()
+                self.assertEqual(ctx.choose_cards.await_args.kwargs['display_cards'], full_hand)
                 self.assertIn(target, ctx.opponent_bench())
                 self.assertNotIn(target, ctx.hand(P2))
 

@@ -7,11 +7,14 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 async def star_rondo(ctx):
     if not await ctx.ask_yes_no("Switch this Pokémon with your Active Pokémon?"):
         return
-    await ctx.switch_active(ctx.player_id, ctx.source)
+    if not await ctx.switch_active(ctx.player_id, ctx.source):
+        return
     opp_active = ctx.opponent_active()
     opp_bench = ctx.opponent_bench()
     if opp_active is None or not opp_bench or ctx.effects_blocked(opp_active):
         return
+    await ctx.flush_choreography()
+    await ctx.session._wait_for_client_catchup(ctx.player_id)
     target = await ctx.choose_pokemon(opp_bench, "Choose the opponent's new Active Pokémon")
     if target is not None:
         await ctx.switch_active(ctx.opponent_id, target)
