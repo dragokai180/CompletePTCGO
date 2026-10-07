@@ -8,7 +8,6 @@ from spirit.game.data_utils import (
     Ability, Activations, Attack, def_for, has_rule_box, is_pokemon_v,
     subtypes_for,
 )
-from spirit.game.session.constants import BENCH_CAPACITY
 from spirit.game.session.effects import (
     full_stack,
     is_basic_pokemon,
@@ -113,7 +112,8 @@ def battle_vip_pass_playable(board, player_id):
     if turn_state is None or turn_state.turn_number > 2:
         return False
     bench = board.find_player_area(player_id, "bench")
-    return bool(bench) and len(bench.children) < BENCH_CAPACITY
+    return bool(bench) and len(bench.children) < \
+        effective_bench_capacity(board, player_id)
 
 
 def has_other_item_in_hand(board, player_id):

@@ -159,6 +159,36 @@ class IdentitySwapChoreographyTests(unittest.IsolatedAsyncioTestCase):
                     incoming if transfer else discard,
                 )
 
+    async def test_swap_to_hand_hides_outgoing_cards_only_from_opponent(self):
+        for transfer in (True, False):
+            with self.subTest(transfer=transfer):
+                session = self.make_session()
+                outgoing, incoming, attachment, _, _ = self.place_cards(session)
+                ctx = RecordingContext()
+
+                with patch(
+                    "spirit.game.session.game_session.effective_max_hp",
+                    side_effect=lambda board, pokemon: pokemon.attribute_originals[
+                        AttrID.HP.value
+                    ],
+                ):
+                    await session.perform_identity_swap(
+                        outgoing, incoming, destination_name="hand",
+                        transfer=transfer, ctx=ctx,
+                    )
+
+                resets = [(i, viewer, msg["value"]["entityID"])
+                          for i, (viewer, msg, _) in enumerate(ctx.messages)
+                          if isinstance(msg, dict)
+                          and msg["name"] == OutboundMsg.ATTRIBUTES_RESET.value]
+                expected = ([outgoing.entity_id] if transfer else
+                            [attachment.entity_id, outgoing.entity_id])
+                self.assertEqual([entity_id for _, _, entity_id in resets], expected)
+                self.assertTrue(all(viewer == "player-2" for _, viewer, _ in resets))
+                last_move = max(i for i, (_, msg, bracket) in enumerate(ctx.messages)
+                                if bracket == GameSequence.ROBO_SUBSTITUTE.value)
+                self.assertTrue(all(i > last_move for i, _, _ in resets))
+
 
 if __name__ == "__main__":
     unittest.main()

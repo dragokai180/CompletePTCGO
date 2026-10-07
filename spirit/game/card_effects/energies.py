@@ -99,7 +99,8 @@ async def telepathic_psychic_on_attach(ctx):
     """On attach from hand to a Psychic Pokemon: bench up to 2 Basic Psychic."""
     if not _pokemon_has_type(ctx.attached_to, PokemonTypes.PSYCHIC):
         return
-    space = BENCH_CAPACITY - len(ctx.my_bench())
+    space = max(0, effective_bench_capacity(ctx.board, ctx.player_id)
+                - len(ctx.my_bench()))
     take = min(2, space)
     if take <= 0:
         return
@@ -357,6 +358,14 @@ async def boomerang_reattach(ctx, energy, pokemon):
     if energy not in ctx.discard_pile(energy.owning_player_id):
         return
     await ctx.attach_energy(energy, pokemon)
+
+
+async def nitro_fire_return_to_hand(ctx, energy, pokemon):
+    """After its Fire carrier's attack discards it, recover this Energy."""
+    if not _pokemon_has_type(pokemon, PokemonTypes.FIRE):
+        return
+    if energy in ctx.discard_pile(energy.owning_player_id):
+        await ctx.put_in_hand([energy], reveal=False)
 
 
 async def enriching_energy_on_attach(ctx):

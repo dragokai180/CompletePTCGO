@@ -1,6 +1,7 @@
 from spirit.game.data_utils import EnergyCardDef
 from spirit.game.attributes import PokemonTypes, Rarities
 from spirit.game.card_effects.standard_era import energy_on_attach, standard_passive
+from spirit.game.card_effects.energies import nitro_fire_return_to_hand
 
 
 card = EnergyCardDef(
@@ -19,4 +20,5 @@ card = EnergyCardDef(
     outside_play_types=[],
     provides=[[PokemonTypes.FIRE]],
     passive=standard_passive("As long as this card is attached to a Pokémon, it provides Fire Energy.\n \nIf this card is discarded by an effect of an attack used by the Fire Pokémon this card is attached to, put this card into your hand after attack damage and effects."),
+    on_discarded_by_carrier_attack=nitro_fire_return_to_hand,
 )

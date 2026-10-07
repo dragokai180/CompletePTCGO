@@ -1260,6 +1260,13 @@ async def _generic_search(ctx, text: str, *, count_override: int | None = None) 
         return False
 
     count = _requested_count(text) if count_override is None else count_override
+    first_turn_search = re.search(
+        r"if you go second and it's your first turn, search for (\d+) .*?instead of \d+",
+        text,
+    )
+    if first_turn_search and ctx.session.turn_state.turn_number == 2 \
+            and ctx.session.first_player_id != ctx.player_id:
+        count = int(first_turn_search.group(1))
     # Friend Ball uses types visible on the opposing field, not every Pokemon.
     if "with the same type as 1 of your opponent's pokémon in play" in text:
         types = {kind for pokemon in ctx.opponent_pokemon_in_play()
@@ -3001,7 +3008,11 @@ def standard_trainer_effect(game_text: str):
                 await ctx.draw_cards(len(picks))
             elif "put any number of basic pokémon" in text:
                 basics = [card for card in revealed if is_basic_pokemon(card)]
-                maximum = min(len(basics), max(0, 5 - len(ctx.opponent_bench())))
+                maximum = min(
+                    len(basics),
+                    max(0, effective_bench_capacity(ctx.board, ctx.opponent_id)
+                        - len(ctx.opponent_bench())),
+                )
                 picks = await ctx.choose_from_revealed_hand(
                     basics, maximum, minimum=0,
                     of_player=ctx.opponent_id,
@@ -3386,7 +3397,8 @@ def standard_trainer_effect(game_text: str):
             viewed = ctx.deck_top(count, ctx.opponent_id)
             await ctx.reveal_cards(viewed)
             basics = [card for card in viewed if is_basic_pokemon(card)]
-            free = max(0, 5 - len(ctx.opponent_bench()))
+            free = max(0, effective_bench_capacity(ctx.board, ctx.opponent_id)
+                       - len(ctx.opponent_bench()))
             picks = await ctx.choose_cards(
                 basics, min(free, len(basics)), minimum=0,
                 prompt="Choose Basic Pokémon for your opponent's Bench",
@@ -3472,7 +3484,15 @@ def standard_trainer_effect(game_text: str):
             return
         draw = re.search(r"draw (\d+) cards", text)
         if draw:
-            await ctx.draw_cards(int(draw.group(1)))
+            count = int(draw.group(1))
+            first_turn_draw = re.search(
+                r"if you go second and it's your first turn, draw (\d+) cards instead",
+                text,
+            )
+            if first_turn_draw and ctx.session.turn_state.turn_number == 2 \
+                    and ctx.session.first_player_id != ctx.player_id:
+                count = int(first_turn_draw.group(1))
+            await ctx.draw_cards(count)
 
         if "switch your active pokémon" in text and ctx.my_bench():
             target = await ctx.choose_pokemon(
@@ -4268,9 +4288,16 @@ def standard_trainer_condition(game_text: str):
             ) for entry in ledger):
                 return False
 
-        if "only if you go second, and only on your first turn" in text:
+        if re.search(
+            r"only if you go second, and only (?:on|during) your first turn",
+            text,
+        ):
             state = getattr(board, "turn_state", None)
             if state is None or state.turn_number != 2:
+                return False
+        if "you can't use this card during your first turn" in text:
+            state = getattr(board, "turn_state", None)
+            if state is None or state.turn_number in (1, 2):
                 return False
 
         if "n's darmanitan" in text and "n's zekrom in play" in text:
@@ -4702,7 +4729,7 @@ def energy_on_attach(game_text: str):
 
 
 def energy_attach_to(game_text: str):
-    """Target predicate for type/team-restricted Special Energy."""
+    """Target predicate for type, team, or evolution-restricted Special Energy."""
     text = _norm(game_text)
     type_match = re.search(
         r"can only be attached to (grass|fire|water|lightning|psychic|"
@@ -4710,8 +4737,11 @@ def energy_attach_to(game_text: str):
         text,
     )
     team_match = re.search(r"can only be attached to team (aqua|magma) pokémon", text)
+    evolution_only = "can only be attached to evolution pokémon" in text
 
     def predicate(pokemon):
+        if evolution_only and not is_evolution_pokemon(pokemon):
+            return False
         if type_match:
             pokemon_type = getattr(PokemonTypes, type_match.group(1).upper(), None)
             return pokemon_type is not None and pokemon_type.value in (

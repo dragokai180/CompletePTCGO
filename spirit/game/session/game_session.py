@@ -124,6 +124,7 @@ from .passives import (
     burn_recovery_blocked, effective_bench_capacity, effective_max_hp,
     effective_retreat_cost, energy_attachment_blocked, energy_attach_taxer,
     evolve_heal_amount, extra_manual_energy_attachments,
+    passive_discard_destination,
     player_visualizations,
     retreat_energy_destination, tool_slots_free,
     tool_suppressed, special_energy_suppressed,
@@ -2510,6 +2511,7 @@ class GameSession:
             evolution_cards, _ = split_pokemon_stack(pokemon, stack)
             evolution_ids = {card.entity_id for card in evolution_cards}
             moves = []
+            returned_to_hand = []
             for entity in stack:
                 area = dest_area if entity.entity_id in evolution_ids \
                     else attachment_dest
@@ -2526,6 +2528,8 @@ class GameSession:
                     moves.append(self._entity_moved_msg(
                         entity.entity_id, area.entity_id, position
                     ))
+                    if area.get_attribute(AttrID.NAME) == "hand":
+                        returned_to_hand.append(entity.entity_id)
             # Every Pokemon in the stack (the KO'd top plus any tucked
             # pre-evolutions) sheds Special Conditions, attack locks, and any
             # turn-scoped stat-modifier PiPs (Power Tablet) -- it has left play.
@@ -2580,6 +2584,14 @@ class GameSession:
                 await self.send_game_sequence(
                     list(self.players.values()), sequence, moves
                 )
+                if returned_to_hand:
+                    opponent = self.players.get(self._opponent_id(owner_id))
+                    if opponent is not None:
+                        await self.send_game_sequence(
+                            [opponent], GameSequence.SERIAL_SEQUENCE,
+                            [self._attributes_reset_msg(eid)
+                             for eid in returned_to_hand],
+                        )
             entry = {
                 "archetype_id": pokemon.archetype_id,
                 "subtypes": list(subtypes_for(pokemon.archetype_id)),
@@ -5341,6 +5353,13 @@ class GameSession:
                  self._condition_attr_msg(target)],
             )
 
+        # A type- or stage-restricted Special Energy may become illegal when
+        # its carrier changes (Double Dragon, Triple Acceleration, etc.).
+        restriction_ctx = EffectContext(self, player_id, card, None)
+        await restriction_ctx.enforce_attachment_restrictions(card)
+        if restriction_ctx._messages:
+            await self._flush_effect_runs(restriction_ctx)
+
         # Theta Max also heals when an effect evolves from the deck. Other
         # healers (Regenerative Energy) retain their from-hand restriction.
         heal = evolve_heal_amount(self.board_state, card, target, player_id,
@@ -5455,6 +5474,17 @@ class GameSession:
             list(self.players.values()), GameSequence.DEVOLVE,
             data_effects + moves + attrs,
         )
+        if destination_name == "hand":
+            opponent = self.players.get(self._opponent_id(owner_id))
+            if opponent is not None:
+                await self.send_game_sequence(
+                    [opponent], GameSequence.SERIAL_SEQUENCE,
+                    [self._attributes_reset_msg(pokemon.entity_id)],
+                )
+        restriction_ctx = EffectContext(self, owner_id, prev, None)
+        await restriction_ctx.enforce_attachment_restrictions(prev)
+        if restriction_ctx._messages:
+            await self._flush_effect_runs(restriction_ctx)
         await self.refresh_granted_abilities(prev)
         logging.info(
             f"[Session {self.game_id}] {pokemon.entity_id} devolved into "
@@ -5609,12 +5639,25 @@ class GameSession:
             for bracket, msgs in runs:
                 for msg in msgs:
                     ctx._queue(msg, bracket=bracket.value)
+            if destination_name == "hand":
+                for card in ([outgoing] if transfer else stack_cards + [outgoing]):
+                    ctx._queue(self._attributes_reset_msg(card.entity_id),
+                               viewer_id=self._opponent_id(owner_id),
+                               bracket=GameSequence.SERIAL_SEQUENCE.value)
             ctx.deferred_actions.append(
                 lambda p=incoming: self.refresh_granted_abilities(p))
         else:
             players = list(self.players.values())
             for bracket, msgs in runs:
                 await self.send_game_sequence(players, bracket, msgs)
+            if destination_name == "hand":
+                opponent = self.players.get(self._opponent_id(owner_id))
+                if opponent is not None:
+                    await self.send_game_sequence(
+                        [opponent], GameSequence.SERIAL_SEQUENCE,
+                        [self._attributes_reset_msg(card.entity_id)
+                         for card in ([outgoing] if transfer else stack_cards + [outgoing])],
+                    )
             await self.refresh_granted_abilities(incoming)
         logging.info(
             f"[Session {self.game_id}] {outgoing.entity_id} identity-swapped "
@@ -5928,19 +5971,24 @@ class GameSession:
             self._entity_id_data_effect_msg("Retreating", card.entity_id),
             self._entity_id_data_effect_msg("NewActive", new_active.entity_id),
         ]
+        returned_to_hand = []
         for eid in discard_ids:
             # A passive may redirect a retreat-cost energy (Skaters' Park
             # returns basic Energy to "hand") instead of the discard pile.
             energy = self.board_state.get_entity(eid)
             dest_area = discard_area
-            dest_name = retreat_energy_destination(self.board_state, card, energy) \
-                if energy is not None else None
+            dest_name = (
+                retreat_energy_destination(self.board_state, card, energy)
+                or passive_discard_destination(self.board_state, energy)
+            ) if energy is not None else None
             if dest_name:
                 dest_area = self.board_state.find_player_area(
                     player_id, dest_name) or discard_area
             position = len(dest_area.children)
             if self.board_state.move_card(eid, dest_area.entity_id):
                 messages.append(self._entity_moved_msg(eid, dest_area.entity_id, position))
+                if dest_area.get_attribute(AttrID.NAME) == "hand":
+                    returned_to_hand.append(eid)
         # The old active takes the new active's rendered SLOT (client stamp),
         # captured before the active move overwrites new_active's stamp with 0.
         slot = self.board_state.bench_slot_of(new_active)
@@ -5958,6 +6006,13 @@ class GameSession:
         await self.send_game_sequence(
             list(self.players.values()), GameSequence.RETREAT, messages
         )
+        if returned_to_hand:
+            opponent = self.players.get(self._opponent_id(player_id))
+            if opponent is not None:
+                await self.send_game_sequence(
+                    [opponent], GameSequence.SERIAL_SEQUENCE,
+                    [self._attributes_reset_msg(eid) for eid in returned_to_hand],
+                )
 
         # All effects (Special Conditions, attack locks) end when a Pokemon
         # leaves the Active spot; a separate follow-up bracket is the safe

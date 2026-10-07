@@ -2075,10 +2075,11 @@ class _BWTextPassive(Passive):
                     PokemonTypes.FAIRY.value in effective_pokemon_types(board, p)
                     for p in _pokemon_in_play_from(carrier, pokemon.owning_player_id)):
                 return cost
-            if "during your first turn" in t and getattr(
-                    board, "turn_state", None) is not None \
-                    and board.turn_state.turn_number != 1:
-                return cost
+            if "during your first turn" in t:
+                state = getattr(board, "turn_state", None)
+                if state is None or state.turn_number not in (1, 2) \
+                        or state.active_player_id != pokemon.owning_player_id:
+                    return cost
             return 0
         if "retreat cost of each of your team plasma pokémon" in t \
                 and pokemon.owning_player_id == carrier.owning_player_id \

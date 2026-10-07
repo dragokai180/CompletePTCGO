@@ -1620,6 +1620,7 @@ class EffectContext:
         """
         cards = [card for card in physical_movement_cards(cards) if not self._pokemon_move_effect_blocked(card)]
         reveal_batches = {}
+        refreshed_pokemon = []
         # Snapshot before the first stack member moves: attachments then
         # inherit its new hand location. Return moves must run AFTER the
         # Attack/Ability bracket, never remove its visual source mid-lunge.
@@ -1647,9 +1648,10 @@ class EffectContext:
                 # no bracket needed, the move itself clears the on-board marker.
                 # Damage counters clear too -- reset before the intro is built
                 # so the hand card (and any replay) carries the printed HP.
-                self.session.clear_pokemon_effects(card)
+                had_conditions = self.session.clear_pokemon_effects(card)
                 self.session.reset_pokemon_damage(card)
                 self.session.reset_ability_usage(card)
+                refreshed_pokemon.append((card, had_conditions))
             move = self.session._entity_moved_msg(card.entity_id, hand.entity_id, position)
             opponent = self.session._opponent_id(owner)
             if reveal:
@@ -1659,9 +1661,37 @@ class EffectContext:
                 bracket = GameSequence.GROUPED_MOVE.value if card.entity_id in returning else None
                 self._queue(self.session._entity_introduced_msg(card), viewer_id=owner, bracket=bracket)
                 self._queue(move, viewer_id=owner, bracket=bracket)
+                if isinstance(card, PokemonEntity):
+                    # The owner's already-introduced card may retain its old
+                    # on-board HP and conditions after the move to hand.
+                    self._queue(self.session._hp_attribute_msg(card),
+                                viewer_id=owner, bracket=bracket)
+                    if had_conditions:
+                        self._queue(self.session._condition_attr_msg(card),
+                                    viewer_id=owner, bracket=bracket)
                 self._queue(move, viewer_id=opponent, bracket=bracket)
+                # A public card stays introduced on the opponent's client
+                # unless its attributes are cleared after entering the hand.
+                self._queue(self.session._attributes_reset_msg(card.entity_id),
+                            viewer_id=opponent, bracket=bracket)
         for vid, entries in reveal_batches.items():
             self._queue_reveal_batch(entries, vid)
+            for card, _ in entries:
+                if vid != (card.owning_player_id or self.player_id):
+                    # A reveal on the way to hand is temporary. Keep the
+                    # animation, then restore the opponent's card back.
+                    self._queue(self.session._attributes_reset_msg(card.entity_id),
+                                viewer_id=vid, bracket=GameSequence.GROUPED_MOVE.value)
+        if reveal:
+            # The owner keeps seeing the card and needs its fresh HP/status.
+            for card, had_conditions in refreshed_pokemon:
+                self._queue(self.session._hp_attribute_msg(card),
+                            viewer_id=card.owning_player_id or self.player_id,
+                            bracket=GameSequence.GROUPED_MOVE.value)
+                if had_conditions:
+                    self._queue(self.session._condition_attr_msg(card),
+                                viewer_id=card.owning_player_id or self.player_id,
+                                bracket=GameSequence.GROUPED_MOVE.value)
 
     async def reveal_cards(self, cards: Sequence[CardEntity],
                            to_player: Optional[str] = None) -> None:
@@ -1898,6 +1928,18 @@ class EffectContext:
                 self.session.reset_pokemon_damage(card)
                 self.session.reset_ability_usage(card)
             opponent = self.session._opponent_id(owner)
+            if target_area == "hand":
+                # Recycle Energy / U-Turn Board replace a discard with a
+                # private return. The opponent must lose the public face.
+                self._queue(self.session._entity_moved_msg(
+                    card.entity_id, pile.entity_id, position),
+                    bracket=GameSequence.GROUPED_MOVE.value)
+                self._queue(self.session._attributes_reset_msg(card.entity_id),
+                            viewer_id=opponent,
+                            bracket=GameSequence.GROUPED_MOVE.value)
+                if holder is not None:
+                    await self.session.refresh_granted_abilities(holder)
+                continue
             intro = self.session._entity_introduced_msg(card)
             # Entering a public pile reveals the card to the opponent.
             self._queue(intro, viewer_id=opponent,
@@ -2425,7 +2467,7 @@ class EffectContext:
         if pokemon is None:
             return []
         illegal = []
-        for card in list(pokemon.children):
+        for card in list(self.board.attached_energies(pokemon)):
             definition = def_for(card.archetype_id)
             if not getattr(definition, "discard_if_invalid", False):
                 continue

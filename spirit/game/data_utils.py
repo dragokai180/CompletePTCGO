@@ -172,6 +172,7 @@ def reprint(
             searchable_by=list(base.searchable_by or []),
             subtypes=list(base.subtypes or []),
             regulation_mark=new_reg,
+            usable_first_turn=bool(getattr(base, "usable_first_turn", False)),
         )
         if isinstance(base, FossilItemCardDef):
             return FossilItemCardDef(
@@ -557,8 +558,15 @@ class Attack(Ability):
         self.damage_operator = damage_operator
         # "During your next turn, this Pokemon can't use <this attack>."
         self.locks_next_turn = locks_next_turn
-        # Exempt from the "going first can't attack on turn 1" rule (Indeedee).
-        self.usable_first_turn = usable_first_turn
+        # Printed first-turn exceptions also apply to imported attacks that
+        # omit the explicit flag (Fast Raid, Fast Carrier, Quick Gift, etc.).
+        first_turn_text = game_text.strip().casefold()
+        self.usable_first_turn = usable_first_turn or first_turn_text.startswith((
+            "if you go first, you can use this attack during your first turn",
+            "if you go first, you can use this attack on your first turn",
+            "if you go first, you may use this attack during your first turn",
+            "if you go first, you may use this attack on your first turn",
+        ))
         # Offered even while the user is Asleep/Paralyzed (Windup Arm-style).
         self.usable_despite_conditions = usable_despite_conditions
 

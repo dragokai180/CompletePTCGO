@@ -2,7 +2,7 @@ from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import AttrID, PokemonTypes, PokemonStage, Rarities
 from spirit.game.session.effects import is_pokemon_card
 from spirit.game.card_effects.attacks_common import count_energy
-from spirit.game.session.constants import BENCH_CAPACITY
+from spirit.game.session.passives import effective_bench_capacity
 
 
 def _stage2_not_orbeetle(card):
@@ -17,7 +17,8 @@ async def evomancy(ctx):
     """For each Energy attached to this Pokémon, search a Stage 2 Pokémon
     (except Orbeetle) onto the Bench. Then, shuffle the deck."""
     count = count_energy("self")(ctx)
-    space = BENCH_CAPACITY - len(ctx.my_bench())
+    space = max(0, effective_bench_capacity(ctx.board, ctx.player_id)
+                - len(ctx.my_bench()))
     take = min(count, space)
     if take > 0:
         picks = await ctx.search_deck(
