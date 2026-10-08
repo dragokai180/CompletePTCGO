@@ -333,6 +333,9 @@ class GameSession:
         # resync_effective_max_hp keep damage constant when a suppression
         # passive (Tool Jammer) flips a bonus on/off without a stack change.
         self._effective_max_seen: Dict[str, int] = {}
+        # Project effective retreat pips through the Pokemon's wire attribute
+        # while keeping its printed value unchanged in rules state.
+        self._visible_retreat_costs: Dict[str, int] = {}
         # Per-player EOG summary counters (playmat.endgame.stat.* suffixes).
         self.game_stats: Dict[str, Dict[str, int]] = {
             pid: {} for pid in pairing["players"].keys()
@@ -374,13 +377,34 @@ class GameSession:
             await asyncio.sleep(seconds)
 
     def _note_client_animation(
-        self, sequence_name: str, player_ids: Sequence[str]
+        self, sequence_name: str, player_ids: Sequence[str],
+        messages: Optional[Sequence[Union[Dict[str, Any], NestedSequence]]] = None,
     ):
         """Extend only the recipients' estimated client-animation backlogs."""
         name = getattr(sequence_name, "value", sequence_name) or ""
         duration = SEQUENCE_DURATION_SECONDS.get(
             name, DEFAULT_SEQUENCE_DURATION_SECONDS
         )
+        # PileReordered only changes the order of hidden deck cards. A
+        # PokeAbility continuation containing one card move likewise has no
+        # second ability animation: the preceding Attack bracket played it.
+        # Keep the conservative estimates for announcements, multiple moves,
+        # and any unrecognized effect message.
+        if messages and all(isinstance(msg, dict) for msg in messages):
+            message_names = [msg.get("name") for msg in messages]
+            if name == "GroupedMove" and all(
+                msg_name == OutboundMsg.PILE_REORDERED.value
+                for msg_name in message_names
+            ):
+                duration = 0.05
+            elif name == "PokeAbility" and message_names.count(
+                OutboundMsg.ENTITY_MOVED.value
+            ) == 1 and set(message_names) <= {
+                OutboundMsg.ENTITY_INTRODUCED.value,
+                OutboundMsg.ENTITY_MOVED.value,
+                OutboundMsg.ATTRIBUTES_RESET.value,
+            }:
+                duration = max(0.8, MOVE_ANIM_DURATION_MS / 1000 + 0.5)
         now = time.monotonic()
         for player_id in set(player_ids):
             if not player_id:
@@ -722,7 +746,8 @@ class GameSession:
                     )
             self._last_sequence_sent_at = time.monotonic()
             if human_recipient_ids:
-                self._note_client_animation(name, human_recipient_ids)
+                self._note_client_animation(name, human_recipient_ids,
+                                            inner_messages)
         for entity_id, retirement in retired.items():
             if set(self.players).issubset(retirement["delivered"]):
                 self.clear_pokemon_effects(retirement["entity"])
@@ -2941,7 +2966,8 @@ class GameSession:
 
     async def _take_prizes(self, player_id: str, count: int,
                            destination: str = "hand",
-                           minimum: Optional[int] = None) -> List[Any]:
+                           minimum: Optional[int] = None,
+                           counts_as_taken: bool = True) -> List[Any]:
         """The player picks `count` face-down prizes and takes them to hand;
         a non-hand `destination` (Billowing Smoke's discard, Barbaracle's
         lostZone) reroutes the picked prizes there after the reveal.
@@ -2966,6 +2992,10 @@ class GameSession:
             picked = await self._prompt_prize_pick(player_id, prize_ids, count,
                                                    minimum=minimum)
         cards = [self.board_state.get_entity(i) for i in picked]
+        face_down_taken = {
+            card.entity_id for card in cards
+            if card is not None and not getattr(card, "publicly_revealed", False)
+        }
         intros = []
         moves = []
         for card in cards:
@@ -2982,10 +3012,11 @@ class GameSession:
             return []
         taken = [c for c in cards if c is not None and c.parent is hand_area]
         gap_msg = self._refresh_prize_gaps(player_id, prize_area)
-        self.turn_state.prizes_taken[player_id] = (
-            self.turn_state.prizes_taken.get(player_id, 0) + len(moves)
-        )
-        self.stat_add(player_id, "prizecardstaken", len(moves))
+        if counts_as_taken:
+            self.turn_state.prizes_taken[player_id] = (
+                self.turn_state.prizes_taken.get(player_id, 0) + len(moves)
+            )
+            self.stat_add(player_id, "prizecardstaken", len(moves))
         logging.info(
             f"[Session {self.game_id}] {player.screen_name} takes "
             f"{len(moves)} Prize card(s)."
@@ -2998,10 +3029,11 @@ class GameSession:
                 GameSequence.WITH_OPEN_PRIZE_CARDS,
                 ((intros + moves) if pid == player_id else list(moves)) + [gap_msg],
             )
-        if destination == "hand":
+        if destination == "hand" and counts_as_taken:
             # Prize-take provenance window (Dream Ball's ON_TAKEN_AS_PRIZE).
             for card in cards:
-                if card is not None and card.parent is hand_area:
+                if card is not None and card.parent is hand_area \
+                        and card.entity_id in face_down_taken:
                     await self._fire_triggered_abilities(
                         player_id, card, Triggers.ON_TAKEN_AS_PRIZE)
         if destination != "hand":
@@ -3200,8 +3232,11 @@ class GameSession:
         reasons = {}
         for pid in self.players:
             prizes = self.board_state.find_player_area(pid, 'prizePile')
-            took_all = bool(prizes is not None and self.board_state.prizes_dealt.get(pid)
-                            and not prizes.children)
+            took_all = bool(
+                prizes is not None and self.board_state.prizes_dealt.get(pid)
+                and not prizes.children
+                and self.turn_state.prizes_taken.get(pid, 0)
+            )
             empty = not self.board_state.pokemon_in_play(self._opponent_id(pid))
             scores[pid] = int(took_all) + int(empty)
             reasons[pid] = 'Took all Prize cards' if took_all else 'Opponent has no Pokemon left'
@@ -3233,6 +3268,8 @@ class GameSession:
         self.turn_state = TurnState()
         self.board_state.turn_state = self.turn_state
         self.board_state.prizes_dealt.clear()
+        self.board_state.prizes_added.clear()
+        self.board_state.prize_count_adjustment.clear()
         self._forced_promotion_ids.clear()
         self.scheduled_effects.clear()
         self._turn_visualizations.clear()
@@ -4142,6 +4179,7 @@ class GameSession:
             target_map = compute_legal_actions(
                 self.board_state, self.turn_state, active_id, self.game_id
             )
+            await self._sync_visible_retreat_costs()
             logging.info(
                 f"[Session {self.game_id}] Offering {player.screen_name} "
                 f"{len(target_map)} legal action(s) on turn "
@@ -4234,6 +4272,59 @@ class GameSession:
             "sourceID": auto_select_entity_id,
             "targetMap": target_map,
         }
+
+    def _effective_retreat_costs_in_play(self) -> Dict[str, int]:
+        return {
+            pokemon.entity_id: effective_retreat_cost(self.board_state, pokemon)
+            for player_id in self.board_state.player_ids
+            for pokemon in self.board_state.pokemon_in_play(player_id)
+        }
+
+    def _retreat_cost_visual_updates(self) -> List[Dict[str, Any]]:
+        """Project effective costs onto the client without changing rule values."""
+        updates = []
+        for entity_id, cost in self._effective_retreat_costs_in_play().items():
+            pokemon = self.board_state.get_entity(entity_id)
+            printed = int(pokemon.get_attribute(AttrID.RETREAT_COST) or 0)
+            # Resend a modified cost on each offer: a card may have left play
+            # and returned with the same entity ID between two offers.
+            if cost == printed and self._visible_retreat_costs.get(entity_id, printed) == printed:
+                continue
+            self._visible_retreat_costs[entity_id] = cost
+            updates.append(self._build_msg(
+                OutboundMsg.ATTRIBUTE_MODIFIED.value,
+                {
+                    "gameID": self.game_id,
+                    "entityID": entity_id,
+                    "attribute": {
+                        "name": AttrID.RETREAT_COST.value,
+                        "value": cost,
+                        "originalValue": cost,
+                        "modValue": cost,
+                    },
+                },
+            ))
+        return updates
+
+    async def _sync_visible_retreat_costs(self):
+        updates = self._retreat_cost_visual_updates()
+        if updates:
+            await self.send_game_sequence(
+                list(self.players.values()), GameSequence.SERIAL_SEQUENCE, updates,
+            )
+
+    def _project_retreat_costs_into_state(self, serialized_state: Dict[str, Any]):
+        costs = self._effective_retreat_costs_in_play()
+        stack = [serialized_state["entities"]]
+        while stack:
+            entity = stack.pop()
+            cost = costs.get(entity.get("entityID"))
+            if cost is not None:
+                for attr in entity.get("attributes") or []:
+                    if attr.get("name") == AttrID.RETREAT_COST.value:
+                        attr.update(value=cost, originalValue=cost, modValue=cost)
+                        break
+            stack.extend(entity.get("children") or [])
 
     def _parse_action_reply(
         self,
@@ -6643,6 +6734,7 @@ class GameSession:
         async with self._wire_lock:
             for player_id, player in recipients:
                 serialized_state = self.board_state.serialize(player_id)
+                self._project_retreat_costs_into_state(serialized_state)
                 # The network router only strips the top-level messageName; the nested
                 # envelope carries the class name in "name" instead.
                 serialized_state.pop("messageName", None)

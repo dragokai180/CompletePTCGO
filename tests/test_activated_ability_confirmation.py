@@ -7,7 +7,8 @@ from spirit.game.scripts.cards.SWSH2.GalarianMeowth_126 import evolution_roar
 from spirit.game.scripts.cards.SWSH6 import Gardevoir_61
 from spirit.game.scripts.cards.SWSH6.GalarianArticunoV_58 import reconstitute
 from spirit.game.scripts.cards.SWSH12.Gardevoir_69 import refinement
-from spirit.game.scripts.cards.SWSH12.RegidragoVSTAR_136 import legacy_star
+from spirit.game.scripts.cards.SWSH12.RegidragoVSTAR_136 import legacy_star as legacy_star_136
+from spirit.game.scripts.cards.SWSH12.RegidragoVSTAR_201 import legacy_star as legacy_star_201
 
 
 class ActivatedAbilityConfirmationTests(unittest.IsolatedAsyncioTestCase):
@@ -39,17 +40,36 @@ class ActivatedAbilityConfirmationTests(unittest.IsolatedAsyncioTestCase):
         ctx.ask_yes_no.assert_not_awaited()
         ctx.draw_cards.assert_awaited_once_with(2)
 
-    async def test_legacy_star_keeps_independent_discard_choice(self):
-        ctx = SimpleNamespace(
-            ask_yes_no=AsyncMock(return_value=False),
-            discard_pile=lambda: [],
-            choose_cards=AsyncMock(return_value=[]),
-        )
+    async def test_legacy_star_discards_before_recovery_without_confirmation(self):
+        for effect in (legacy_star_136, legacy_star_201):
+            with self.subTest(effect=effect.__module__):
+                top = [object(), object()]
+                discard = [object()]
 
-        await legacy_star(ctx)
+                async def discard_cards(cards):
+                    self.assertEqual(cards, top)
+                    discard.extend(cards)
 
-        ctx.ask_yes_no.assert_awaited_once()
-        ctx.choose_cards.assert_awaited_once()
+                async def choose_cards(cards, count, *, minimum, prompt):
+                    self.assertEqual(cards, discard)
+                    self.assertEqual((count, minimum), (2, 0))
+                    return [top[0]]
+
+                ctx = SimpleNamespace(
+                    deck_top=lambda count: top[:count],
+                    discard_cards=AsyncMock(side_effect=discard_cards),
+                    discard_pile=lambda: list(discard),
+                    choose_cards=AsyncMock(side_effect=choose_cards),
+                    put_in_hand=AsyncMock(),
+                    ask_yes_no=AsyncMock(side_effect=AssertionError("redundant confirmation")),
+                )
+
+                await effect(ctx)
+
+                ctx.ask_yes_no.assert_not_awaited()
+                ctx.discard_cards.assert_awaited_once_with(top)
+                ctx.choose_cards.assert_awaited_once()
+                ctx.put_in_hand.assert_awaited_once_with([top[0]], reveal=False)
 
     async def test_cancelled_discard_does_not_grant_ability_benefit(self):
         for effect in (refinement, evolution_roar, reconstitute):

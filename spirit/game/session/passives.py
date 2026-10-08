@@ -8,7 +8,10 @@ or max HP, so effects switch on/off purely by board position.
 """
 
 from dataclasses import dataclass
+from functools import lru_cache
+import re
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+import unicodedata
 
 from spirit.game.attributes import AttrID, PokemonTypes, PokemonStage, TrainerType
 from spirit.game.data_utils import ABILITIES_BY_ID, def_for, subtypes_for
@@ -675,6 +678,43 @@ def carrier_pokemon(carrier: BoardEntity) -> Optional[PokemonEntity]:
     return None
 
 
+_ABILITY_POSITION_CLAUSE = re.compile(
+    r"^(?:as long as|while|if) (.+?) is "
+    r"(your active pokemon|in the active spot|on your bench)\b"
+)
+
+
+def _position_text(value: str) -> str:
+    """Fold accents and spacing for the position clause printed on a card."""
+    value = unicodedata.normalize("NFKD", (value or "").casefold())
+    return " ".join("".join(c for c in value if not unicodedata.combining(c)).split())
+
+
+@lru_cache(maxsize=4096)
+def _ability_position_clause(text: str) -> Optional[Tuple[str, str]]:
+    match = _ABILITY_POSITION_CLAUSE.match(_position_text(text))
+    return (match.group(1), match.group(2)) if match else None
+
+
+def _ability_position_allows(board: BoardState, pokemon: PokemonEntity, ability: Any) -> bool:
+    """Only collect a passive when its leading Active/Bench condition holds.
+
+    Restrict this to a clause about the ability's own Pokemon. A mention of
+    another Pokemon's position later in the text is an effect condition, not
+    a prerequisite for switching the entire passive on.
+    """
+    clause = _ability_position_clause(ability.game_text)
+    if clause is None:
+        return True
+    name = _position_text(getattr(def_for(pokemon.archetype_id), "display_name", ""))
+    if clause[0] not in ("this pokemon", name):
+        return True
+    if clause[1] == "on your bench":
+        bench = board.find_player_area(pokemon.owning_player_id, "bench")
+        return bench is not None and pokemon in bench.children
+    return board.active_pokemon(pokemon.owning_player_id) is pokemon
+
+
 def _collect_passives(board: BoardState) -> List[Tuple[Passive, BoardEntity, bool]]:
     """All (passive, carrier, is_ability) triples currently switched on by
     board position, before ability locks are applied. is_ability is True only
@@ -691,7 +731,8 @@ def _collect_passives(board: BoardState) -> List[Tuple[Passive, BoardEntity, boo
                 if not isinstance(entry, dict):
                     continue
                 ability = ABILITIES_BY_ID.get(entry.get("abilityID"))
-                if ability is not None and ability.passive is not None:
+                if ability is not None and ability.passive is not None \
+                        and _ability_position_allows(board, pokemon, ability):
                     # A Tool-granted ability's passive rides the tool, not the
                     # Pokemon, so Path to the Peak can't switch it off.
                     triples.append((ability.passive, pokemon,

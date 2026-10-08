@@ -107,6 +107,194 @@ class AttackPublicState(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(ctx.deal_damage.call_args.args[0], ctx.ability.damage + bonus)
             self.assertEqual(ctx.deal_damage.await_count, 1)
 
+    async def test_love_impact_matches_nidoking_in_bench_name(self):
+        rig, e, ctx = self.ctx('SV10.TeamRocketsNidoqueen_116', 'Love Impact')
+        ctx.deal_damage = AsyncMock(return_value=0)
+        await ctx.ability.effect(ctx)
+        self.assertEqual(ctx.deal_damage.call_args.args[0], 60)
+
+        self.add(rig, fixtures.definition('SV10.TeamRocketsNidokingex_119'), P1, 'bench')
+        ctx.deal_damage.reset_mock()
+        await ctx.ability.effect(ctx)
+        ctx.deal_damage.assert_awaited_once_with(180, ignore_weakness=False)
+
+    async def test_hot_lick_checks_defending_pokemon_name(self):
+        rig, e, ctx = self.ctx('BW5.Heatmor_19', 'Hot Lick')
+        ctx.deal_damage = AsyncMock(return_value=0)
+        await ctx.ability.effect(ctx)
+        self.assertEqual(ctx.deal_damage.call_args.args[0], 10)
+
+        rig.to_area(ctx.defender, P2, 'discard')
+        self.add(rig, fixtures.definition('BW3.Durant_83'), P2, 'activePokemonArea')
+        ctx.deal_damage.reset_mock()
+        await ctx.ability.effect(ctx)
+        self.assertEqual(ctx.deal_damage.call_args.args[0], 60)
+        self.assertEqual(ctx.deal_damage.await_count, 1)
+
+    async def test_color_coordination_requires_matching_basic_energy(self):
+        rig, e, ctx = self.ctx('BW11.Ninetales_21', 'Color Coordination')
+        for energy in list(ctx.attached_energies(ctx.source)):
+            rig.to_area(energy, P1, 'discard')
+        basic_fire = self.add(rig, def_for(self.energies[PokemonTypes.FIRE.value]), P1, 'hand')
+        rig.attach(basic_fire, ctx.source)
+        ctx.deal_damage = AsyncMock(return_value=0)
+
+        ctx.defender.set_attribute(AttrID.POKEMON_TYPES, [PokemonTypes.WATER.value])
+        await ctx.ability.effect(ctx)
+        self.assertEqual(ctx.deal_damage.call_args.args[0], 50)
+
+        ctx.defender.set_attribute(AttrID.POKEMON_TYPES, [PokemonTypes.FIRE.value])
+        ctx.deal_damage.reset_mock()
+        await ctx.ability.effect(ctx)
+        self.assertEqual(ctx.deal_damage.call_args.args[0], 90)
+        self.assertEqual(ctx.deal_damage.await_count, 1)
+
+    async def test_chlorowhip_heals_only_with_two_grass_energy(self):
+        rig, e, ctx = self.ctx('SM10.Tangrowth_17', 'Chlorowhip')
+        for energy in list(ctx.attached_energies(ctx.source)):
+            rig.to_area(energy, P1, 'discard')
+        ctx.source.set_attribute(AttrID.HP, ctx.max_hp(ctx.source) - 80)
+        ctx.deal_damage = AsyncMock(return_value=0)
+        ctx.heal = AsyncMock(return_value=60)
+
+        for count in (1, 2):
+            energy = self.add(rig, def_for(self.energies[PokemonTypes.GRASS.value]), P1, 'hand')
+            rig.attach(energy, ctx.source)
+            await ctx.ability.effect(ctx)
+            self.assertEqual(ctx.deal_damage.call_args.args[0], 90)
+            self.assertEqual(ctx.heal.await_count, 1 if count == 2 else 0)
+
+    async def test_first_freeze_paralyzes_only_on_second_players_first_turn(self):
+        rig, e, ctx = self.ctx('SV3.Cryogonal_55', 'First Freeze')
+        rig.session.first_player_id = P2
+        ctx.deal_damage = AsyncMock(return_value=0)
+        ctx.apply_special_condition = AsyncMock()
+
+        for turn in (2, 3):
+            rig.session.turn_state.turn_number = turn
+            ctx.apply_special_condition.reset_mock()
+            await ctx.ability.effect(ctx)
+            self.assertEqual(ctx.apply_special_condition.await_count, 1 if turn == 2 else 0)
+
+    async def test_balance_bind_requires_equal_bench_sizes(self):
+        rig, e, ctx = self.ctx('XY8.Starmie_30', 'Balance Bind')
+        ctx.deal_damage = AsyncMock(return_value=0)
+        ctx.apply_special_condition = AsyncMock()
+
+        await ctx.ability.effect(ctx)
+        ctx.apply_special_condition.assert_not_awaited()
+        rig.to_area(ctx.my_bench()[0], P1, 'discard')
+        await ctx.ability.effect(ctx)
+        ctx.apply_special_condition.assert_awaited_once()
+
+    async def test_bared_fangs_does_nothing_without_prior_damage(self):
+        rig, e, ctx = self.ctx('RSV10PT5.Basculin_24', 'Bared Fangs')
+        ctx.deal_damage = AsyncMock(return_value=0)
+        await ctx.ability.effect(ctx)
+        ctx.deal_damage.assert_not_awaited()
+
+        ctx.defender.set_attribute(AttrID.HP, ctx.max_hp(ctx.defender) - 10)
+        await ctx.ability.effect(ctx)
+        self.assertEqual(ctx.deal_damage.call_args.args[0], 50)
+
+    async def test_seventh_kick_needs_exactly_seven_cards(self):
+        for count in (6, 7):
+            rig, e, ctx = self.ctx('ME2PT5.Medicham_104', 'Seventh Kick')
+            self.count_zone(rig, P1, 'hand', count)
+            ctx.deal_damage = AsyncMock(return_value=0)
+            await ctx.ability.effect(ctx)
+            self.assertEqual(ctx.deal_damage.await_count, 1 if count == 7 else 0)
+
+    async def test_brain_crush_requires_confused_defender(self):
+        rig, e, ctx = self.ctx('ME5.Malamar_52', 'Brain Crush')
+        ctx.deal_damage = AsyncMock(return_value=0)
+        await ctx.ability.effect(ctx)
+        ctx.deal_damage.assert_not_awaited()
+
+        ctx.defender.set_attribute(AttrID.SPECIAL_CONDITIONS, ['Confused'])
+        await ctx.ability.effect(ctx)
+        self.assertEqual(ctx.deal_damage.call_args.args[0], 130)
+
+    async def test_v_create_needs_five_benched_pokemon(self):
+        rig, e, ctx = self.ctx('BW3.Victini_15', 'V-create')
+        ctx.deal_damage = AsyncMock(return_value=0)
+        await ctx.ability.effect(ctx)
+        ctx.deal_damage.assert_not_awaited()
+
+        for _ in range(2):
+            self.add(rig, fixtures.definition('BW1.Snivy_1'), P1, 'bench')
+        await ctx.ability.effect(ctx)
+        self.assertEqual(ctx.deal_damage.call_args.args[0], 100)
+
+    async def test_dark_penalty_needs_tool_on_defender(self):
+        rig, e, ctx = self.ctx('BW4.Weavile_70', 'Dark Penalty')
+        ctx.deal_damage = AsyncMock(return_value=0)
+        await ctx.ability.effect(ctx)
+        ctx.deal_damage.assert_not_awaited()
+
+        tool = self.add(rig, fixtures.definition('XY3.FocusSash_91'), P2, 'hand')
+        rig.attach(tool, ctx.defender)
+        await ctx.ability.effect(ctx)
+        self.assertEqual(ctx.deal_damage.call_args.args[0], 90)
+
+    async def test_giga_railgun_needs_named_special_energy(self):
+        rig, e, ctx = self.ctx('ME5.Vikavolt_26', 'Giga Railgun')
+        ctx.deal_damage = AsyncMock(return_value=0)
+        await ctx.ability.effect(ctx)
+        ctx.deal_damage.assert_not_awaited()
+
+        energy = self.add(rig, fixtures.definition('ME5.VoltaicLightningEnergy_84'), P1, 'hand')
+        rig.attach(energy, ctx.source)
+        await ctx.ability.effect(ctx)
+        self.assertEqual(ctx.deal_damage.call_args.args[0], 260)
+
+    async def test_revelation_dance_needs_stadium(self):
+        rig, e, ctx = self.ctx('Promo_SM.Oricorio_19', 'Revelation Dance')
+        ctx.deal_damage = AsyncMock(return_value=0)
+        await ctx.ability.effect(ctx)
+        ctx.deal_damage.assert_not_awaited()
+
+        stadium = self.add(rig, fixtures.definition('BW4.SkyarrowBridge_91'), P1, 'hand')
+        rig.board.move_card(stadium.entity_id,
+                            rig.board.find_global_area('activeStadium').entity_id)
+        await ctx.ability.effect(ctx)
+        self.assertEqual(ctx.deal_damage.call_args.args[0], 30)
+
+    async def test_rising_chop_requires_modern_pokemon_ex(self):
+        rig, e, ctx = self.ctx('RSV10PT5.Sawk_49', 'Rising Chop')
+        ctx.deal_damage = AsyncMock(return_value=0)
+        await ctx.ability.effect(ctx)
+        ctx.deal_damage.assert_not_awaited()
+
+        rig.to_area(ctx.defender, P2, 'discard')
+        self.add(rig, fixtures.definition('SV035.Charizardex_6'), P2, 'activePokemonArea')
+        await ctx.ability.effect(ctx)
+        self.assertEqual(ctx.deal_damage.call_args.args[0], 90)
+
+    async def test_guardian_burst_requires_both_named_bench_pokemon(self):
+        rig, e, ctx = self.ctx('SV08.Mesprit_79', 'Guardian Burst')
+        ctx.deal_damage = AsyncMock(return_value=0)
+        await ctx.ability.effect(ctx)
+        ctx.deal_damage.assert_not_awaited()
+
+        self.add(rig, fixtures.definition('SV08.Uxie_78'), P1, 'bench')
+        await ctx.ability.effect(ctx)
+        ctx.deal_damage.assert_not_awaited()
+        self.add(rig, fixtures.definition('SV08.Azelf_80'), P1, 'bench')
+        await ctx.ability.effect(ctx)
+        self.assertEqual(ctx.deal_damage.call_args.args[0], 160)
+
+    async def test_fickle_spitting_requires_three_or_four_opponent_prizes(self):
+        rig, e, ctx = self.ctx('SV09.HopsCramorant_138', 'Fickle Spitting')
+        ctx.deal_damage = AsyncMock(return_value=0)
+        self.count_zone(rig, P2, 'prizePile', 5)
+        await ctx.ability.effect(ctx)
+        ctx.deal_damage.assert_not_awaited()
+
+        self.count_zone(rig, P2, 'prizePile', 4)
+        await ctx.ability.effect(ctx)
+        self.assertEqual(ctx.deal_damage.call_args.args[0], 120)
+
     async def test_stadium_owner_controls_bonus_or_healing(self):
         for owner in (None, P1, P2):
             rig, e, ctx = self.ctx('XY8.Mamoswine_82', 'Primordial Boom')

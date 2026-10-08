@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from spirit.game.attributes import AttrID, PokemonTypes, SpecialConditions
@@ -16,6 +17,7 @@ from spirit.game.session.legal_actions import (
     trainer_condition_met,
 )
 from spirit.game.session.effects import resolve_attack
+from spirit.game.session.game_session import GameSession
 from spirit.game.session.passives import (
     ability_locked, compute_damage, conditions_blocked,
     effective_bench_capacity, effective_max_hp, energy_provided_options,
@@ -912,6 +914,51 @@ class PlayabilityConditionTests(unittest.TestCase):
         kinds = {info["name"] for info in entries[0]["targetInfoLst"]}
         self.assertEqual(kinds, {SelectionKind.RETREAT_NEW_ACTIVE.value})
         self.assertIn(bench.entity_id, entries[0]["targetInfoLst"][0]["validTargets"])
+
+    def test_float_stone_projects_zero_retreat_pips_without_changing_rules_state(self):
+        active = self.add(self.definition("XY7", 30), "activePokemonArea")
+        self.add(self.definition("BW1", 1), "bench")
+        stone = create_card_entity(
+            self.card_model(self.definition("XY8", 137)), P1,
+        )
+        active.add_child(stone)
+        self.board._register_entity(stone)
+        session = SimpleNamespace(
+            board_state=self.board,
+            _visible_retreat_costs={},
+            game_id="game",
+            _build_msg=GameSession._build_msg,
+            _effective_retreat_costs_in_play=lambda:
+                GameSession._effective_retreat_costs_in_play(session),
+        )
+
+        updates = GameSession._retreat_cost_visual_updates(session)
+        attr = next(msg["value"]["attribute"] for msg in updates
+                    if msg["value"]["entityID"] == active.entity_id)
+        self.assertEqual(attr["name"], AttrID.RETREAT_COST.value)
+        self.assertEqual((attr["value"], attr["originalValue"], attr["modValue"]),
+                         (0, 0, 0))
+        self.assertEqual(active.get_attribute(AttrID.RETREAT_COST), 1)
+        snapshot = self.board.serialize(P1)
+        GameSession._project_retreat_costs_into_state(session, snapshot)
+        stack = [snapshot["entities"]]
+        while stack:
+            entity = stack.pop()
+            if entity["entityID"] == active.entity_id:
+                self.assertEqual(
+                    next(attr["value"] for attr in entity["attributes"]
+                         if attr["name"] == AttrID.RETREAT_COST.value), 0,
+                )
+                break
+            stack.extend(entity.get("children") or [])
+        else:
+            self.fail("Active Pokemon missing from client snapshot")
+
+        active.remove_child(stone)
+        updates = GameSession._retreat_cost_visual_updates(session)
+        restored = next(msg["value"]["attribute"] for msg in updates
+                        if msg["value"]["entityID"] == active.entity_id)
+        self.assertEqual(restored["value"], 1)
 
     def test_wild_growth_overpaying_retreat_uses_both_required_cards(self):
         active = self.add(self.definition("BW1", 17), "activePokemonArea")

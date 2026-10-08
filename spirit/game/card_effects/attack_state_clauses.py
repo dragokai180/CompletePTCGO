@@ -7,7 +7,7 @@ import re
 
 from spirit.game.attributes import AttrID, PokemonStage, PokemonTypes, SpecialConditions, TrainerType
 from spirit.game.data_utils import def_for, subtypes_for, is_pokemon_v
-from spirit.game.session.effects import full_stack, is_basic_energy, is_pokemon_card, is_pokemon_tool, is_special_energy
+from spirit.game.session.effects import full_stack, is_basic_energy, is_energy_card, is_pokemon_card, is_pokemon_tool, is_special_energy, is_supporter_card
 from spirit.game.session.passives import effective_pokemon_types, effective_retreat_cost, energy_provided_options
 
 
@@ -72,6 +72,10 @@ def public_attack_condition(ctx, clause):
              'you have the same number of cards in your hand as your opponent'):
         a, b = len(ctx.hand()), len(ctx.hand(other))
         return a > b if 'more' in c else a == b
+    if m := re.fullmatch(r"you don't have exactly (\d+) cards in your hand", c):
+        return len(ctx.hand()) != int(m[1])
+    if c == "you don't have the same number of cards in your hand as your opponent":
+        return len(ctx.hand()) != len(ctx.hand(other))
     m = re.fullmatch(r'(you have|your opponent has) (exactly |at least )?(\d+)( or fewer| or more)? cards? in (?:your|their) hand', c)
     if m:
         value = len(ctx.hand(own if m[1] == 'you have' else other))
@@ -83,12 +87,18 @@ def public_attack_condition(ctx, clause):
     if m:
         value, limit = prizes(own if m[1] == 'you have' else other), int(m[3])
         return value <= limit if m[5] == ' or fewer' else value >= limit if m[5] == ' or more' or m[2] == 'at least' else value in {limit, int(m[4] or m[3])}
+    if m := re.fullmatch(r"your opponent doesn't have exactly (\d+) or (\d+) prize cards remaining", c):
+        return prizes(other) not in {int(m[1]), int(m[2])}
     if c == 'each player has exactly 1 prize card remaining':
         return prizes(own) == prizes(other) == 1
     if c in ('you have used your gx attack', 'your opponent has already used their gx attack'):
         return (other if c.startswith('your opponent') else own) in state.gx_used
     if c in ('a stadium is in play', 'there is any stadium card in play'):
         return ctx.stadium_in_play() is not None
+    if c in ('there is no stadium card in play', "you don't have a stadium card in play"):
+        stadium = ctx.stadium_in_play()
+        return stadium is None if c.startswith('there') else \
+            stadium is None or stadium.owning_player_id != own
     if c in ('you have a stadium in play', 'you have a stadium card in play', 'you have any stadium card in play'):
         stadium = ctx.stadium_in_play()
         return stadium is not None and stadium.owning_player_id == own
@@ -106,28 +116,51 @@ def public_attack_condition(ctx, clause):
     m = re.fullmatch(r'(this pokémon|the defending pokémon) (.+)', c)
     if m:
         pokemon = source if m[1] == 'this pokémon' else defender
-        rule = m[2].removeprefix('already ')
+        rule = m[2].removeprefix('already ').removesuffix(' before this attack does damage')
         if pokemon is None:
             return False
         if rule in ('has any damage counters on it', 'has no damage counters on it', 'has full hp'):
             return bool(counters(pokemon)) if rule.startswith('has any') else counters(pokemon) == 0
         if n := re.fullmatch(r'has (\d+) or more damage counters on it', rule):
             return counters(pokemon) >= int(n[1])
+        if rule == 'evolved during this turn':
+            return pokemon.get_attribute(AttrID.STAGE) not in (
+                PokemonStage.BASIC.value, PokemonStage.RESTORED.value,
+            ) and state.entered_play_turn.get(pokemon.entity_id) == state.turn_number
+        if rule == "didn't move from the bench to the active spot this turn":
+            return state.became_active_turn.get(pokemon.entity_id) != state.turn_number
         if rule == 'is affected by a special condition':
             return bool(pokemon.get_attribute(AttrID.SPECIAL_CONDITIONS))
         if n := re.fullmatch(r'is (asleep|burned|confused|paralyzed|poisoned)(?: or (burned|poisoned))?', rule):
             conditions = {s.casefold() for s in pokemon.get_attribute(AttrID.SPECIAL_CONDITIONS) or []}
             return bool(conditions & {n[1], n[2]})
+        if n := re.fullmatch(r"is(?:n't| not) (asleep|burned|confused|paralyzed|poisoned)", rule):
+            conditions = {s.casefold() for s in pokemon.get_attribute(AttrID.SPECIAL_CONDITIONS) or []}
+            return n[1] not in conditions
         if rule == 'has any special energy attached to it' or rule == 'has any special energy attached':
             return any(is_special_energy(e) for e in ctx.attached_energies(pokemon))
+        if rule == 'has any basic energy attached to it that is the same type as the defending pokémon':
+            if defender is None:
+                return False
+            defender_types = set(effective_pokemon_types(ctx.board, defender))
+            return any(
+                is_basic_energy(energy)
+                and any(defender_types.intersection(option)
+                        for option in energy_provided_options(ctx.board, energy))
+                for energy in ctx.attached_energies(pokemon)
+            )
         if n := re.fullmatch(r'has any (.+?) energy attached(?: to it)?', rule):
             return _energy(ctx, pokemon, n[1]) > 0
-        if n := re.fullmatch(r'has (\d+) or more (\w+) energy attached', rule):
+        if n := re.fullmatch(r'has (?:at least )?(\d+)(?: or more)? (\w+) energy attached(?: to it)?', rule):
             return _energy(ctx, pokemon, n[2]) >= int(n[1])
         if rule == 'has no energy attached to it':
             return not ctx.attached_energies(pokemon)
+        if n := re.fullmatch(r'has no (.+?) energy attached(?: to it)?', rule):
+            return _energy(ctx, pokemon, n[1]) == 0
         if rule in ('has a pokémon tool attached', 'has a pokémon tool card attached to it'):
             return any(is_pokemon_tool(e) for e in full_stack(pokemon)[1:])
+        if rule == 'has no pokémon tool card attached to it':
+            return not any(is_pokemon_tool(e) for e in full_stack(pokemon)[1:])
         if rule == 'has a pokémon tool card that has "fairy charm" in its name attached to it':
             return any(is_pokemon_tool(e) and 'fairy charm' in _name(e) for e in full_stack(pokemon)[1:])
         if rule == 'has a karate belt card attached to it':
@@ -145,6 +178,10 @@ def public_attack_condition(ctx, clause):
             return PokemonTypes.FIGHTING.value in (resistance if isinstance(resistance, list) else [resistance])
         if rule.startswith(('is a ', 'is an ')):
             return _matches(ctx, pokemon, re.sub(r'^is an? ', '', rule))
+        if rule.startswith(("isn't a ", 'is not a ')):
+            return not _matches(ctx, pokemon, re.sub(r"^is(?:n't| not) a ", '', rule))
+        if rule == 'is durant':
+            return _name(pokemon) == 'durant'
         if rule == 'has more energy attached than the defending pokémon':
             return _energy(ctx, pokemon) > _energy(ctx, defender)
         if re.fullmatch(r"has at least \d+ extra (?:\w+ )?energy attached(?: to it)? \(in addition to this attack's cost\)", rule):
@@ -166,6 +203,17 @@ def public_attack_condition(ctx, clause):
     if c in ('this pokémon and the defending pokémon have the same amount of energy attached',
              'this pokémon and the defending pokémon have the same amount of energy attached to them'):
         return _energy(ctx, source) == _energy(ctx, defender)
+    if c == 'you and your opponent have the same number of benched pokémon':
+        return len(ctx.my_bench()) == len(ctx.opponent_bench())
+    if m := re.fullmatch(r'you have (\d+) or fewer benched pokémon', c):
+        return len(ctx.my_bench()) <= int(m[1])
+    if m := re.fullmatch(r'you have (\d+) or fewer (\w+) pokémon on your bench', c):
+        wanted = getattr(PokemonTypes, m[2].upper(), None)
+        if wanted is not None:
+            return sum(wanted.value in effective_pokemon_types(ctx.board, p)
+                       for p in ctx.my_bench()) <= int(m[1])
+    if m := re.fullmatch(r"the defending pokémon's maximum hp is (\d+) or more", c):
+        return defender is not None and ctx.max_hp(defender) >= int(m[1])
     if c == 'the retreat cost of the defending pokémon is colorlesscolorless or more':
         return effective_retreat_cost(ctx.board, defender) >= 2
     if c == 'there are 3 or fewer cards in your deck':
@@ -182,10 +230,16 @@ def public_attack_condition(ctx, clause):
     m = re.fullmatch(r'your opponent has (\d+) or more benched pokémon', c)
     if m:
         return len(ctx.opponent_bench()) >= int(m[1])
+    m = re.fullmatch(r'a pokémon that has "(.+?)" in its name is on your bench', c)
+    if m:
+        return any(m[1] in _name(pokemon) for pokemon in ctx.my_bench())
     m = re.fullmatch(r'(.+) (is|are) on your bench(?: and has any damage counters on it)?', c)
     if m:
         return all(any(_name(p) == name and (not c.endswith('counters on it') or counters(p))
                        for p in ctx.my_bench()) for name in m[1].split(' and '))
+    if m := re.fullmatch(r"you don't have (.+?) and (.+?) on your bench", c):
+        names = (m[1], m[2])
+        return not all(any(_name(p) == name for p in ctx.my_bench()) for name in names)
     m = re.fullmatch(r'any of your benched (.+) have any damage counters on them', c)
     if m:
         return any(_name(p) == m[1] and counters(p) for p in ctx.my_bench())
@@ -215,6 +269,14 @@ def public_attack_condition(ctx, clause):
     if c == 'you have 10 or more basic fire energy cards in your discard pile':
         from spirit.game.card_effects.pokemon import energy_provides_type
         return sum(is_basic_energy(e) and energy_provides_type(e, PokemonTypes.FIRE.value) for e in ctx.discard_pile()) >= 10
+    if m := re.fullmatch(r'you have fewer than (\d+) (\w+) energy cards in your discard pile', c):
+        from spirit.game.card_effects.pokemon import energy_provides_type
+        kind = getattr(PokemonTypes, m[2].upper(), None)
+        if kind is not None:
+            return sum(is_energy_card(e) and energy_provides_type(e, kind.value)
+                       for e in ctx.discard_pile()) < int(m[1])
+    if c == 'you have any supporter cards in your discard pile':
+        return any(is_supporter_card(card) for card in ctx.discard_pile())
     if c == "you have 4 or more pokémon that have the hide 'n' sneak ability in your discard pile":
         return sum(is_pokemon_card(p) and any(a.title.casefold() == "hide 'n' sneak"
                    for a in getattr(def_for(p.archetype_id), 'abilities', ())) for p in ctx.discard_pile()) >= 4
@@ -259,6 +321,8 @@ def public_attack_condition(ctx, clause):
                    for r in records)
     if c == 'you go second':
         return state.turn_number == 2
+    if c == "you go second and it's your first turn":
+        return ctx.session.first_player_id != own and state.turn_number == 2
     return None
 
 

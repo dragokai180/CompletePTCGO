@@ -31,7 +31,7 @@ async def _arc_phone(ctx):
         return
     slot = getattr(picked, "board_slot", None)
     if slot is None:
-        slot = prizes.index(picked)
+        slot = prize_area.children.index(picked)
     deck = ctx.board.find_player_area(ctx.player_id, "deck")
     both = list(session.players.values())
     # Prize -> top of deck rides WithOpenPrizeCards: after a pick, r.B defers

@@ -231,6 +231,27 @@ class ActionTimerTests(unittest.IsolatedAsyncioTestCase):
             SEQUENCE_DURATION_SECONDS["Attack"] - 0.05,
         )
 
+    def test_unanimated_deck_reorder_and_single_ability_move_do_not_add_full_pauses(self):
+        session = self.make_session()
+        session.choreography_pauses = True
+        player = RecordingNetworkPlayer("player-1")
+        session.players = {player.account_id: player}
+        session._note_client_animation("PokeAbility", [player.account_id], [
+            {"name": OutboundMsg.ENTITY_INTRODUCED.value},
+            {"name": OutboundMsg.ENTITY_MOVED.value},
+        ])
+        session._note_client_animation("GroupedMove", [player.account_id], [
+            {"name": OutboundMsg.PILE_REORDERED.value},
+        ])
+        self.assertLess(session._client_catchup_remaining(player), 1.0)
+
+        session._client_caught_up_at.clear()
+        session._note_client_animation("PokeAbility", [player.account_id], [
+            {"name": OutboundMsg.ABILITY_PLAYED_EFFECT.value},
+            {"name": OutboundMsg.ENTITY_MOVED.value},
+        ])
+        self.assertGreater(session._client_catchup_remaining(player), 2.0)
+
     async def test_timed_offer_waits_for_client_catchup(self):
         session = self.make_session()
         session.choreography_pauses = True

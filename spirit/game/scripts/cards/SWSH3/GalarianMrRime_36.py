@@ -1,15 +1,15 @@
 from spirit.game.card_effects.attacks_common import damage_per, count_discard, has_attack_titled
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, GameSequence
+from spirit.game.prizes import face_down_prizes
 
 
 def _shuffle_dance_condition(board, player_id, pokemon):
     opponent = next((p for p in board.player_ids if p != player_id), None)
     if opponent is None:
         return False
-    prizes = board.find_player_area(opponent, "prizePile")
     deck = board.find_player_area(opponent, "deck")
-    return bool(prizes and prizes.children and deck and deck.children)
+    return bool(face_down_prizes(board, opponent) and deck and deck.children)
 
 
 async def shuffle_dance(ctx):
@@ -18,16 +18,17 @@ async def shuffle_dance(ctx):
     session = ctx.session
     prize_area = ctx.board.find_player_area(ctx.opponent_id, "prizePile")
     deck = ctx.board.find_player_area(ctx.opponent_id, "deck")
-    if not prize_area or not prize_area.children or not deck or not deck.children:
+    prizes = face_down_prizes(ctx.board, ctx.opponent_id)
+    if not prizes or not deck or not deck.children:
         return
     await ctx.flush_choreography()
-    prize_ids = [c.entity_id for c in prize_area.children]
+    prize_ids = [c.entity_id for c in prizes]
     picked = await session._prompt_prize_pick(
         ctx.player_id, prize_ids, 1,
         prompt="Choose 1 of your opponent's Prize cards to switch with the top card of their deck.",
         prize_area=prize_area,
     )
-    prize_card = ctx.board.get_entity(picked[0]) if picked else None
+    prize_card = next((card for card in prizes if card.entity_id in (picked or [])), None)
     if prize_card is None:
         return
     slot = prize_card.board_slot

@@ -24,7 +24,7 @@ card = PokemonCardDef(
     abilities=[
         Ability(
             title="Shell Shield",
-            game_text="As along as this Pokémon is on your Bench, prevent all damage done to this Pokémon by attacks (both yours and your opponent's).",
+            game_text="As long as this Pokémon is on your Bench, prevent all damage done to this Pokémon by attacks (both yours and your opponent's).",
             passive=prevent_damage_when(_shell_shield_pred, attacks_only=False),
         ),
         Attack(

@@ -51,10 +51,10 @@ async def apex_dragon(ctx):
 async def legacy_star(ctx):
     """VSTAR Power: you may discard the top 7 of your deck, then put up to
     2 cards from your discard pile into your hand."""
-    if await ctx.ask_yes_no("Discard the top 7 cards of your deck?"):
-        top = ctx.deck_top(7)
-        if top:
-            await ctx.discard_cards(top)
+    top = ctx.deck_top(7)
+    if not top:
+        return
+    await ctx.discard_cards(top)
     picks = await ctx.choose_cards(
         ctx.discard_pile(), 2, minimum=0,
         prompt="Put up to 2 cards from your discard pile into your hand.",

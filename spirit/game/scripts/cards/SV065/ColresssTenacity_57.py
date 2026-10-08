@@ -18,8 +18,6 @@ async def colresss_tenacity(ctx):
         ],
         prompt="Search your deck for a Stadium card and an Energy card",
     )
-    if not stadiums or not energies:
-        return
     await ctx.put_in_hand(stadiums + energies, reveal=True)
     await ctx.shuffle_deck()
 

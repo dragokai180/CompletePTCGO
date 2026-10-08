@@ -531,6 +531,11 @@ class Ability:
             # AbilityButtonRenderer styles the VSTAR button when buttonOverride
             # equals this exact string (decoded from the client string blob).
             d["buttonOverride"] = "abilityVSTAR"
+        elif self.gx:
+            # GX attacks use their own button texture in the client. Without
+            # this override, the type-colored attack texture leaves the GX
+            # prefab's dark backing visible around the edges.
+            d["buttonOverride"] = "abilityGX"
         return d
 
 class Attack(Ability):

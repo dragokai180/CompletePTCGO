@@ -14,20 +14,23 @@ import re
 from typing import Optional
 
 from spirit.game.attributes import (
-    AttrID, CLIENT_SPECIAL_CONDITION_NAMES, PokemonStage, PokemonTypes,
+    AttrID, CLIENT_SPECIAL_CONDITION_NAMES, GameSequence, PokemonStage, PokemonTypes,
     SpecialConditions,
 )
 from spirit.game.card_effects.bw_era import (
     _ability_attached_energy_discard_cost,
     _ability_cost_handled_inline,
     _ability_hand_discard_cost,
+    _ability_search_predicate,
     _has_exact_subtype,
     _pokemon_ex,
+    _search_components,
     bw_legacy_ability,
     bw_legacy_attack,
     bw_legacy_passive,
 )
 from spirit.game.card_effects.pokemon import energy_provides_type
+from spirit.game.prizes import face_down_prizes
 from spirit.game.data_utils import (
     Ability, Activations, Attack, Triggers, def_for, evolves_from,
 )
@@ -465,27 +468,21 @@ def standard_ability_condition(game_text: str):
         if "only if you go second" in text \
                 and (state is None or state.turn_number != 2):
             return False
-        if "if this pokémon is in the active spot" in text:
-            # Total Freedom-style Abilities explicitly offer two alternative
-            # locations: Bench -> Active *or* Active -> Bench.  Treating the
-            # second clause as a global Active-only prerequisite hid the
-            # Ability whenever the card was on the Bench.
-            dual_position_switch = (
-                "if this pokémon is on the bench" in text
+        # The Active clause in Coin Bonus is a bonus, not an activation gate.
+        # Position requirements preceding "you may" are checked above by
+        # ability_position_allowed.  Total Freedom needs a separate check
+        # because its two possible switches require different destinations.
+        if ("if this pokémon is on the bench" in text
                 and "switch it with your active pokémon" in text
-                and "or, if this pokémon is in the active spot" in text
-            )
-            if dual_position_switch:
-                active = board.active_pokemon(player_id)
-                bench = board.find_player_area(player_id, "bench")
-                source_on_bench = bench is not None and source in bench.children
-                source_is_active = active is source
-                if not (
-                    source_on_bench and active is not None
-                    or source_is_active and bench is not None and bench.children
-                ):
-                    return False
-            elif source is None or board.active_pokemon(player_id) is not source:
+                and "or, if this pokémon is in the active spot" in text):
+            active = board.active_pokemon(player_id)
+            bench = board.find_player_area(player_id, "bench")
+            source_on_bench = bench is not None and source in bench.children
+            source_is_active = active is source
+            if not (
+                source_on_bench and active is not None
+                or source_is_active and bench is not None and bench.children
+            ):
                 return False
 
         if "search your deck" in text and (deck_area is None or not deck_area.children):
@@ -1024,6 +1021,8 @@ def _trainer_energy_targets_on_board(board, player_id: str, text: str):
         targets = [active] if active is not None else []
     if "future pokémon" in text:
         targets = [p for p in targets if "future" in _card_subtypes(p)]
+    if "ancient pokémon" in text:
+        targets = [p for p in targets if "ancient" in _card_subtypes(p)]
     if "team aqua pokémon" in text:
         targets = [p for p in targets if "team aqua" in _card_subtypes(p)
                    or _card_name(p).casefold().startswith("team aqua's ")]
@@ -1258,6 +1257,27 @@ async def _generic_search(ctx, text: str, *, count_override: int | None = None) 
     """Resolve the common search families.  Returns whether it handled one."""
     if "search your deck" not in text:
         return False
+
+    # Volkner, Steven, Korrina and similar searches name one card of EACH
+    # category. A single generic predicate/count silently resolves only the
+    # first matching noun. Give each printed category its own picker slot.
+    components = _search_components(text) if count_override is None else []
+    if components and "put them into your hand" in text:
+        predicates = [
+            _ability_search_predicate("search your deck for " + component)
+            for component in components
+        ]
+        if all(predicate is not None for predicate in predicates):
+            groups = [
+                (predicate, 1, component)
+                for component, predicate in zip(components, predicates)
+            ]
+            selected = await ctx.search_deck_groups(
+                groups, prompt="Choose cards to reveal")
+            await ctx.put_in_hand(
+                [card for group in selected for card in group], reveal=True)
+            await ctx.shuffle_deck()
+            return True
 
     count = _requested_count(text) if count_override is None else count_override
     first_turn_search = re.search(
@@ -1811,17 +1831,35 @@ def standard_trainer_effect(game_text: str):
             return
 
         if text.startswith("turn 1 of your opponent's face-down prize cards face up"):
-            prizes_area = ctx.board.find_player_area(ctx.opponent_id, "prizePile")
-            prizes = list(prizes_area.children) if prizes_area is not None else []
-            prize = await _choose_one(ctx, prizes, "Choose a Prize card") \
-                if prizes else None
+            prizes = face_down_prizes(ctx.board, ctx.opponent_id)
+            prize = None
+            if prizes:
+                area = ctx.board.find_player_area(ctx.opponent_id, "prizePile")
+                await ctx.flush_choreography()
+                picked = await ctx.session._prompt_prize_pick(
+                    ctx.player_id, [card.entity_id for card in prizes], 1,
+                    prompt="Choose a face-down Prize card", prize_area=area,
+                )
+                prize = next((card for card in prizes
+                              if card.entity_id in (picked or [])), None)
             hand = list(ctx.hand(ctx.opponent_id))
             random_card = random.choice(hand) if hand else None
             if prize is not None:
                 await ctx.reveal_cards([prize])
                 prize.publicly_revealed = True
+                await ctx.flush_choreography()
+                slot = prize.board_slot
+                if slot is None:
+                    slot = area.children.index(prize)
+                await ctx.session.send_game_sequence(
+                    list(ctx.session.players.values()),
+                    GameSequence.WITH_OPEN_PRIZE_CARDS,
+                    [ctx.session._entity_moved_msg(
+                        prize.entity_id, area.entity_id, slot)],
+                )
             if random_card is not None:
                 await ctx.reveal_cards([random_card])
+                await ctx.flush_choreography()
             if prize is not None and random_card is not None \
                     and await ctx.ask_yes_no("Switch the revealed cards?"):
                 await ctx.put_in_hand([prize], reveal=True)
@@ -2153,19 +2191,18 @@ def standard_trainer_effect(game_text: str):
             return
 
         if text.startswith("look at your face-down prize cards and put 1 of them"):
-            prize_area = ctx.board.find_player_area(ctx.player_id, "prizePile")
-            prizes = list(prize_area.children) if prize_area is not None else []
+            prizes = face_down_prizes(ctx.board, ctx.player_id)
             chosen = await _choose_one(ctx, prizes, "Choose a Prize card") \
                 if prizes else None
             if chosen is not None:
                 await ctx.put_in_hand([chosen], reveal=False)
                 await ctx.put_in_prizes([ctx.source])
-                random.shuffle(prize_area.children)
+                await ctx.shuffle_prizes()
             return
 
         if text.startswith("look at your face-down prize cards. you may reveal an ultra beast"):
             prize_area = ctx.board.find_player_area(ctx.player_id, "prizePile")
-            prizes = list(prize_area.children) if prize_area is not None else []
+            prizes = face_down_prizes(ctx.board, ctx.player_id)
             # Looking at the Prize pile is itself part of Beast Ball's effect.
             # The chooser must see every Prize before deciding whether to take
             # an Ultra Beast; revealing only the eventual candidate leaked the
@@ -2443,6 +2480,39 @@ def standard_trainer_effect(game_text: str):
                 energies = [card for card in energies
                             if energy_provides_type(card, ptype.value)]
             targets = _trainer_energy_targets(ctx, text)
+            choose_each = re.search(
+                r"choose up to (\d+) of your [^.]+? pokémon and attach "
+                r"[^.]+? to each of them",
+                text,
+            )
+            draw_after_attach = re.search(
+                r"if (?:you do|you attached any energy in this way), draw (\d+) cards?",
+                text,
+            )
+            if choose_each:
+                # Professor Sada's Vitality chooses distinct recipients first,
+                # then attaches one Energy to each chosen Pokémon.
+                maximum = min(int(choose_each.group(1)), len(targets), len(energies))
+                chosen_targets = await ctx.choose_cards(
+                    targets, maximum, minimum=0,
+                    prompt="Choose Pokémon to attach Energy to",
+                ) if maximum else []
+                attached = False
+                for target in chosen_targets:
+                    available = [energy for energy in energies
+                                 if energy in (ctx.hand() if zone == "hand"
+                                               else ctx.discard_pile())]
+                    if not available:
+                        break
+                    chosen = await ctx.choose_cards(
+                        available, 1, minimum=1,
+                        prompt="Choose an Energy card to attach",
+                    )
+                    if chosen:
+                        attached = await ctx.attach_energy(chosen[0], target) or attached
+                if attached and draw_after_attach:
+                    await ctx.draw_cards(int(draw_after_attach.group(1)))
+                return
             count = len(targets) if "to each of your" in text \
                 else int(explicit_count or 1)
             maximum = min(count, len(energies))
@@ -2451,13 +2521,14 @@ def standard_trainer_effect(game_text: str):
                 minimum=0 if "up to" in text else maximum,
                 prompt="Choose Energy cards",
             ) if maximum and targets else []
+            attached = False
             if "to each of your" in text:
                 remaining_targets = list(targets)
                 for energy in picks:
                     target = remaining_targets[0] if len(remaining_targets) == 1 else \
                         await ctx.choose_pokemon(remaining_targets, "Choose a Pokémon")
                     if target in remaining_targets:
-                        await ctx.attach_energy(energy, target)
+                        attached = await ctx.attach_energy(energy, target) or attached
                         remaining_targets.remove(target)
             else:
                 one_destination = bool(re.search(
@@ -2471,12 +2542,8 @@ def standard_trainer_effect(game_text: str):
                         targets, "Choose a Pokémon"
                     )
                     if target is not None:
-                        await ctx.attach_energy(energy, target)
-            draw_after_attach = re.search(
-                r"if (?:you do|you attached any energy in this way), draw (\d+) cards?",
-                text,
-            )
-            if picks and draw_after_attach:
+                        attached = await ctx.attach_energy(energy, target) or attached
+            if attached and draw_after_attach:
                 await ctx.draw_cards(int(draw_after_attach.group(1)))
             return
 
@@ -2508,16 +2575,17 @@ def standard_trainer_effect(game_text: str):
             fixed_target = targets[0] if len(targets) == 1 else \
                 await ctx.choose_pokemon(targets, "Choose a Pokémon") \
                 if one_destination and targets else None
+            attached = False
             for energy in picks:
                 target = fixed_target or await ctx.choose_pokemon(
                     targets, "Choose a Pokémon")
                 if target is not None:
-                    await ctx.attach_energy(energy, target)
+                    attached = await ctx.attach_energy(energy, target) or attached
             draw_after_attach = re.search(
                 r"if (?:you do|you attached any energy in this way), draw (\d+) cards?",
                 text,
             )
-            if picks and draw_after_attach:
+            if attached and draw_after_attach:
                 await ctx.draw_cards(int(draw_after_attach.group(1)))
             return
 
@@ -3208,9 +3276,8 @@ def standard_trainer_effect(game_text: str):
             "look at all of your face down prize cards!",
             "look at your face-down prize cards.",
         }:
-            prizes = ctx.board.find_player_area(ctx.player_id, "prizePile")
             await ctx.reveal_cards(
-                list(prizes.children) if prizes is not None else [],
+                face_down_prizes(ctx.board, ctx.player_id),
                 to_player=ctx.player_id,
             )
             return

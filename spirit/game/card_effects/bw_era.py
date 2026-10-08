@@ -18,6 +18,7 @@ from spirit.game.attributes import (
     AbilityTypes,
     CardType,
     CLIENT_SPECIAL_CONDITION_NAMES,
+    GameSequence,
     PokemonStage,
     PokemonTypes,
     SpecialConditions,
@@ -25,9 +26,11 @@ from spirit.game.attributes import (
 )
 from spirit.game.data_utils import (
     Ability, Attack, Activations, CARD_DEFS_BY_GUID, Triggers, def_for,
-    evolves_from, has_rule_box, is_pokemon_v, subtypes_for, unimplemented,
+    discard_area_name, evolves_from, has_rule_box, is_pokemon_v,
+    subtypes_for, unimplemented,
 )
 from spirit.game.models.board import CardEntity, PokemonEntity
+from spirit.game.prizes import face_down_prizes
 from spirit.game.session.passives import (
     Passive,
     TurnDamageModifier,
@@ -157,7 +160,8 @@ def _has_pokemon_ability(card) -> bool:
 
 def _has_attack_named(card, title: str) -> bool:
     definition = def_for(getattr(card, "archetype_id", None))
-    return any(isinstance(ability, Attack) and ability.title == title
+    return any(isinstance(ability, Attack)
+               and ability.title.casefold() == title.casefold()
                for ability in (getattr(definition, "abilities", None) or []))
 
 
@@ -289,6 +293,46 @@ async def _choose_one(ctx, cards, prompt, *, optional=False, player_id=None):
         prompt=prompt, player_id=player_id,
     )
     return picks[0] if picks else None
+
+
+async def _peek_at_one_prize(ctx, owner_id):
+    """Select a hidden Prize by position, then show only that card privately."""
+    area = ctx.board.find_player_area(owner_id, "prizePile")
+    prizes = face_down_prizes(ctx.board, owner_id)
+    if not prizes or area is None:
+        return
+    await ctx.flush_choreography()
+    picked = await ctx.session._prompt_prize_pick(
+        ctx.player_id, [card.entity_id for card in prizes], 1,
+        prompt="Choose a face-down Prize card", prize_area=area,
+    )
+    chosen = next((card for card in prizes
+                   if card.entity_id in (picked or [])), None)
+    if chosen is None or chosen.parent is not area:
+        return
+    slot = chosen.board_slot
+    if slot is None:
+        slot = area.children.index(chosen)
+    viewer = ctx.session.players[ctx.player_id]
+    move = ctx.session._entity_moved_msg(chosen.entity_id, area.entity_id, slot)
+    await ctx.session.send_game_sequence(
+        [viewer], GameSequence.SERIAL_SEQUENCE,
+        [ctx.session._entity_introduced_msg(chosen)],
+    )
+    await ctx.session.send_game_sequence(
+        [viewer], GameSequence.GROUPED_MOVE,
+        [ctx.session._reveal_card_msg(chosen.entity_id, True), move],
+    )
+    # A Prize picker needs this bracket even when the inspected card remains
+    # in its slot. Ordinary GroupedMove leaves the Prize fan on screen.
+    await ctx.session.send_game_sequence(
+        list(ctx.session.players.values()),
+        GameSequence.WITH_OPEN_PRIZE_CARDS, [move],
+    )
+    await ctx.session.send_game_sequence(
+        [viewer], GameSequence.GROUPED_MOVE,
+        [ctx.session._attributes_reset_msg(chosen.entity_id)],
+    )
 
 
 async def _shuffle_hand_draw(ctx, player_id: str, count: int) -> None:
@@ -4128,6 +4172,87 @@ def _scoped_in_play_pokemon_count(ctx, subject: str) -> Optional[int]:
     return len(pokemon)
 
 
+def _discard_damage_count(ctx, subject: str) -> Optional[int]:
+    """Count the exact cards named by a discard-pile damage clause."""
+    location = re.search(r"\bin (your opponent's|your) discard pile\b", subject)
+    if location is None:
+        return None
+    descriptor = subject[:location.start()].strip()
+    tail = subject[location.end():]
+    cards = list(ctx.discard_pile(
+        ctx.opponent_id if location.group(1) == "your opponent's"
+        else ctx.player_id))
+
+    if "type of basic energy card" in descriptor:
+        return len({getattr(def_for(card.archetype_id), "energy_type", None)
+                    for card in cards if is_basic_energy(card)})
+    if "energy card" in descriptor:
+        cards = [card for card in cards if is_energy_card(card)]
+        if "basic energy" in descriptor:
+            cards = [card for card in cards if is_basic_energy(card)]
+        elif "special energy" in descriptor:
+            cards = [card for card in cards if is_special_energy(card)]
+        energy_types = re.findall(
+            r"\b(grass|fire|water|lightning|psychic|fighting|darkness|"
+            r"metal|fairy) energy\b", descriptor)
+        if energy_types:
+            wanted = {getattr(PokemonTypes, word.upper()).value
+                      for word in energy_types}
+            cards = [card for card in cards if any(
+                energy_provides_type(card, pokemon_type)
+                for pokemon_type in wanted)]
+        return len(cards)
+    if "pokémon tool card" in descriptor:
+        return sum(is_pokemon_tool(card) for card in cards)
+    if "item card" in descriptor:
+        return sum(is_item_card(card) for card in cards)
+    if "supporter card" in descriptor:
+        cards = [card for card in cards if is_supporter_card(card)]
+        named = re.search(r'has "([^"]+)" in its name', descriptor)
+        if named:
+            cards = [card for card in cards
+                     if named.group(1) in _name(card).casefold()]
+        return len(cards)
+    if "trainer card" in descriptor:
+        return sum(is_trainer_card(card) for card in cards)
+    for label in ("ancient", "future"):
+        if f"{label} card" in descriptor:
+            return sum(_has_subtype(card, label) for card in cards)
+    if "pokémon" in descriptor:
+        cards = [card for card in cards if is_pokemon_card(card)]
+        attack = re.search(
+            r"that (?:has|have) the ([a-z0-9 '-]+) attack", tail)
+        if attack:
+            title = attack.group(1).strip()
+            cards = [card for card in cards if any(
+                isinstance(ability, Attack)
+                and ability.title.casefold() == title
+                for ability in getattr(def_for(card.archetype_id),
+                                       "abilities", None) or [])]
+        for label in ("ancient", "future", "single strike", "rapid strike",
+                      "fusion strike"):
+            if f"{label} pokémon" in descriptor:
+                cards = [card for card in cards if _has_subtype(card, label)]
+        types = re.findall(
+            r"\b(grass|fire|water|lightning|psychic|fighting|darkness|"
+            r"metal|fairy|dragon|colorless) pokémon\b", descriptor)
+        if types:
+            wanted = {getattr(PokemonTypes, word.upper()).value
+                      for word in types}
+            cards = [card for card in cards if wanted.intersection(
+                card.get_attribute(AttrID.POKEMON_TYPES) or [])]
+        return len(cards)
+    names = descriptor.removesuffix(" cards").removesuffix(" card")
+    wanted_names = {name.strip() for name in names.split(" and ")}
+    return sum(_name(card).casefold() in wanted_names for card in cards)
+
+
+def _discard_damage_cap(text: str) -> Optional[int]:
+    match = re.search(
+        r"you can't (?:do|add) more than (\d+) damage in this way", text)
+    return int(match.group(1)) if match else None
+
+
 def _formula_damage(ctx, text: str) -> Optional[int]:
     printed = getattr(ctx.ability, "damage", 0) or 0
     tool_mult = re.search(
@@ -4146,6 +4271,13 @@ def _formula_damage(ctx, text: str) -> Optional[int]:
     )
     if mult:
         per, subject = int(mult.group(1)), mult.group(2)
+        if "to 1 of your opponent's" in subject:
+            return None  # Named discard snipes choose their target later.
+        discarded = _discard_damage_count(ctx, subject)
+        if discarded is not None:
+            amount = per * discarded
+            cap = _discard_damage_cap(text)
+            return min(amount, cap) if cap is not None else amount
         scoped_energy = _scoped_energy_count(ctx, subject)
         if scoped_energy is not None:
             return per * scoped_energy
@@ -4210,6 +4342,11 @@ def _formula_damage(ctx, text: str) -> Optional[int]:
     )
     if more:
         per, subject = int(more.group(1)), more.group(2)
+        discarded = _discard_damage_count(ctx, subject)
+        if discarded is not None:
+            bonus = per * discarded
+            cap = _discard_damage_cap(text)
+            return printed + (min(bonus, cap) if cap is not None else bonus)
         scoped_energy = _scoped_energy_count(ctx, subject)
         if scoped_energy is not None:
             return printed + per * scoped_energy
@@ -4954,7 +5091,8 @@ def _ability_search_predicate(text: str):
         if tag + " pokémon" in text:
             return lambda card, tag=tag: is_pokemon_card(card) and (
                 not re.search(r"\bbasic\b", text) or is_basic_pokemon(card)
-            ) and tag in {s.casefold() for s in subtypes_for(card.archetype_id) or []}
+            ) and (tag in {s.casefold() for s in subtypes_for(card.archetype_id) or []}
+                   or _name(card).casefold().startswith(tag + "'s "))
 
     owner_match = re.search(r"((?:ethan|cynthia|erika|lillie|steven)'s) pokémon", text)
     if owner_match:
@@ -5194,6 +5332,11 @@ async def bw_legacy_attack(ctx):
     text = text.replace("new defending pokémon", "new active pokémon")
     printed = getattr(ctx.ability, "damage", 0) or 0
     primary_damage_dealt = 0
+    no_effect = re.match(r"if (.+?), this attack does nothing(?:\.|$)", text)
+    if no_effect:
+        from spirit.game.card_effects.attack_state_clauses import public_attack_condition
+        if public_attack_condition(ctx, no_effect.group(1)) is True:
+            return
     opponent_coin_discard = re.search(
         r"opponent flips (\d+) coins.*for each tails.*discards a card from",
         text,
@@ -5346,6 +5489,39 @@ async def bw_legacy_attack(ctx):
     from spirit.game.card_effects.xy_era import resolve_xy_attack
     if await resolve_xy_attack(ctx, text, printed):
         return
+    # Reveal the opponent's hand before evaluating damage that depends on its
+    # contents. The ordinary formula parser does not recognize "you find
+    # there" and can also add the printed multiplier a second time.
+    if "opponent reveals" in text and "hand" in text:
+        hand_damage = re.search(
+            r"this attack does (\d+) (more )?damage "
+            r"(?:for each|times the number of) "
+            r"(trainer|supporter|item|energy|pokémon) cards? "
+            r"(?:you find there|in your opponent's hand)", text,
+        )
+        hand_bonus = re.search(
+            r"if you find (?:a|any) (pokémon|energy)(?: cards?)? there, "
+            r"this attack does (\d+) more damage", text,
+        )
+        if hand_damage or hand_bonus:
+            cards = await ctx.reveal_hand(ctx.opponent_id, ctx.player_id)
+            predicates = {
+                "trainer": is_trainer_card,
+                "supporter": is_supporter_card,
+                "item": is_item_card,
+                "energy": is_energy_card,
+                "pokémon": is_pokemon_card,
+            }
+            if hand_damage:
+                per, more, category = hand_damage.groups()
+                count = sum(predicates[category](card) for card in cards)
+                amount = (printed if more else 0) + int(per) * count
+            else:
+                category, extra = hand_bonus.groups()
+                amount = printed + (int(extra) if any(
+                    predicates[category](card) for card in cards) else 0)
+            await ctx.deal_damage(amount)
+            return
     # Legacy "base damage plus N more" is the same as modern "+N".
     # Normalize only the arithmetic wording; keep the printed text intact.
     text = re.sub(r"does \d+ damage plus (\d+) (?:more )?damage",
@@ -6184,6 +6360,43 @@ async def bw_legacy_attack(ctx):
     hand_discard_paid = False
     optional_source_paid = False
 
+    if "turn 1 of your face-down prize cards face up" in text:
+        prizes = face_down_prizes(ctx.board, ctx.player_id)
+        should_turn = bool(prizes)
+        if should_turn and "you may turn" in text:
+            should_turn = await ctx.ask_yes_no("Turn a face-down Prize card face up?")
+        chosen = None
+        if should_turn:
+            area = ctx.board.find_player_area(ctx.player_id, "prizePile")
+            await ctx.flush_choreography()
+            picked = await ctx.session._prompt_prize_pick(
+                ctx.player_id, [card.entity_id for card in prizes], 1,
+                prompt="Choose a face-down Prize card", prize_area=area,
+            )
+            chosen = next((card for card in prizes
+                           if card.entity_id in (picked or [])), None)
+        if chosen is not None:
+            await ctx.reveal_cards([chosen])
+            chosen.publicly_revealed = True
+            await ctx.flush_choreography()
+            slot = chosen.board_slot
+            if slot is None:
+                slot = area.children.index(chosen)
+            await ctx.session.send_game_sequence(
+                list(ctx.session.players.values()),
+                GameSequence.WITH_OPEN_PRIZE_CARDS,
+                [ctx.session._entity_moved_msg(
+                    chosen.entity_id, area.entity_id, slot)],
+            )
+            if "if you do, this attack does 80 more damage" in text:
+                pre_damage_bonus += 80
+            elif "if it's a fire energy card" in text \
+                    and _energy_type(chosen, PokemonTypes.FIRE):
+                pre_damage_bonus += 50
+            elif "if that prize card is a pokémon" in text \
+                    and is_pokemon_card(chosen):
+                pre_damage_bonus += 60
+
     # Variable discard attacks must select and move the cards before damage:
     # the number actually discarded is part of the damage formula.
     variable_hand_discard = re.search(
@@ -6629,6 +6842,27 @@ async def bw_legacy_attack(ctx):
         leftovers = [card for card in viewed if card not in energies]
         if leftovers:
             await ctx.shuffle_into_deck(leftovers)
+        return
+
+    # Roaring Scream and Ear Kinesis scale a chosen hit by counters on one
+    # specified Pokémon.  The ordinary snipe parser would use only the printed
+    # 20 damage, and the generic formula assumes the Defending Pokémon.
+    counter_snipe = re.search(
+        r"^this attack does (\d+) damage to 1 of your opponent's "
+        r"(benched )?pokémon for each damage counter on (this|that) pokémon(?:\.|$)",
+        text,
+    )
+    if counter_snipe:
+        pool = ctx.opponent_bench() if counter_snipe.group(2) else \
+            ctx.opponent_pokemon_in_play()
+        target = await ctx.choose_pokemon(pool, "Choose a Pokémon to damage") \
+            if pool else None
+        if target is not None:
+            source = ctx.attacker if counter_snipe.group(3) == "this" else target
+            await ctx.deal_damage(
+                int(counter_snipe.group(1)) * _damage_counter_count(ctx, source),
+                target=target, apply_modifiers=(target is ctx.defender),
+            )
         return
 
     amount = _formula_damage(ctx, text)
@@ -8711,7 +8945,55 @@ async def bw_legacy_attack(ctx):
         r"darkness |metal |fairy )?)energy(?: cards?)? from your (hand|discard pile)",
         text,
     )
-    if attach and _attack_clause_allowed(ctx, text, attach.start(), heads, coin_count):
+    chosen_each = re.search(
+        r"choose up to (\d+) of your ([^.]+?) pokémon and attach "
+        r"[^.]+? to each of them",
+        text,
+    )
+    all_each = re.search(r"to each of your ([^.]+?) pokémon", text)
+    distributed = bool(attach and attach.group(4) == "discard pile"
+                       and (chosen_each or all_each))
+    if distributed and _attack_clause_allowed(
+            ctx, text, attach.start(), heads, coin_count):
+        descriptor = chosen_each.group(2) if chosen_each else all_each.group(1)
+        targets = list(ctx.my_bench()) if "benched" in descriptor \
+            else list(ctx.my_pokemon_in_play())
+        if "basic" in descriptor:
+            targets = [pokemon for pokemon in targets if is_basic_pokemon(pokemon)]
+        for label in ("ancient", "future", "rapid strike", "single strike",
+                      "fusion strike"):
+            if label in descriptor:
+                targets = [pokemon for pokemon in targets
+                           if _has_subtype(pokemon, label)]
+        for word in ("grass", "fire", "water", "lightning", "psychic",
+                     "fighting", "darkness", "metal", "fairy", "dragon"):
+            if re.search(rf"\b{word}\b", descriptor):
+                wanted = getattr(PokemonTypes, word.upper())
+                targets = [pokemon for pokemon in targets
+                           if wanted.value in effective_pokemon_types(
+                               ctx.board, pokemon)]
+        predicate = _energy_phrase_predicate(attach.group(3))
+        available = [card for card in ctx.discard_pile() if predicate(card)]
+        if chosen_each:
+            maximum = min(int(chosen_each.group(1)), len(targets), len(available))
+            targets = await ctx.choose_cards(
+                targets, maximum, minimum=0,
+                prompt="Choose Pokémon to attach Energy to",
+            ) if maximum else []
+        for target in targets:
+            available = [card for card in ctx.discard_pile() if predicate(card)]
+            if not available:
+                break
+            chosen = await ctx.choose_cards(
+                available, 1, minimum=1,
+                prompt="Choose an Energy card to attach",
+            )
+            if chosen:
+                if target.entity_id not in ctx.visual_targets:
+                    ctx.visual_targets.append(target.entity_id)
+                await ctx.attach_energy(chosen[0], target)
+    if attach and not distributed and _attack_clause_allowed(
+            ctx, text, attach.start(), heads, coin_count):
         count = 1 if attach.group(2) in ("a", "an") else int(attach.group(2))
         attach_per_head = "for each heads" in text[
             text.rfind(".", 0, attach.start()) + 1:attach.start()]
@@ -9308,22 +9590,12 @@ async def bw_legacy_attack(ctx):
 
     # Information-only peeks must still expose the cards to the chooser.
     if "look at your face-down prize cards" in text:
-        area = ctx.board.find_player_area(ctx.player_id, "prizePile")
-        await ctx.reveal_cards(list(area.children) if area else [],
+        await ctx.reveal_cards(face_down_prizes(ctx.board, ctx.player_id),
                                to_player=ctx.player_id)
     if "look at 1 of your face-down prize cards" in text:
-        area = ctx.board.find_player_area(ctx.player_id, "prizePile")
-        cards = list(area.children) if area else []
-        chosen = await _choose_one(ctx, cards, "Choose a Prize card") \
-            if cards else None
-        if chosen is not None:
-            await ctx.reveal_cards([chosen], to_player=ctx.player_id)
+        await _peek_at_one_prize(ctx, ctx.player_id)
     if "look at 1 of your opponent's face-down prize cards" in text:
-        area = ctx.board.find_player_area(ctx.opponent_id, "prizePile")
-        cards = list(area.children) if area else []
-        chosen = await _choose_one(ctx, cards, "Choose a Prize card") if cards else None
-        if chosen is not None:
-            await ctx.reveal_cards([chosen], to_player=ctx.player_id)
+        await _peek_at_one_prize(ctx, ctx.opponent_id)
 
     if "turn all of your prize cards face up" in text:
         area = ctx.board.find_player_area(ctx.player_id, "prizePile")
@@ -9352,8 +9624,12 @@ async def bw_legacy_attack(ctx):
             prizes = list(area.children) if area else []
             if prizes:
                 await ctx.shuffle_into_deck(prizes, player_id=player_id)
-            await ctx.put_in_prizes(
+            placed = await ctx.put_in_prizes(
                 ctx.deck_top(3, player_id), player_id=player_id
+            )
+            ctx.board.prize_count_adjustment[player_id] = (
+                ctx.board.prize_count_adjustment.get(player_id, 0)
+                + len(prizes) - placed
             )
 
     add_prizes = re.search(
@@ -9364,29 +9640,55 @@ async def bw_legacy_attack(ctx):
         await ctx.put_in_prizes(
             ctx.deck_top(int(add_prizes.group(1)), ctx.opponent_id),
             player_id=ctx.opponent_id,
+            additional=True,
         )
 
     if "add a card from your opponent's discard pile to their prize cards" in text:
         cards = list(ctx.discard_pile(ctx.opponent_id))
         chosen = await _choose_one(ctx, cards, "Choose a card") if cards else None
         if chosen is not None:
-            await ctx.put_in_prizes([chosen], player_id=ctx.opponent_id)
+            await ctx.put_in_prizes([chosen], player_id=ctx.opponent_id,
+                                    additional=True)
 
     if "discard 1 of your prize cards" in text:
         area = ctx.board.find_player_area(ctx.player_id, "prizePile")
         prizes = list(area.children) if area else []
-        chosen = await _choose_one(ctx, prizes, "Choose a Prize card") \
-            if prizes else None
-        if chosen is not None:
-            await ctx.reveal_cards([chosen])
-            if is_energy_card(chosen):
-                targets = list(ctx.my_pokemon_in_play())
-                target = await ctx.choose_pokemon(targets, "Choose a Pokémon") \
-                    if targets else None
-                if target is not None:
-                    await ctx.attach_energy(chosen, target)
-            else:
-                await ctx.discard_cards([chosen])
+        if prizes:
+            await ctx.flush_choreography()
+            picked = await ctx.session._prompt_prize_pick(
+                ctx.player_id, [card.entity_id for card in prizes], 1,
+                prompt="Choose a Prize card",
+            )
+            chosen = next((card for card in prizes
+                           if card.entity_id in (picked or [])), None)
+            if chosen is not None and chosen.parent is area:
+                # This is a discard, not taking a Prize: it must not increment
+                # prize-taken statistics or fire face-down Prize triggers.
+                destination = ctx.board.find_player_area(
+                    ctx.player_id, discard_area_name(chosen.archetype_id))
+                position = len(destination.children)
+                if ctx.board.move_card(chosen.entity_id, destination.entity_id):
+                    ctx.board.prize_count_adjustment[ctx.player_id] = (
+                        ctx.board.prize_count_adjustment.get(
+                            ctx.player_id, 0) + 1
+                    )
+                    messages = [
+                        ctx.session._entity_introduced_msg(chosen),
+                        ctx.session._entity_moved_msg(
+                            chosen.entity_id, destination.entity_id, position),
+                        ctx.session._refresh_prize_gaps(ctx.player_id, area),
+                    ]
+                    await ctx.session.send_game_sequence(
+                        list(ctx.session.players.values()),
+                        GameSequence.WITH_OPEN_PRIZE_CARDS, messages,
+                    )
+                    if is_energy_card(chosen) and destination.get_attribute(
+                            AttrID.NAME) == "discard":
+                        targets = list(ctx.my_pokemon_in_play())
+                        target = await ctx.choose_pokemon(
+                            targets, "Choose a Pokémon") if targets else None
+                        if target is not None:
+                            await ctx.attach_energy(chosen, target)
 
     # Mass devolution attacks.
     if "devolve each of your opponent's evolved pokémon" in text:
@@ -11942,15 +12244,36 @@ async def bw_legacy_ability(ctx):
     # either identity (Mischievous Trick / Pantomime).
     if "switch 1 of your face-down prize cards with the top card of your deck" in text:
         prize_area = ctx.board.find_player_area(ctx.player_id, "prizePile")
-        prizes = list(prize_area.children) if prize_area else []
+        deck = ctx.board.find_player_area(ctx.player_id, "deck")
+        prizes = face_down_prizes(ctx.board, ctx.player_id)
         top = next(iter(ctx.deck_top(1)), None)
+        if not prizes or top is None or deck is None:
+            return
+        await ctx.flush_choreography()
         picked = await ctx.session._prompt_prize_pick(
             ctx.player_id, [p.entity_id for p in prizes], 1,
-            prompt="Choose a face-down Prize card") if prizes and top is not None else []
-        prize = next((p for p in prizes if p.entity_id in picked), None)
-        if prize is not None:
-            await ctx.put_on_top_of_deck(prize)
-            await ctx.put_in_prizes([top])
+            prompt="Choose a face-down Prize card")
+        prize = next((p for p in prizes if p.entity_id in (picked or [])), None)
+        if prize is None or prize.parent is not prize_area:
+            return
+        slot = prize.board_slot
+        if slot is None:
+            slot = prize_area.children.index(prize)
+        # The client's Prize picker closes only when the selected card moves
+        # through WithOpenPrizeCards; ordinary queued moves leave the fan up.
+        position = len(deck.children)
+        if not ctx.board.move_card(prize.entity_id, deck.entity_id):
+            return
+        move = ctx.session._entity_moved_msg(
+            prize.entity_id, deck.entity_id, position)
+        for viewer in ctx.session.players.values():
+            await ctx.session.send_game_sequence(
+                [viewer], GameSequence.WITH_OPEN_PRIZE_CARDS, [move])
+        if ctx.board.move_card(top.entity_id, prize_area.entity_id, slot):
+            await ctx.session.send_game_sequence(
+                list(ctx.session.players.values()), GameSequence.GROUPED_MOVE,
+                [ctx.session._entity_moved_msg(
+                    top.entity_id, prize_area.entity_id, slot)])
         return
 
     # Deck-top manipulation powers.
@@ -13219,6 +13542,23 @@ async def bw_legacy_ability(ctx):
             await ctx.cure_all_conditions(target)
         return
 
+    self_counter_draw = re.search(
+        r"put (\d+) damage counters? on this pokémon\. if you do, "
+        r"draw (a|\d+) cards?",
+        text,
+    )
+    if self_counter_draw:
+        counters = int(self_counter_draw.group(1))
+        paid = await ctx.deal_damage(
+            counters * 10, target=ctx.source,
+            apply_modifiers=False, as_counters=True, is_attack=False,
+        )
+        if paid == counters * 10:
+            count = 1 if self_counter_draw.group(2) == "a" else int(
+                self_counter_draw.group(2))
+            await ctx.draw_cards(count)
+        return
+
     # Draw powers, including the common Active bonus wording.
     if "each player draws a card" in text:
         await ctx.draw_cards(1)
@@ -13227,10 +13567,32 @@ async def bw_legacy_ability(ctx):
     draw = re.search(r"(?:you may )?draw (\d+|a) cards?", text)
     if draw:
         count = 1 if draw.group(1) == "a" else int(draw.group(1))
-        if "if this pokémon is in the active spot, draw 1 more" in text \
-                and _is_active(ctx.source):
+        if re.search(
+            r"if this pokémon is (?:in the active spot|your active pokémon), "
+            r"draw 1 more card",
+            text,
+        ) and _is_active(ctx.source):
             count += 1
         await ctx.draw_cards(count)
+        return
+
+    self_counter_boost = re.search(
+        r"put (\d+) damage counters? on this pokémon\. if you do, during "
+        r"this turn, attacks used by this pokémon do (\d+) more damage to "
+        r"your opponent's active pokémon",
+        text,
+    )
+    if self_counter_boost:
+        counters, bonus = map(int, self_counter_boost.groups())
+        paid = await ctx.deal_damage(
+            counters * 10, target=ctx.source,
+            apply_modifiers=False, as_counters=True, is_attack=False,
+        )
+        if paid == counters * 10:
+            ctx.add_turn_damage_modifier(TurnDamageModifier(
+                amount=bonus, player_id=ctx.player_id,
+                source_entity_id=ctx.source.entity_id,
+            ))
         return
 
     # Self-damage acceleration (Roaring Resolve / Scar Charge) is one atomic
@@ -13246,10 +13608,12 @@ async def bw_legacy_ability(ctx):
     )
     if self_charge:
         counters, count, type_word = self_charge.groups()
-        await ctx.deal_damage(
+        paid = await ctx.deal_damage(
             int(counters) * 10, target=ctx.source,
             apply_modifiers=False, as_counters=True, is_attack=False,
         )
+        if paid != int(counters) * 10:
+            return
         ptype = getattr(PokemonTypes, type_word.upper())
         picks = await ctx.search_deck(
             lambda card: is_energy_card(card)

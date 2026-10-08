@@ -388,8 +388,13 @@ class BoardState:
         self.game_options: Dict[str, Any] = {
             "theme": "ForestPlaymat"
         }
-        # player_id -> prize cards dealt at setup; prizes taken = dealt - remaining.
+        # Prize progress also accounts for cards added by effects such as
+        # Symbiont-GX; replacement effects do not increase this count.
         self.prizes_dealt: Dict[str, int] = {}
+        self.prizes_added: Dict[str, int] = {}
+        # Signed change to pile size from effects that neither award nor add
+        # Prizes (Burst-GX, Stinger-GX).
+        self.prize_count_adjustment: Dict[str, int] = {}
         # player_id -> {"GX": bool, "VSTAR": bool}: which playmat markers the
         # deck earns. Drives gameOptions["tokens"]; the PlayerEntity attributes
         # of the same name mean "spent", which is a different question.
@@ -488,6 +493,13 @@ class BoardState:
             return False
 
         old_parent = card.parent
+        # Being face up is a property of this stay in the Prize pile, not of
+        # the physical card after it changes zones (or returns as a new Prize).
+        if old_parent is not to_area and (
+                (isinstance(old_parent, PlayArea)
+                 and old_parent.get_attribute(AttrID.NAME) == "prizePile")
+                or to_area.get_attribute(AttrID.NAME) == "prizePile"):
+            card.publicly_revealed = False
         if card.parent_id:
             parent = self.get_entity(card.parent_id)
             if parent:
@@ -581,7 +593,10 @@ class BoardState:
         area = self.find_player_area(player_id, "prizePile")
         if not area:
             return 0
-        return max(0, self.prizes_dealt.get(player_id, 0) - len(area.children))
+        return max(0, self.prizes_dealt.get(player_id, 0)
+                   + self.prizes_added.get(player_id, 0)
+                   - self.prize_count_adjustment.get(player_id, 0)
+                   - len(area.children))
 
     def draw_cards(self, player_id: str, count: int, *, from_bottom: bool = False) -> List[Dict[str, Any]]:
         """Moves the top `count` cards from the player's deck into their hand."""

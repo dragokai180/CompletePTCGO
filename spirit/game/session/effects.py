@@ -38,6 +38,7 @@ from spirit.game.data_utils import (
     unimplemented,
 )
 from spirit.game.models.board import BoardEntity, CardEntity, EnergyEntity, PokemonEntity, LegendPokemonEntity, CompositePokemonEntity
+from spirit.game.prizes import face_down_prizes, shuffle_face_down_prizes
 from spirit.network.message_names import OutboundMsg
 from spirit.game.game_sequence_packets import NestedSequence
 from .constants import PROMPT_NO, PROMPT_YES
@@ -1712,6 +1713,9 @@ class EffectContext:
                 position = parent.children.index(card)
             except ValueError:
                 position = 0
+            if parent.get_attribute(AttrID.NAME) == "prizePile" \
+                    and card.board_slot is not None:
+                position = card.board_slot
             if to_player is not None:
                 viewers = [to_player]
             else:
@@ -1889,6 +1893,17 @@ class EffectContext:
             card.entity_id: passive_discard_destination(self.board, card)
             for card in cards
         } if area_name == "discard" else {}
+        # Deck mills (Legacy Star, etc.) introduce every face before moving
+        # the batch. Alternating an intro and move for each card creates two
+        # client sequences per card and a long catch-up wait after the effect.
+        batch_deck_moves = area_name == "discard" and len(cards) > 1 and all(
+            card._containing_area_name() == "deck" and
+            (replacements.get(card.entity_id)
+             or discard_area_name(card.archetype_id)) in ("discard", "lostZone")
+            for card in cards
+        )
+        batch_intros = []
+        batch_moves = []
         for card in cards:
             owner = card.owning_player_id or self.player_id
             # Prism Star: a discard becomes a Lost Zone move.
@@ -1942,13 +1957,21 @@ class EffectContext:
                 continue
             intro = self.session._entity_introduced_msg(card)
             # Entering a public pile reveals the card to the opponent.
-            self._queue(intro, viewer_id=opponent,
-                        bracket=GameSequence.SERIAL_SEQUENCE.value)
-            if owner_blind:
-                self._queue(intro, viewer_id=owner,
+            if batch_deck_moves:
+                batch_intros.append((opponent, intro))
+                if owner_blind:
+                    batch_intros.append((owner, intro))
+            else:
+                self._queue(intro, viewer_id=opponent,
                             bracket=GameSequence.SERIAL_SEQUENCE.value)
+                if owner_blind:
+                    self._queue(intro, viewer_id=owner,
+                                bracket=GameSequence.SERIAL_SEQUENCE.value)
             move = self.session._entity_moved_msg(card.entity_id, pile.entity_id, position)
-            self._queue(move, bracket=GameSequence.GROUPED_MOVE.value)
+            if batch_deck_moves:
+                batch_moves.append(move)
+            else:
+                self._queue(move, bracket=GameSequence.GROUPED_MOVE.value)
             if holder is not None:
                 await self.session.refresh_granted_abilities(holder)
             if area_name == "discard" and target_area == "discard":
@@ -1994,6 +2017,12 @@ class EffectContext:
                         owner, card, Triggers.ON_DISCARDED_FROM_HAND,
                         ctx_setup=setup)
                 self.deferred_actions.append(_fire_hand_discard)
+        if batch_deck_moves:
+            for viewer_id, intro in batch_intros:
+                self._queue(intro, viewer_id=viewer_id,
+                            bracket=GameSequence.SERIAL_SEQUENCE.value)
+            for move in batch_moves:
+                self._queue(move, bracket=GameSequence.GROUPED_MOVE.value)
 
     async def look_at_prizes_take_basic(self) -> bool:
         """Hisuian Heavy Ball: look at your face-down Prizes; you may reveal a
@@ -2010,7 +2039,9 @@ class EffectContext:
         prize_area = self.board.find_player_area(self.player_id, "prizePile")
         if not prize_area or not prize_area.children:
             return False
-        prizes = list(prize_area.children)
+        prizes = face_down_prizes(self.board, self.player_id)
+        if not prizes:
+            return False
         basics = [c for c in prizes if is_basic_pokemon(c)]
         picked_id = await session.prompt_prize_reveal_pick(
             self.player_id, self.source.entity_id,
@@ -2023,7 +2054,7 @@ class EffectContext:
         if isinstance(picked, CardEntity):
             slot = getattr(picked, "board_slot", None)
             if slot is None:
-                slot = prizes.index(picked)
+                slot = prize_area.children.index(picked)
             # The picker has already seen the Prize fan.  Explicitly show only
             # the chosen Basic to the opponent while it is still in the Prize
             # pile; introducing its attributes alongside the hand move alone
@@ -2063,7 +2094,7 @@ class EffectContext:
         # is also face-up to the opponent (it sat on the trainer slot), so reset
         # it there too. Then shuffle -- both viewers see the reshuffle.
         resets = [session._attributes_reset_msg(c.entity_id)
-                  for c in prize_area.children]
+                  for c in face_down_prizes(self.board, self.player_id)]
         if resets:
             await session.send_game_sequence(
                 [session.players[self.player_id]], GameSequence.GROUPED_MOVE, resets)
@@ -2071,7 +2102,7 @@ class EffectContext:
             await session.send_game_sequence(
                 [session.players[opponent]], GameSequence.GROUPED_MOVE,
                 [session._attributes_reset_msg(self.source.entity_id)])
-        random.shuffle(prize_area.children)
+        shuffle_face_down_prizes(self.board, self.player_id)
         await session.send_game_sequence(
             both, GameSequence.GROUPED_MOVE,
             [session._build_msg(OutboundMsg.SHUFFLED.value,
@@ -2091,8 +2122,8 @@ class EffectContext:
         prize_area = self.board.find_player_area(pid, "prizePile")
         if prize_area is None:
             return
-        random.shuffle(prize_area.children)
-        for card in prize_area.children:
+        shuffled = shuffle_face_down_prizes(self.board, pid)
+        for card in shuffled:
             self._queue(
                 self.session._attributes_reset_msg(card.entity_id),
                 viewer_id=pid,
@@ -2806,17 +2837,21 @@ class EffectContext:
 
     async def take_prizes(self, count: int, player_id: Optional[str] = None,
                           minimum: Optional[int] = None,
-                          check_win: bool = True) -> List[CardEntity]:
+                          check_win: bool = True,
+                          counts_as_taken: bool = True) -> List[CardEntity]:
         """Takes prize cards outside the KO flow (Slowbro PGO): flushes the
         queued choreography first so the prize fan never interleaves, then
         runs the standard pick + WithOpenPrizeCards flow and the win check.
         minimum<count makes it "up to count"; check_win=False skips the
-        all-prizes win (Peonia refills the pile). Returns the taken cards."""
+        all-prizes win (Peonia refills the pile). counts_as_taken=False moves
+        Peonia's cards without Prize-take triggers or statistics. Returns the
+        selected cards."""
         pid = player_id or self.player_id
         if count <= 0:
             return []
         await self.flush_choreography()
-        taken = await self.session._take_prizes(pid, count, minimum=minimum)
+        taken = await self.session._take_prizes(
+            pid, count, minimum=minimum, counts_as_taken=counts_as_taken)
         prizes = self.board.find_player_area(pid, "prizePile")
         if check_win and prizes is not None and self.board.prizes_dealt.get(pid) \
                 and not prizes.children:
@@ -2824,10 +2859,11 @@ class EffectContext:
         return taken or []
 
     async def put_in_prizes(self, cards: List[CardEntity],
-                            player_id: Optional[str] = None) -> int:
-        """Puts hand cards face down into the player's empty Prize slots
-        (Peonia): queues the moves, AttributesReset re-hides (the owner knows
-        the faces) and the pile's gap refresh; returns how many were placed."""
+                            player_id: Optional[str] = None,
+                            additional: bool = False) -> int:
+        """Puts cards face down into the player's Prize slots. Replacement
+        effects leave Prize-taken progress intact; additional=True records
+        cards added by an attack. Returns how many cards were placed."""
         pid = player_id or self.player_id
         session = self.session
         prize_area = self.board.find_player_area(pid, "prizePile")
@@ -2836,10 +2872,16 @@ class EffectContext:
         dealt = self.board.prizes_dealt.get(pid, 0)
         occupied = {c.board_slot if c.board_slot is not None else i
                     for i, c in enumerate(prize_area.children)}
-        slots = [s for s in range(dealt) if s not in occupied]
+        slot_count = max(dealt, max(occupied, default=-1) + 1)
+        slots = [s for s in range(slot_count) if s not in occupied]
+        next_slot = slot_count
         placed = 0
         for card in cards:
-            slot = slots.pop(0) if slots else dealt + placed
+            if slots:
+                slot = slots.pop(0)
+            else:
+                slot = next_slot
+                next_slot += 1
             if not self.board.move_card(card.entity_id, prize_area.entity_id, slot):
                 continue
             self._queue(session._entity_moved_msg(
@@ -2849,6 +2891,10 @@ class EffectContext:
                         bracket=GameSequence.GROUPED_MOVE.value)
             placed += 1
         if placed:
+            if additional:
+                self.board.prizes_added[pid] = (
+                    self.board.prizes_added.get(pid, 0) + placed
+                )
             self._queue(session._refresh_prize_gaps(pid, prize_area),
                         bracket=GameSequence.GROUPED_MOVE.value)
         return placed

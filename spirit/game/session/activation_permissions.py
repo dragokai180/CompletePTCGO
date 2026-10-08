@@ -241,9 +241,11 @@ def public_activation_allowed(ability, board, pid, source):
         if "onto your opponent's bench" in text and len(_cards(board, opponent, 'bench')) >= effective_bench_capacity(board, opponent):
             return False
 
-    # Explicit multi-zone effects cannot be reduced to a deck-only check.
+    # Legacy Star cannot be used with an empty deck, even if the discard pile
+    # has recovery targets (official Regidrago VSTAR Q&A).
     if title == 'Legacy Star':
-        return bool(deck or _cards(board, pid, 'discard'))
+        return bool(deck)
+    # Other multi-zone effects may still work with one of their zones empty.
     if title in {'Mind Hat', 'Seething Currents'}:
         return bool(hand or (opponent and _cards(board, opponent, 'hand')))
     if title == 'Pitch a Pyukumuku':

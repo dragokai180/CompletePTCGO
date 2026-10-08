@@ -60,6 +60,16 @@ class AbilityMenuPermissionTests(unittest.IsolatedAsyncioTestCase):
                 rig.to_area(card, P1, 'deck')
             self.assertFalse(self.offered(rig, ctx.source, ctx.ability))
 
+    async def test_legacy_star_requires_deck_even_with_cards_in_discard(self):
+        for path in ('SWSH12.RegidragoVSTAR_136', 'SWSH12.RegidragoVSTAR_201'):
+            with self.subTest(path=path):
+                rig, _, ctx = self.ctx(path, 'Legacy Star')
+                self.assertTrue(self.offered(rig, ctx.source, ctx.ability))
+                self.assertTrue(ctx.discard_pile())
+                for card in list(ctx.deck_top(100)):
+                    rig.to_area(card, P1, 'discard')
+                self.assertFalse(self.offered(rig, ctx.source, ctx.ability))
+
     async def test_power_status_restrictions_survive_missing_callback(self):
         rig, e, ctx = self.ctx('HGSS3.Smeargle_8', 'Portrait')
         with patch.object(ctx.ability, 'condition', None):
@@ -73,6 +83,39 @@ class AbilityMenuPermissionTests(unittest.IsolatedAsyncioTestCase):
         rig, e, ctx = self.ctx('XY4.Slurpuff_69', 'Tasting')
         rig.to_area(ctx.source, P1, 'bench')
         self.assertTrue(self.offered(rig, ctx.source, ctx.ability))
+
+    async def test_coin_bonus_works_from_bench_and_draws_extra_when_active(self):
+        for path in ('SV085.Gholdengoex_164', 'SV4.Gholdengoex_139',
+                     'SV4.Gholdengoex_231', 'SV4.Gholdengoex_252'):
+            with self.subTest(path=path):
+                rig, _, ctx = self.ctx(path, 'Coin Bonus')
+                ctx.draw_cards = AsyncMock()
+
+                rig.to_area(ctx.source, P1, 'bench')
+                self.assertTrue(self.offered(rig, ctx.source, ctx.ability))
+                await ctx.ability.effect(ctx)
+                ctx.draw_cards.assert_awaited_once_with(1)
+
+                ctx.draw_cards.reset_mock()
+                rig.to_area(ctx.source, P1, 'activePokemonArea')
+                self.assertTrue(self.offered(rig, ctx.source, ctx.ability))
+                await ctx.ability.effect(ctx)
+                ctx.draw_cards.assert_awaited_once_with(2)
+
+    async def test_tasting_draws_extra_only_when_active(self):
+        rig, _, ctx = self.ctx('XY4.Slurpuff_69', 'Tasting')
+        ctx.draw_cards = AsyncMock()
+
+        rig.to_area(ctx.source, P1, 'bench')
+        self.assertTrue(self.offered(rig, ctx.source, ctx.ability))
+        await ctx.ability.effect(ctx)
+        ctx.draw_cards.assert_awaited_once_with(1)
+
+        ctx.draw_cards.reset_mock()
+        rig.to_area(ctx.source, P1, 'activePokemonArea')
+        self.assertTrue(self.offered(rig, ctx.source, ctx.ability))
+        await ctx.ability.effect(ctx)
+        ctx.draw_cards.assert_awaited_once_with(2)
 
     async def test_active_only_catalog_does_not_depend_on_authored_conditions(self):
         checked = 0

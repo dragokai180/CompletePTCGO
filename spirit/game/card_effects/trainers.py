@@ -1181,7 +1181,8 @@ def peonia_playable(board, player_id) -> bool:
 async def peonia(ctx):
     """Put up to 3 Prize cards into your hand. Then, for each Prize card put
     into your hand this way, put a card from your hand face down as a Prize."""
-    taken = await ctx.take_prizes(3, minimum=1, check_win=False)
+    taken = await ctx.take_prizes(3, minimum=1, check_win=False,
+                                  counts_as_taken=False)
     if not taken:
         return
     picks = await ctx.choose_cards(

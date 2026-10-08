@@ -40,6 +40,11 @@ class CollectionAttributeTests(unittest.TestCase):
         self.assertEqual(json.loads(self.attrs(['GX'], abilities=abilities)['202120']['value']), ['gx-id'])
         self.assertNotIn('202120', self.attrs(['Basic'], abilities=abilities))
 
+    def test_gx_attack_uses_client_gx_button_texture(self):
+        self.assertEqual(data_utils.Attack('Test-GX', gx=True).to_dict()['buttonOverride'], 'abilityGX')
+        self.assertEqual(data_utils.Attack('VSTAR Power', vstar=True).to_dict()['buttonOverride'], 'abilityVSTAR')
+        self.assertNotIn('buttonOverride', data_utils.Attack('Regular attack').to_dict())
+
     def test_full_art_is_independent_of_foil_coverage(self):
         self.assertTrue(self.attrs([], {'full_art': True})['201000']['value'])
         self.assertFalse(self.attrs(['VMAX'], {'full_art': False, 'mask': 'Etched'})['201000']['value'])
