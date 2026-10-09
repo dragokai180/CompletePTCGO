@@ -3,7 +3,9 @@ import unittest
 from unittest.mock import AsyncMock
 
 from tests import test_hgss_rules as fixtures
-from spirit.tools.effect_smoke import P2
+from spirit.game.session.effects import is_basic_pokemon
+from spirit.game.session.passives import effective_bench_capacity
+from spirit.tools.effect_smoke import P1, P2
 
 
 class CoinInteractionTests(unittest.IsolatedAsyncioTestCase):
@@ -80,6 +82,59 @@ class CoinInteractionTests(unittest.IsolatedAsyncioTestCase):
         await ctx.ability.effect(ctx)
         ctx.flip_coins.assert_awaited_once_with(1, 'Black Eyes')
         ctx.discard_cards.assert_awaited_once_with([energy])
+
+    async def test_irresistible_aroma_flips_before_offering_only_basics(self):
+        rig, _, ctx = self.ctx('SM10.Gloom_7', 'Irresistible Aroma')
+        for card in list(ctx.hand(P2)):
+            rig.to_area(card, P2, 'deck')
+        basic = self.add(rig, self.filler, P2, 'hand')
+        evolved = self.add(rig, fixtures.definition('SM10.Gloom_7'), P2, 'hand')
+        item = self.add(rig, self.item, P2, 'hand')
+        hand = [basic, evolved, item]
+        events = []
+
+        async def flip(*args):
+            events.append('flip')
+            return [True]
+
+        async def flush(*args):
+            events.append('coin_shown')
+
+        async def choose(*args):
+            events.append('hand_shown')
+            self.assertEqual(args[0], P1)
+            self.assertEqual(args[2], [basic])
+            self.assertEqual(args[7], hand)
+            return [basic.entity_id]
+
+        ctx.flip_coins = AsyncMock(side_effect=flip)
+        rig.session._flush_effect_runs = AsyncMock(side_effect=flush)
+        rig.session.prompt_card_chooser = AsyncMock(side_effect=choose)
+        await ctx.ability.effect(ctx)
+
+        self.assertEqual(events[:3], ['flip', 'coin_shown', 'hand_shown'])
+        self.assertTrue(is_basic_pokemon(basic))
+        self.assertIn(basic, ctx.opponent_bench())
+        self.assertNotIn(evolved, ctx.opponent_bench())
+        self.assertNotIn(item, ctx.opponent_bench())
+
+    async def test_irresistible_aroma_tails_never_opens_hand(self):
+        rig, _, ctx = self.ctx('SM10.Gloom_7', 'Irresistible Aroma')
+        rig.session.prompt_card_chooser = AsyncMock()
+        rig.session.prompt_view_cards = AsyncMock()
+        ctx.flip_coins = AsyncMock(return_value=[False])
+        await ctx.ability.effect(ctx)
+        rig.session.prompt_card_chooser.assert_not_awaited()
+        rig.session.prompt_view_cards.assert_not_awaited()
+
+    async def test_irresistible_aroma_requires_opponent_bench_space(self):
+        rig, _, ctx = self.ctx('SM10.Gloom_7', 'Irresistible Aroma')
+        while len(ctx.opponent_bench()) < effective_bench_capacity(rig.board, P2):
+            self.add(rig, self.filler, P2, 'bench')
+        self.assertFalse(ctx.ability.condition(rig.board, P1, ctx.source))
+        ctx.flip_coins = AsyncMock()
+        await ctx.ability.effect(ctx)
+        ctx.flip_coins.assert_not_awaited()
 
     async def test_pendulum_influence_flips_before_copying(self):
         card = fixtures.definition('SV1.Hypno_83')

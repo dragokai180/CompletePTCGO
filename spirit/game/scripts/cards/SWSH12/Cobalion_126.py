@@ -18,7 +18,8 @@ async def follow_up(ctx):
     if not bench:
         return
     picks = await ctx.choose_cards(
-        bench, 2, minimum=0, prompt="Choose up to 2 of your Benched Pokémon.",
+        bench, min(2, len(bench)), minimum=0,
+        prompt="Choose up to 2 of your Benched Pokémon.",
     )
     if not picks:
         return

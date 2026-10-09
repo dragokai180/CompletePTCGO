@@ -251,9 +251,16 @@ def public_attack_condition(ctx, clause):
         return not any(set(subtypes_for(p.archetype_id) or []) & {'GX', 'EX'} for p in ctx.my_bench())
     if c == 'you played a supporter card from your hand during this turn':
         return bool(ctx.supporters_played_this_turn())
-    m = re.fullmatch(r'you played a (future|tag team) supporter card from your hand during this turn', c)
+    m = re.fullmatch(
+        r'you played an? (ancient|future|rapid strike|single strike|tag team) '
+        r'supporter card from your hand during this turn', c,
+    )
     if m:
-        tag = 'Future' if m[1] == 'future' else 'TAG TEAM'
+        tag = {
+            'ancient': 'Ancient', 'future': 'Future',
+            'rapid strike': 'Rapid Strike', 'single strike': 'Single Strike',
+            'tag team': 'TAG TEAM',
+        }[m[1]]
         return any(kind == TrainerType.SUPPORTER.value and tag in (subtypes_for(guid) or [])
                    for guid, name, kind in state.trainers_played)
     m = re.fullmatch(r'you played (.+) from your hand during this turn', c)

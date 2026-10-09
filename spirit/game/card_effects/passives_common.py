@@ -14,8 +14,9 @@ preds (no_retreat / ability_lock / healing_block / retreat_free) take
 
 from typing import Any, Callable, Optional
 
-from spirit.game.attributes import AttrID, TrainerType
+from spirit.game.attributes import AttrID, PokemonTypes, TrainerType
 from spirit.game.data_utils import def_for
+from spirit.game.models.board import PokemonEntity
 from spirit.game.session.passives import (
     Passive,
     out_of_play_ability_locked,
@@ -473,6 +474,22 @@ def ability_lock_passive(target_pred) -> Passive:
     """Turns off Abilities while target_pred(pokemon, carrier) holds (Path
     to the Peak: `lambda p, c: has_rule_box(p.archetype_id)`)."""
     return AbilityLockPassive(target_pred)
+
+
+class BideBarricadePassive(Passive):
+    """Active Wobbuffet removes non-Psychic Abilities in play and out of play."""
+
+    @staticmethod
+    def _blocks(card) -> bool:
+        return isinstance(card, PokemonEntity) and PokemonTypes.PSYCHIC.value not in (
+            card.get_attribute(AttrID.POKEMON_TYPES) or []
+        )
+
+    def blocks_abilities(self, pokemon, carrier):
+        return is_in_active_spot(carrier) and self._blocks(pokemon)
+
+    def blocks_out_of_play_abilities(self, card, carrier):
+        return is_in_active_spot(carrier) and self._blocks(card)
 
 
 class HealingBlockPassive(Passive):

@@ -54,7 +54,6 @@ from .constants import (
     PROMPT_WAIT_OPPONENT_SETUP,
     PROMPT_WAIT_OPPONENT_DECISION,
     PROMPT_MULLIGAN_EXTRA_DRAW,
-    PROMPT_ANOTHER_ATTACK,
     PROMPT_TAKE_PRIZE,
     PROMPT_CHOOSE_NEW_ACTIVE,
     PROMPT_REVEAL_BASIC_FROM_PRIZE,
@@ -124,12 +123,14 @@ from .passives import (
     burn_recovery_blocked, effective_bench_capacity, effective_max_hp,
     effective_retreat_cost, energy_attachment_blocked, energy_attach_taxer,
     evolve_heal_amount, extra_manual_energy_attachments,
+    forced_coin_result,
     passive_discard_destination,
     player_visualizations,
     retreat_energy_destination, tool_slots_free,
     tool_suppressed, special_energy_suppressed,
     special_conditions_persist_on_evolution,
     pokemon_entry_blocked, pokemon_play_blocked,
+    out_of_play_ability_locked,
 )
 from .legal_actions import (
     ACTION_ATTACH_TOOL,
@@ -4808,6 +4809,11 @@ class GameSession:
         if attach_ctx is not None:
             await self._flush_effect_runs(attach_ctx)
             await self.resolve_knockouts(attach_ctx)
+        if target.get_attribute(AttrID.SPECIAL_CONDITIONS):
+            from spirit.game.card_effects.pokemon import recover_from_festival_grounds
+            festival_ctx = EffectContext(self, player_id, card, None)
+            if await recover_from_festival_grounds(festival_ctx, target):
+                await self._flush_effect_runs(festival_ctx)
         # A manual attach from hand is what ON_ENERGY_ATTACHED observes.
         await self.fire_energy_attached_triggers(player_id, card, target)
         attach_end = self.turn_state.attach_ends_turn_checks.get(target.entity_id)
@@ -4821,10 +4827,27 @@ class GameSession:
             and is_active
         )
 
+    def _flip_coin_during_turn(self, player_id: str) -> int:
+        """Apply coin-result effects to a turn action resolved outside EffectContext."""
+        continuous = forced_coin_result(self.board_state, player_id)
+        persistent = self.turn_state.forced_coins_through_turn.get(player_id)
+        if continuous is not None:
+            flip = 0 if continuous else 1
+        elif persistent is not None:
+            flip = 0 if persistent[0] else 1
+        else:
+            flip = random.choice([0, 1])
+        forced = self.turn_state.forced_coin_result
+        if forced is not None:
+            if continuous is None:
+                flip = 0 if forced else 1
+            self.turn_state.forced_coin_result = None
+        return flip
+
     async def _resolve_attach_tax_flip(self, player_id: str, energy, taxer) -> bool:
         """Slimy Room flip on a manual energy attach: heads (True) proceeds;
         tails discards the energy from hand (revealed) and returns False."""
-        flip = random.choice([0, 1])
+        flip = self._flip_coin_during_turn(player_id)
         heads = flip == 0
         self.stat_add(player_id, "headsflipped", 1 if heads else 0)
         self.stat_add(player_id, "tailsflipped", 0 if heads else 1)
@@ -5266,6 +5289,13 @@ class GameSession:
                 f"{card.entity_id} has no registered definition; ignoring."
             )
             return False
+        if card._containing_area_name() in ("hand", "discard"):
+            if not ability.is_rule_action and out_of_play_ability_locked(
+                    self.board_state, card):
+                return False
+        elif ability_locked(self.board_state, card, ability) \
+                and not ability.is_granted:
+            return False
         if not ability_condition_met(ability, self.board_state, player_id, card):
             return False
         if ability.vstar and player_id in self.turn_state.vstar_used:
@@ -5336,9 +5366,13 @@ class GameSession:
         attrs applied before the Evolve bracket on both viewers).
         """
         card = evolution_card
-        if pokemon_entry_blocked(self.board_state, player_id, card):
-            return False
         played_from_hand = card.parent is self.board_state.find_player_area(player_id, "hand")
+        if played_from_hand:
+            if self.turn_state.play_locked(player_id, card) or pokemon_play_blocked(
+                    self.board_state, player_id, card):
+                return False
+        elif pokemon_entry_blocked(self.board_state, player_id, card):
+            return False
         area = target.parent if target is not None else None
         if not target or not area:
             return False
@@ -6215,8 +6249,8 @@ class GameSession:
                 f"[Session {self.game_id}] Attack kept the turn going for "
                 f"{self.players[player_id].screen_name}."
             )
-            # Optional second strike (Festival Lead / Fluffy Barrage): ask,
-            # then auto-select the attacker so the attack panel opens.
+            # Offer the second strike directly; Done in the attack panel
+            # still lets the player end the turn without attacking again.
             can_attack_again = any(
                 e.get("selectableAction", {}).get("description") == ACTION_USE_ATTACK
                 for e in compute_legal_actions(
@@ -6224,11 +6258,6 @@ class GameSession:
                 )
             )
             if not can_attack_again:
-                return True
-            wants_another = await self.prompt_player_choice(
-                player_id, PROMPT_ANOTHER_ATTACK, [PROMPT_YES, PROMPT_NO],
-            ) == 0
-            if not wants_another:
                 return True
             self.turn_state.auto_select_attack_entity_id = card.entity_id
             return False
@@ -6240,7 +6269,7 @@ class GameSession:
         not happen (no damage, no lock/VSTAR bookkeeping; the turn still
         ends). PokeAbility bracket: M.s runs the L.x flip with no condition
         pop-in (FlipToWakeUp would stamp the Asleep pop-in)."""
-        flip = random.choice([0, 1])
+        flip = self._flip_coin_during_turn(player_id)
         heads = flip == 0
         self.stat_add(player_id, "headsflipped", 1 if heads else 0)
         self.stat_add(player_id, "tailsflipped", 0 if heads else 1)
@@ -6265,7 +6294,7 @@ class GameSession:
     async def _resolve_confusion_flip(self, player_id: str, attacker) -> bool:
         """Confused Pokemon flip before attacking: heads proceeds into the
         normal attack; tails hurts the attacker for 30 raw damage instead."""
-        flip = random.choice([0, 1])
+        flip = self._flip_coin_during_turn(player_id)
         heads = flip == 0
         self.stat_add(player_id, "headsflipped", 1 if heads else 0)
         self.stat_add(player_id, "tailsflipped", 0 if heads else 1)

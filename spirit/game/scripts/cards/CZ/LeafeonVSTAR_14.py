@@ -1,4 +1,4 @@
-from spirit.game.data_utils import PokemonCardDef, Attack, Ability
+from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.passives_common import TakesLessPassive
 
@@ -15,10 +15,6 @@ async def ivy_star(ctx):
     opp_active = ctx.opponent_active()
     opp_bench = ctx.opponent_bench()
     if opp_active is None or not opp_bench or ctx.effects_blocked(opp_active):
-        return
-    if not await ctx.ask_yes_no(
-        "Switch 1 of your opponent's Benched Pokémon with their Active Pokémon?"
-    ):
         return
     target = await ctx.choose_pokemon(
         opp_bench, "Choose the opponent's new Active Pokémon"
@@ -54,6 +50,7 @@ card = PokemonCardDef(
     abilities=[
         Ability(
             title="Ivy Star",
+            activation=Activations.ONCE_PER_TURN,
             game_text="During your turn, you may switch 1 of your opponent's Benched Pok\u00e9mon with their Active Pok\u00e9mon. (You can't use more than 1 VSTAR Power in a game.)",
             vstar=True,
             condition=_ivy_star_condition,

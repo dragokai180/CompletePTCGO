@@ -1,8 +1,6 @@
-from spirit.game.card_effects.attacks_common import bonus_if
+from spirit.game.card_effects.attacks_common import bonus_if, own_stadium_in_play
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
-
-_stadium_in_play = lambda ctx: ctx.stadium_in_play() is not None
 
 card = PokemonCardDef(
     guid="d22ab419-aaf3-5044-9fbc-947250e38997",
@@ -33,7 +31,7 @@ card = PokemonCardDef(
             cost={PokemonTypes.GRASS: 1, PokemonTypes.COLORLESS: 2},
             damage=80,
             damage_operator="+",
-            effect=bonus_if(_stadium_in_play, 80),
+            effect=bonus_if(own_stadium_in_play, 80),
         ),
     ],
 )

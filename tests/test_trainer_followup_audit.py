@@ -112,6 +112,47 @@ class TrainerFollowupTests(unittest.IsolatedAsyncioTestCase):
             rig.to_area(card, P1, 'discard')
         self.assertFalse(definition('XY6.Wally_94').condition(rig.board, P1))
 
+    async def test_salvatore_evolves_from_deck_even_on_entry_turn(self):
+        for number in (160, 202, 212):
+            with self.subTest(number=number):
+                rig, _ = self.rig('BW1.Snivy_1')
+                salvatore = definition(f'SV05.Salvatore_{number}')
+                source = self.add(rig, salvatore, P1, 'hand')
+                target = rig.board.active_pokemon(P1)
+                evolution = self.add(rig, definition('BW1.Servine_3'), P1, 'deck')
+                stage_two = self.add(rig, definition('BW1.Serperior_5'), P1, 'deck')
+                ability_evolution = self.add(
+                    rig, definition('SV05.Metang_114'), P1, 'deck')
+                rig.session.turn_state.turn_number = 1
+                rig.session.turn_state.mark_entered_play(target.entity_id)
+                self.assertTrue(salvatore.condition(rig.board, P1))
+
+                ctx = EffectContext(rig.session, P1, source, None)
+                ctx.choose_pokemon = AsyncMock(return_value=target)
+                ctx.search_deck = AsyncMock(return_value=[evolution])
+                ctx.evolve_pokemon = AsyncMock(return_value=True)
+                ctx.shuffle_deck = AsyncMock()
+                await salvatore.effect(ctx)
+
+                predicate = ctx.search_deck.call_args.args[0]
+                self.assertTrue(predicate(evolution))
+                self.assertFalse(predicate(stage_two))
+                self.assertFalse(predicate(ability_evolution))
+                self.assertEqual(ctx.search_deck.call_args.kwargs['minimum'], 0)
+                ctx.evolve_pokemon.assert_awaited_once_with(target, evolution)
+                ctx.shuffle_deck.assert_awaited_once()
+
+    async def test_salvatore_rejects_printed_ability_and_empty_deck(self):
+        from spirit.game.scripts.cards.SV05.Salvatore_160 import _eligible_evolution
+
+        rig, _ = self.rig('BW1.Snivy_1')
+        ability_evolution = self.add(
+            rig, definition('SV05.Metang_114'), P1, 'deck')
+        self.assertFalse(_eligible_evolution(ability_evolution, 'Beldum'))
+        for card in list(rig.board.find_player_area(P1, 'deck').children):
+            rig.to_area(card, P1, 'discard')
+        self.assertFalse(definition('SV05.Salvatore_160').condition(rig.board, P1))
+
     async def test_breeders_nurturing_requires_deck_and_old_target(self):
         for number in (166, 188, 195):
             rig, e = self.rig('BW1.Snivy_1')

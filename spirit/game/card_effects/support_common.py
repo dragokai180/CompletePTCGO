@@ -34,6 +34,16 @@ async def _deal_printed(ctx):
         await ctx.deal_damage()
 
 
+def confirm_optional_trigger(action):
+    """Ask before an optional automatic trigger opens its effect picker."""
+    async def effect(ctx):
+        if not await ctx.ask_yes_no(f"Use {ctx.ability.title}?"):
+            ctx.suppress_announce = True
+            return
+        await action(ctx)
+    return effect
+
+
 def _card_label(card: CardEntity) -> str:
     definition = def_for(card.archetype_id)
     return getattr(definition, "display_name", None) or "the card"

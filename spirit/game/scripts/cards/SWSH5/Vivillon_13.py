@@ -8,7 +8,7 @@ async def vital_powder(ctx):
     if not bench:
         return
     picks = await ctx.choose_cards(
-        bench, 2, prompt="Choose 2 Benched Pokémon to heal"
+        bench, min(2, len(bench)), prompt="Choose Benched Pokémon to heal"
     )
     for pokemon in picks:
         heal_amount = ctx.max_hp(pokemon) - pokemon.get_attribute(AttrID.HP, 0)

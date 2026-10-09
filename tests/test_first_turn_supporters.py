@@ -13,6 +13,7 @@ from spirit.tools.effect_smoke import P1, P2
 
 
 FIRST_TURN_SUPPORTERS = (
+    'SWSH4.Beauty_148', 'SWSH4.Beauty_181', 'SWSH4.Beauty_194',
     'SV06.Carmine_145', 'SV06.Carmine_204', 'SV06.Carmine_217',
     'SV085.Carmine_103',
     'SV10.TeamRocketsProton_177', 'SV10.TeamRocketsProton_227',
@@ -32,6 +33,9 @@ class FirstTurnSupporterTests(unittest.IsolatedAsyncioTestCase):
             for path in FIRST_TURN_SUPPORTERS
         }
         ordinary = self.add(rig, definition('SM1.Hau_120'), P1, 'hand')
+        # Wally's older evolution-timing text does not waive the later
+        # no-Supporter rule for the player who goes first.
+        wally = self.add(rig, definition('XY6.Wally_94'), P1, 'hand')
         state = rig.session.turn_state
         state.turn_number = 1
         state.active_player_id = P1
@@ -45,6 +49,7 @@ class FirstTurnSupporterTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(path=path):
                 self.assertIn(card.entity_id, first_turn)
         self.assertNotIn(ordinary.entity_id, first_turn)
+        self.assertNotIn(wally.entity_id, first_turn)
 
         state.supporter_played = True
         self.assertTrue(all(card.entity_id not in offered()
@@ -54,6 +59,7 @@ class FirstTurnSupporterTests(unittest.IsolatedAsyncioTestCase):
         later_turn = offered()
         self.assertTrue(all(card.entity_id in later_turn for card in cards.values()))
         self.assertIn(ordinary.entity_id, later_turn)
+        self.assertIn(wally.entity_id, later_turn)
 
     async def test_carmine_reprint_resolves_on_first_turn(self):
         rig, _ = self.rig('BW1.Snivy_1')
@@ -70,6 +76,24 @@ class FirstTurnSupporterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(deck.children), before - 5)
         self.assertEqual(len(rig.board.find_player_area(P1, 'hand').children), 5)
         self.assertIn(carmine, rig.board.find_player_area(P1, 'discard').children)
+        self.assertTrue(state.supporter_played)
+
+    async def test_beauty_draws_two_on_first_turn(self):
+        rig, _ = self.rig('BW1.Snivy_1')
+        beauty = self.add(rig, definition('SWSH4.Beauty_194'), P1, 'hand')
+        state = rig.session.turn_state
+        state.turn_number = 1
+        state.active_player_id = P1
+        deck = rig.board.find_player_area(P1, 'deck')
+        hand = rig.board.find_player_area(P1, 'hand')
+        before_deck = len(deck.children)
+        before_hand = len(hand.children)
+
+        await rig.session._execute_play_trainer(P1, beauty)
+
+        self.assertEqual(len(deck.children), before_deck - 2)
+        self.assertEqual(len(hand.children), before_hand + 1)
+        self.assertIn(beauty, rig.board.find_player_area(P1, 'discard').children)
         self.assertTrue(state.supporter_played)
 
     async def test_printed_first_turn_attacks_are_marked_playable(self):

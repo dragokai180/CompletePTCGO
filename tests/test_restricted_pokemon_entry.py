@@ -194,6 +194,28 @@ class RestrictedEntryTests(unittest.IsolatedAsyncioTestCase):
             target = self.add(rig, definition(path), P1, 'deck')
             self.assertTrue(await ctx.bench_pokemon(target))
 
+    async def test_fossil_researcher_effect_benches_both_restored_pokemon(self):
+        rig, _ = self.clean()
+        card = definition('XY3.FossilResearcher_92')
+        source = self.add(rig, card, P1, 'hand')
+        ctx = EffectContext(rig.session, P1, source, None)
+        amaura = self.add(rig, definition('XY3.Amaura_25'), P1, 'deck')
+        tyrunt = self.add(rig, definition('XY3.Tyrunt_61'), P1, 'deck')
+        anorith = self.add(rig, definition('XY11.Anorith_56'), P1, 'deck')
+        self.assertTrue(card.condition(rig.board, P1))
+
+        async def search(predicate, **kwargs):
+            self.assertTrue(predicate(amaura))
+            self.assertTrue(predicate(tyrunt))
+            self.assertFalse(predicate(anorith))
+            self.assertEqual(kwargs['count'], 2)
+            return [amaura, tyrunt]
+
+        ctx.search_deck = AsyncMock(side_effect=search)
+        await card.effect(ctx)
+        self.assertEqual(amaura._containing_area_name(), 'bench')
+        self.assertEqual(tyrunt._containing_area_name(), 'bench')
+
     async def test_twist_mountain_and_restoring_beam_still_resolve(self):
         for path, title, zone in (
             ('BW5.TwistMountain_101', None, 'hand'),

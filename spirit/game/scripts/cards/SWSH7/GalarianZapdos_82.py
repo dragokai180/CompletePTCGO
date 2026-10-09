@@ -15,6 +15,9 @@ async def strong_legs_charge(ctx):
     energies = [c for c in ctx.hand() if _is_fighting_energy(c)]
     if not energies:
         return
+    if not await ctx.ask_yes_no("Use Strong Legs Charge?"):
+        ctx.suppress_announce = True
+        return
     picks = await ctx.choose_cards(
         energies, 2, minimum=0,
         prompt="Choose up to 2 Fighting Energy cards to attach",

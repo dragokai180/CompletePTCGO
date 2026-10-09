@@ -1,8 +1,9 @@
 from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.standard_era import (
-    standard_ability, standard_attack, standard_passive,
+    standard_ability, standard_attack,
 )
+from spirit.game.card_effects.passives_common import BideBarricadePassive
 
 
 card = PokemonCardDef(
@@ -27,7 +28,7 @@ card = PokemonCardDef(
         Ability(
             title='Bide Barricade',
             game_text="As long as this Pokémon is your Active Pokémon, each Pokémon in play, in each player's hand, and in each player's discard pile has no Abilities (except for Psychic Pokémon).",
-            passive=standard_passive("As long as this Pokémon is your Active Pokémon, each Pokémon in play, in each player's hand, and in each player's discard pile has no Abilities (except for Psychic Pokémon)."),
+            passive=BideBarricadePassive(),
         ),
         Attack(
             title='Psychic Assault',

@@ -1,8 +1,6 @@
 from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
-from spirit.game.card_effects.standard_era import (
-    standard_ability, standard_attack, standard_passive,
-)
+from spirit.game.scripts.cards.SV1.Klefki_96 import _MischievousLockPassive, joust
 
 
 card = PokemonCardDef(
@@ -27,14 +25,14 @@ card = PokemonCardDef(
         Ability(
             title='Mischievous Lock',
             game_text="As long as this Pokémon is in the Active Spot, Basic Pokémon in play (both yours and your opponent's) have no Abilities, except for Mischievous Lock.",
-            passive=standard_passive("As long as this Pokémon is in the Active Spot, Basic Pokémon in play (both yours and your opponent's) have no Abilities, except for Mischievous Lock."),
+            passive=_MischievousLockPassive(),
         ),
         Attack(
             title='Joust',
             game_text="Before doing damage, discard all Pokémon Tools from your opponent's Active Pokémon.",
             cost={PokemonTypes.COLORLESS: 1},
             damage=10,
-            effect=standard_attack,
+            effect=joust,
         ),
     ],
 )

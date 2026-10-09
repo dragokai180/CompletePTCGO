@@ -31,7 +31,8 @@ async def _double_gunner(ctx):
     if not bench:
         return
     targets = await ctx.choose_cards(
-        bench, 2, minimum=1, prompt="Choose up to 2 of your opponent's Benched Pokémon",
+        bench, min(2, len(bench)), minimum=1,
+        prompt="Choose up to 2 of your opponent's Benched Pokémon",
     )
     for target in targets:
         await ctx.deal_damage(20, target=target, apply_modifiers=False, as_counters=True)

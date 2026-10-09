@@ -1,12 +1,10 @@
 from spirit.game.card_effects.attacks_common import bonus_if
 from spirit.game.card_effects.pokemon import in_active_spot
-from spirit.game.data_utils import PokemonCardDef, Attack, Ability
+from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 
 
 async def star_rondo(ctx):
-    if not await ctx.ask_yes_no("Switch this Pokémon with your Active Pokémon?"):
-        return
     if not await ctx.switch_active(ctx.player_id, ctx.source):
         return
     opp_active = ctx.opponent_active()
@@ -39,6 +37,7 @@ card = PokemonCardDef(
     abilities=[
         Ability(
             title="Star Rondo",
+            activation=Activations.ONCE_PER_TURN,
             game_text="During your turn, if this Pok\u00e9mon is on your Bench, you may switch it with your Active Pok\u00e9mon. If you do, switch 1 of your opponent's Benched Pok\u00e9mon with their Active Pok\u00e9mon. (You can't use more than 1 VSTAR Power in a game.)",
             vstar=True,
             condition=lambda board, pid, poke: not in_active_spot(board, pid, poke),

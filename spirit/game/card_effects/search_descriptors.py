@@ -2,7 +2,7 @@
 import re
 from spirit.game.attributes import AttrID, PokemonTypes
 from spirit.game.data_utils import def_for, subtypes_for
-from spirit.game.session.effects import is_pokemon_card, is_basic_pokemon, is_energy_card, is_stadium_card, is_supporter_card, is_pokemon_tool
+from spirit.game.session.effects import is_pokemon_card, is_basic_pokemon, is_basic_energy, is_energy_card, is_stadium_card, is_supporter_card, is_pokemon_tool
 from spirit.game.card_effects.pokemon import energy_provides_type
 
 TYPES = "grass|fire|water|lightning|psychic|fighting|darkness|metal|fairy|dragon|colorless"
@@ -21,6 +21,46 @@ def specific_search_predicate(text):
         return lambda c: is_supporter_card(c) or is_stadium_card(c)
     if "pokémon and a pokémon tool card" in descriptor:
         return lambda c: is_pokemon_card(c) or is_pokemon_tool(c)
+    if "in any combination of" in descriptor:
+        # Each half of a mixed search/recovery is eligible independently.
+        # Checking the first Energy word alone excluded the Pokémon half.
+        if "helix fossil omanyte, dome fossil kabuto, or old amber aerodactyl" in descriptor:
+            names = {"helix fossil omanyte", "dome fossil kabuto",
+                     "old amber aerodactyl"}
+            return lambda c: (
+                getattr(def_for(c.archetype_id), "display_name", "") or ""
+            ).casefold() in names
+        mixed = re.search(
+            rf"(?:(?P<owner>ethan|cynthia|erika|lillie|steven)'s|"
+            rf"(?P<pokemon_type>{TYPES})) pokémon and "
+            rf"(?P<basic>basic )?(?P<energy_type>{TYPES}) energy(?: cards?)?\b",
+            descriptor,
+        )
+        if mixed:
+            owner = mixed.group("owner")
+            pokemon_type = mixed.group("pokemon_type")
+            energy_type = getattr(PokemonTypes, mixed.group("energy_type").upper()).value
+            basic = bool(mixed.group("basic"))
+            if owner:
+                pokemon_match = lambda c: is_pokemon_card(c) and (
+                    getattr(def_for(c.archetype_id), "display_name", "") or ""
+                ).casefold().startswith(owner + "'s ")
+            else:
+                kind = getattr(PokemonTypes, pokemon_type.upper()).value
+                pokemon_match = lambda c: is_pokemon_card(c) and kind in (
+                    c.get_attribute(AttrID.POKEMON_TYPES) or [])
+            return lambda c: pokemon_match(c) or (
+                (is_basic_energy(c) if basic else is_energy_card(c))
+                and energy_provides_type(c, energy_type)
+            )
+        if re.search(r"pokémon and basic energy(?: cards?)?\b", descriptor):
+            return lambda c: is_pokemon_card(c) or is_basic_energy(c)
+        energy_pair = re.search(rf"({TYPES}) and ({TYPES}) energy cards?", descriptor)
+        if energy_pair:
+            kinds = {getattr(PokemonTypes, word.upper()).value
+                     for word in energy_pair.groups()}
+            return lambda c: is_energy_card(c) and any(
+                energy_provides_type(c, kind) for kind in kinds)
     if "tag team cards" in descriptor:
         return lambda c: "tag team" in subtypes(c)
     if "ultra beast card" in descriptor:

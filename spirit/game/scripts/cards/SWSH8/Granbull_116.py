@@ -13,6 +13,9 @@ async def dig_up(ctx):
     tools = [c for c in ctx.discard_pile() if _is_tool_card(c)]
     if not tools:
         return
+    if not await ctx.ask_yes_no("Use Dig Up?"):
+        ctx.suppress_announce = True
+        return
     picks = await ctx.choose_cards(
         tools, 2, minimum=0,
         prompt="Choose up to 2 Pokémon Tool cards to put into your hand.",

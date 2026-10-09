@@ -394,6 +394,9 @@ def standard_ability_condition(game_text: str):
             stadium = board.find_global_area("activeStadium")
             if stadium is None or not stadium.children:
                 return False
+        if "opponent's bench isn't full" in activation_clause \
+                and not has_bench_space(opponent_id):
+            return False
         attached_energy_requirement = re.search(
             r"if this pokémon has any (basic )?(grass|fire|water|lightning|"
             r"psychic|fighting|darkness|metal|fairy)? ?energy attached",

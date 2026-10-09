@@ -1,6 +1,6 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
-from spirit.game.card_effects.attacks_common import bonus_if
+from spirit.game.card_effects.attacks_common import bonus_if, own_stadium_in_play
 from spirit.game.card_effects.passives_common import protect_next_turn
 
 card = PokemonCardDef(
@@ -33,7 +33,7 @@ card = PokemonCardDef(
             cost={PokemonTypes.FIGHTING: 2, PokemonTypes.COLORLESS: 1},
             damage=80,
             damage_operator="+",
-            effect=bonus_if(lambda ctx: ctx.stadium_in_play() is not None, 80),
+            effect=bonus_if(own_stadium_in_play, 80),
         ),
     ],
 )

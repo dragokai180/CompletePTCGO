@@ -487,6 +487,9 @@ def shady_dealings(count):
     """On evolve: search the deck for up to `count` Trainer card(s), reveal
     them, and put them into hand. Then shuffle."""
     async def effect(ctx):
+        if not await ctx.ask_yes_no("Use Shady Dealings?"):
+            ctx.suppress_announce = True
+            return
         picks = await ctx.search_deck(
             is_trainer_card, count=count, minimum=0,
             prompt=f"Choose up to {count} Trainer card(s) to put into your hand.",
@@ -1070,8 +1073,8 @@ async def yoga_loop(ctx):
 
 class FluffyBarragePassive(Passive):
     """May attack twice each turn (the printed KO sentence is timing reminder
-    text, not a condition): the first attack keeps the turn; the session then
-    asks whether to attack again and, on Yes, auto-selects this Pokemon."""
+    text, not a condition): the first attack keeps the turn and the session
+    opens this Pokemon's attack panel again."""
 
     def attack_keeps_turn(self, attacker, ability, ctx, carrier):
         if attacker is not carrier:
@@ -1097,6 +1100,14 @@ def festival_grounds_in_play(board_or_ctx) -> bool:
     return definition is not None and definition.display_name == "Festival Grounds"
 
 
+async def recover_from_festival_grounds(ctx, pokemon) -> bool:
+    """Recover a Pokémon that gains Festival Grounds' Energy protection."""
+    if pokemon is None or not festival_grounds_in_play(ctx) \
+            or not ctx.attached_energies(pokemon):
+        return False
+    return await ctx.cure_all_conditions(pokemon)
+
+
 def pokemon_has_ability_titled(pokemon, title: str) -> bool:
     """Whether `pokemon`'s printed abilities include a non-Attack titled `title`."""
     for entry in pokemon.get_attribute(AttrID.PIE_ABILITIES) or []:
@@ -1119,7 +1130,7 @@ def pokemon_has_ability_titled(pokemon, title: str) -> bool:
 
 class FestivalLeadPassive(Passive):
     """If Festival Grounds is in play, this Pokemon may attack twice each turn
-    (same timing as Fluffy Barrage: Yes/No prompt, then auto-select)."""
+    (same timing as Fluffy Barrage: re-open the attack panel)."""
 
     def attack_keeps_turn(self, attacker, ability, ctx, carrier):
         if attacker is not carrier or not festival_grounds_in_play(ctx):

@@ -1,4 +1,4 @@
-from spirit.game.data_utils import PokemonCardDef, Attack, Ability
+from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.session.effects import is_item_card
 from spirit.game.card_effects.attacks_common import damage_per, count_energy
@@ -35,6 +35,7 @@ card = PokemonCardDef(
         Ability(
             title="Star Abyss",
             game_text="During your turn, you may put up to 2 Item cards from your discard pile into your hand. (You can't use more than 1 VSTAR Power in a game.)",
+            activation=Activations.ONCE_PER_TURN,
             vstar=True,
             effect=star_abyss,
         ),

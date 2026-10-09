@@ -3,6 +3,7 @@ from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.standard_era import (
     standard_ability, standard_attack, standard_passive,
 )
+from spirit.game.scripts.cards.SM5.DialgaGX_100 import timeless_gx
 
 
 card = PokemonCardDef(
@@ -44,7 +45,7 @@ card = PokemonCardDef(
             game_text="Take another turn after this one. (Skip the between-turns step.) (You can't use more than 1 GX attack in a game.)",
             cost={PokemonTypes.METAL: 3, PokemonTypes.COLORLESS: 2},
             damage=150,
-            effect=standard_attack,
+            effect=timeless_gx,
             gx=True,
         ),
     ],

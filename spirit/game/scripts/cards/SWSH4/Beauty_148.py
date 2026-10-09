@@ -12,5 +12,6 @@ card = SupporterCardDef(
     collector_number=148,
     set_code="SWSH4",
     rarity=Rarities.Uncommon,
+    usable_first_turn=True,
     effect=draw_attack(2)
 )

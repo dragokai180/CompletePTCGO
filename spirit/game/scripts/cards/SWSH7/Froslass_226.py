@@ -1,7 +1,7 @@
 from spirit.game.card_effects.pokemon import energy_card_types
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Triggers
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, AttrID
-from spirit.game.card_effects.support_common import attach_from_discard
+from spirit.game.card_effects.support_common import attach_from_discard, confirm_optional_trigger
 from spirit.game.card_effects.pokemon import is_energy_card
 from spirit.game.card_effects.attacks_common import lock_all_attacks
 
@@ -39,10 +39,10 @@ card = PokemonCardDef(
             title="Frost Over",
             game_text="When you play this Pok\u00e9mon from your hand to evolve 1 of your Pok\u00e9mon during your turn, you may attach a Water Energy card from your discard pile to 1 of your Pok\u00e9mon.",
             trigger=Triggers.ON_EVOLVE,
-            effect=attach_from_discard(
+            effect=confirm_optional_trigger(attach_from_discard(
                 predicate=_is_water_energy, count=1, minimum=0, target="choice",
                 prompt="Choose a Water Energy card to attach",
-            ),
+            )),
         ),
         Attack(
             title="Crystal Breath",

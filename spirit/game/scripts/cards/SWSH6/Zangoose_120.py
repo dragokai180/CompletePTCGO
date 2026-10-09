@@ -18,7 +18,8 @@ async def gale_claws(ctx):
     if not bench:
         return
     targets = await ctx.choose_cards(
-        bench, 2, prompt="Choose 2 of your opponent's Benched Pokémon"
+        bench, min(2, len(bench)),
+        prompt="Choose your opponent's Benched Pokémon"
     )
     for target in targets:
         await ctx.deal_damage(50, target=target, apply_modifiers=False)

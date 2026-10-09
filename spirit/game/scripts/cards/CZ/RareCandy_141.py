@@ -1,14 +1,17 @@
 from spirit.game.data_utils import ItemCardDef, evolves_from
 from spirit.game.attributes import Rarities, AttrID, PokemonStage
 from spirit.game.session.effects import is_basic_pokemon, is_pokemon_card
+from spirit.game.session.passives import pokemon_play_blocked
 
 
-def _stage2_matches(hand_cards, logic_name):
+def _stage2_matches(hand_cards, logic_name, board, player_id):
     return [
         c for c in hand_cards
         if is_pokemon_card(c)
         and c.get_attribute(AttrID.STAGE) == PokemonStage.STAGE2.value
         and evolves_from(c.archetype_id, logic_name)
+        and not board.turn_state.play_locked(player_id, c)
+        and not pokemon_play_blocked(board, player_id, c)
     ]
 
 
@@ -28,7 +31,7 @@ def _rare_candy_targets(board, player_id):
     targets = []
     for pokemon in _turn_eligible_basics(board, player_id):
         logic_name = pokemon.get_attribute(AttrID.EVOLUTION_LOGIC_NAME)
-        if logic_name and _stage2_matches(hand_cards, logic_name):
+        if logic_name and _stage2_matches(hand_cards, logic_name, board, player_id):
             targets.append(pokemon)
     return targets
 
@@ -46,7 +49,9 @@ async def _rare_candy(ctx):
     if target is None:
         return
     logic_name = target.get_attribute(AttrID.EVOLUTION_LOGIC_NAME)
-    stage2_hand = _stage2_matches(ctx.hand(), logic_name) if logic_name else []
+    stage2_hand = _stage2_matches(
+        ctx.hand(), logic_name, ctx.board, ctx.player_id,
+    ) if logic_name else []
     if not stage2_hand:
         return
     picks = await ctx.choose_cards(

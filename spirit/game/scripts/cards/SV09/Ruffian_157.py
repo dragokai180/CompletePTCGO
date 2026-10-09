@@ -18,7 +18,7 @@ def _ruffian_targets(board, player_id):
     for pokemon in board.pokemon_in_play(opponent):
         tools = [c for c in pokemon.children if _is_pokemon_tool_card(c)]
         specials = [c for c in pokemon.children if is_special_energy(c)]
-        if tools and specials:
+        if tools or specials:
             out.append(pokemon)
     return out
 
@@ -41,10 +41,10 @@ async def ruffian(ctx):
     specials = [c for c in target.children if is_special_energy(c)]
     tool_picks = await ctx.choose_cards(
         tools, 1, prompt="Choose a Pokémon Tool to discard.",
-    )
+    ) if tools else []
     energy_picks = await ctx.choose_cards(
         specials, 1, prompt="Choose a Special Energy to discard.",
-    )
+    ) if specials else []
     await ctx.discard_cards((tool_picks or []) + (energy_picks or []))
 
 

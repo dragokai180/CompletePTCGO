@@ -202,7 +202,6 @@ PROMPT_HEADS = "Heads"
 PROMPT_TAILS = "Tails"
 
 PROMPT_GO_FIRST = "Would you like to go first?"
-PROMPT_ANOTHER_ATTACK = "Would you like to perform another attack?"
 PROMPT_YES = "Yes"
 PROMPT_NO = "No"
 

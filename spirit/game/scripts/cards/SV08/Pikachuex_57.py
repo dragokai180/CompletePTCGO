@@ -2,14 +2,15 @@ from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import PokemonStage, PokemonTypes, Rarities
 from spirit.game.card_effects.passives_common import guts_survive_passive
 from spirit.game.card_effects.attacks_common import self_energy_discard_attack
+from spirit.game.card_effects.pokemon import TeraRulePassive
 
 card = PokemonCardDef(
     guid="56a17587-edc4-59a0-aa22-bae89d912c57",
     key="SV08",
     name="com.direwolfdigital.cake.data.archetypes.pokemon.Pikachuex.Name",
     display_name="Pikachu ex",
-    searchable_by=["Pikachu ex","Basic","ex","Pikachuex"],
-    subtypes=["Basic","ex"],
+    searchable_by=["Pikachu ex","Basic","Tera","ex","Pikachuex"],
+    subtypes=["Basic","Tera","ex"],
     collector_number=57,
     set_code="SV08",
     regulation_mark="H",
@@ -20,6 +21,7 @@ card = PokemonCardDef(
     family_id=25,
     retreat_cost=1,
     weakness_type=PokemonTypes.FIGHTING,
+    passive=TeraRulePassive(),
     abilities=[
         Ability(
             title="Resolute Heart",

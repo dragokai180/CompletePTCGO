@@ -1,4 +1,4 @@
-from spirit.game.data_utils import PokemonCardDef, Attack, Ability
+from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.attacks_common import flip_bonus
 from spirit.game.card_effects.support_common import search_attach_energy
@@ -23,6 +23,7 @@ card = PokemonCardDef(
     abilities=[
         Ability(
             title="Greening Cells",
+            activation=Activations.ONCE_PER_TURN,
             game_text="Once during your turn, you may search your deck for a Grass Energy card and attach it to 1 of your Pok\u00e9mon. Then, shuffle your deck. If you use this Ability, your turn ends.",
             ends_turn=True,
             effect=search_attach_energy(

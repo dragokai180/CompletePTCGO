@@ -2,7 +2,7 @@ from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.session.effects import full_stack
 from spirit.game.card_effects.pokemon import in_active_spot
-from spirit.game.card_effects.attacks_common import bonus_if
+from spirit.game.card_effects.attacks_common import bonus_if, own_stadium_in_play
 
 
 def _on_bench(board, player_id, pokemon):
@@ -46,7 +46,7 @@ card = PokemonCardDef(
             cost={PokemonTypes.COLORLESS: 3},
             damage=80,
             damage_operator="+",
-            effect=bonus_if(lambda ctx: ctx.stadium_in_play() is not None, 80),
+            effect=bonus_if(own_stadium_in_play, 80),
         ),
     ],
 )

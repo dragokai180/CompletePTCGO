@@ -25,27 +25,7 @@ goes quiet too while this is Active.
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.attacks_common import damage_counters_on, damage_per
-from spirit.game.card_effects.passives_common import is_in_active_spot
-from spirit.game.session.effects import is_pokemon_card, is_pokemon_of_type
-from spirit.game.session.passives import Passive
-
-
-def _spared(card) -> bool:
-    """"except for Psychic Pokemon"."""
-    return is_pokemon_of_type(card, PokemonTypes.PSYCHIC)
-
-
-class _BideBarricadePassive(Passive):
-    """While Wobbuffet is Active, non-Psychic Pokemon have no Abilities --
-    in play, in hand and in the discard pile, on both sides."""
-
-    def blocks_abilities(self, pokemon, carrier):
-        return is_in_active_spot(carrier) and not _spared(pokemon)
-
-    def blocks_out_of_play_abilities(self, card, carrier):
-        if not is_in_active_spot(carrier) or not is_pokemon_card(card):
-            return False
-        return not _spared(card)
+from spirit.game.card_effects.passives_common import BideBarricadePassive
 
 
 card = PokemonCardDef(
@@ -72,7 +52,7 @@ card = PokemonCardDef(
                 "play, in each player's hand, and in each player's discard "
                 "pile has no Abilities (except for Psychic Pokémon)."
             ),
-            passive=_BideBarricadePassive(),
+            passive=BideBarricadePassive(),
         ),
         Attack(
             title="Psychic Assault",

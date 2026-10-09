@@ -1,11 +1,11 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Triggers
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
-from spirit.game.card_effects.support_common import look_top_attach_energy
+from spirit.game.card_effects.support_common import look_top_attach_energy, confirm_optional_trigger
 from spirit.game.card_effects.trainers import is_basic_energy_card
 
-charging_trumpet = look_top_attach_energy(
+charging_trumpet = confirm_optional_trigger(look_top_attach_energy(
     3, predicate=is_basic_energy_card, rest="shuffle", distribute=True, minimum=0
-)
+))
 
 card = PokemonCardDef(
     guid="81affd0a-3e81-56d8-acc0-3a0eb67c3c9f",

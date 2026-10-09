@@ -5,6 +5,12 @@ from spirit.game.card_effects.standard_era import (
 )
 
 
+async def frenzied_gouging(ctx):
+    """The recoil happens only if the direct Knock Out succeeds."""
+    if await ctx.knock_out(ctx.defender):
+        await ctx.deal_damage(200, target=ctx.attacker, apply_modifiers=False)
+
+
 card = PokemonCardDef(
     guid="6599c675-fa54-531d-afbf-1d4585a72c9d",
     key="SV085",
@@ -27,7 +33,7 @@ card = PokemonCardDef(
             title="Frenzied Gouging",
             game_text="Knock Out your opponent's Active Pokémon. If your opponent's Active Pokémon is Knocked Out in this way, this Pokémon does 200 damage to itself.",
             cost={PokemonTypes.DARKNESS: 2, PokemonTypes.COLORLESS: 1},
-            effect=standard_attack,
+            effect=frenzied_gouging,
         ),
         Attack(
             title="Calamity Storm",

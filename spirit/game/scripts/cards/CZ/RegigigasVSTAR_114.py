@@ -1,4 +1,4 @@
-from spirit.game.data_utils import PokemonCardDef, Attack, Ability
+from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.attacks_common import lock_all_attacks
 from spirit.game.session.effects import full_stack
@@ -14,11 +14,6 @@ def _star_guardian_condition(board, player_id, pokemon):
 async def star_guardian(ctx):
     """VSTAR Power: if the opponent has exactly 1 Prize left, you may make
     them discard 1 of their Benched Pokemon and all attached cards."""
-    if not await ctx.ask_yes_no(
-        "Choose 1 of your opponent's Benched Pokémon? They discard that "
-        "Pokémon and all attached cards."
-    ):
-        return
     target = await ctx.choose_pokemon(
         ctx.opponent_bench(), "Choose 1 of your opponent's Benched Pokémon"
     )
@@ -53,6 +48,7 @@ card = PokemonCardDef(
     abilities=[
         Ability(
             title="Star Guardian",
+            activation=Activations.ONCE_PER_TURN,
             game_text="During your turn, if your opponent has exactly 1 Prize card remaining, you may choose 1 of your opponent's Benched Pok\u00e9mon. They discard that Pok\u00e9mon and all attached cards. (You can't use more than 1 VSTAR Power in a game.)",
             vstar=True,
             condition=_star_guardian_condition,

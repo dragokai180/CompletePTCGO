@@ -1,4 +1,4 @@
-from spirit.game.data_utils import PokemonCardDef, Attack, Ability
+from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import AttrID, PokemonTypes, PokemonStage, Rarities
 from spirit.game.session.effects import is_pokemon_card
 from spirit.game.card_effects.trainers import is_grass_energy_card
@@ -14,16 +14,12 @@ def _is_grass_pokemon_or_energy(card):
 
 
 async def star_perfume(ctx):
-    if await ctx.ask_yes_no(
-        "Search your deck for up to 5 in any combination of Grass "
-        "Pokémon and Grass Energy cards?"
-    ):
-        picks = await ctx.search_deck(
-            _is_grass_pokemon_or_energy, count=5, minimum=0,
-            prompt="Choose up to 5 Grass Pokémon and Grass Energy cards.",
-        )
-        await ctx.put_in_hand(picks, reveal=True)
-        await ctx.shuffle_deck()
+    picks = await ctx.search_deck(
+        _is_grass_pokemon_or_energy, count=5, minimum=0,
+        prompt="Choose up to 5 Grass Pokémon and Grass Energy cards.",
+    )
+    await ctx.put_in_hand(picks, reveal=True)
+    await ctx.shuffle_deck()
 
 
 async def parallel_spin(ctx):
@@ -60,6 +56,7 @@ card = PokemonCardDef(
     abilities=[
         Ability(
             title="Star Perfume",
+            activation=Activations.ONCE_PER_TURN,
             game_text="During your turn, you may search your deck for up to 5 in any combination of Grass Pok\u00e9mon and Grass Energy cards, reveal them, and put them into your hand. Then, shuffle your deck. (You can't use more than 1 VSTAR Power in a game.)",
             vstar=True,
             effect=star_perfume,

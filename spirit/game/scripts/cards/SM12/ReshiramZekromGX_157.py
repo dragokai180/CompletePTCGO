@@ -1,8 +1,27 @@
 from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
+from spirit.game.session.effects import is_basic_energy
+from spirit.game.card_effects.pokemon import energy_provides_type
 from spirit.game.card_effects.standard_era import (
     standard_ability, standard_attack, standard_passive,
 )
+
+
+async def fabled_flarebolts(ctx):
+    types = (PokemonTypes.FIRE.value, PokemonTypes.LIGHTNING.value)
+    candidates = [
+        energy for pokemon in ctx.my_bench()
+        for energy in ctx.attached_energies(pokemon)
+        if is_basic_energy(energy)
+        and any(energy_provides_type(energy, kind) for kind in types)
+    ]
+    picks = await ctx.choose_cards(
+        candidates, min(3, len(candidates)), minimum=0,
+        prompt="Choose up to 3 Basic Fire or Lightning Energy to discard",
+    ) if candidates else []
+    if picks:
+        await ctx.discard_cards(picks)
+        await ctx.deal_damage(90 * len(picks))
 
 
 card = PokemonCardDef(
@@ -30,7 +49,7 @@ card = PokemonCardDef(
             cost={PokemonTypes.FIRE: 1, PokemonTypes.LIGHTNING: 1},
             damage=90,
             damage_operator='x',
-            effect=standard_attack,
+            effect=fabled_flarebolts,
         ),
         Attack(
             title='Cross Break-GX',

@@ -23,7 +23,8 @@ async def astral_barrage(ctx):
     if not candidates:
         return
     chosen = await ctx.choose_cards(
-        candidates, 2, prompt="Choose 2 of your opponent's Pokémon"
+        candidates, min(2, len(candidates)),
+        prompt="Choose your opponent's Pokémon"
     )
     for target in chosen:
         await ctx.deal_damage(50, target=target, as_counters=True)

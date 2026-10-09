@@ -1,8 +1,6 @@
 from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
-from spirit.game.card_effects.standard_era import (
-    standard_ability, standard_attack, standard_passive,
-)
+from spirit.game.scripts.cards.ME2PT5.MegaCharizardYex_22 import explosion_y
 
 
 card = PokemonCardDef(
@@ -28,7 +26,7 @@ card = PokemonCardDef(
             title="Explosion Y",
             game_text="Discard 3 Energy from this Pokémon, and this attack does 280 damage to 1 of your opponent's Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)",
             cost={PokemonTypes.FIRE: 2, PokemonTypes.COLORLESS: 1},
-            effect=standard_attack,
+            effect=explosion_y,
         ),
     ],
 )

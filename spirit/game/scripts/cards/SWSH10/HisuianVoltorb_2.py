@@ -12,7 +12,8 @@ async def cheerful_charge(ctx):
     if not bench:
         return
     chosen = await ctx.choose_cards(
-        bench, 2, minimum=0, prompt="Choose up to 2 Benched Pokémon.",
+        bench, min(2, len(bench)), minimum=0,
+        prompt="Choose up to 2 Benched Pokémon.",
     )
     if not chosen:
         return

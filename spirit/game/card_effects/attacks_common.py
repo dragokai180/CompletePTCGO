@@ -322,11 +322,13 @@ def snipe_attack(amount: int, pool="bench", count: int = 1,
         else:
             candidates = [p for p in _in_play(ctx, side) if pool(p)]
         if candidates:
+            target_count = min(count, len(candidates))
             text = prompt or (f"Choose a Pokémon to take {amount} damage"
-                              if count == 1 else
-                              f"Choose {count} Pokémon to take {amount} damage")
+                              if target_count == 1 else
+                              f"Choose {target_count} Pokémon to take {amount} damage")
             picks = await ctx.choose_cards(
-                candidates, count, minimum=0 if optional else None, prompt=text)
+                candidates, target_count, minimum=0 if optional else None,
+                prompt=text)
             for target in picks:
                 await ctx.deal_damage(amount, target=target,
                                       apply_modifiers=apply_modifiers)
@@ -368,6 +370,11 @@ def damage_all_opponents(amount: int, also=None):
 # ----------------------------------------------------------------------
 # Conditional bonus + predicates
 # ----------------------------------------------------------------------
+
+def own_stadium_in_play(ctx) -> bool:
+    stadium = ctx.stadium_in_play()
+    return stadium is not None and stadium.owning_player_id == ctx.player_id
+
 
 def bonus_if(cond_fn, bonus: int, base: Optional[int] = None,
              else_nothing: bool = False, self_damage: int = 0, also=None):

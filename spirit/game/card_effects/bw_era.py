@@ -6117,6 +6117,8 @@ async def bw_legacy_attack(ctx):
         return
 
     if text.startswith("take another turn after this one"):
+        if getattr(ctx.ability, "damage", 0):
+            await ctx.deal_damage()
         ctx.take_extra_turn()
         if "at least 14 extra fairy energy attached" in text:
             cost = sum((getattr(ctx.ability, "cost", None) or {}).values())
@@ -6359,6 +6361,35 @@ async def bw_legacy_attack(ctx):
     prepaid_top_discard = False
     hand_discard_paid = False
     optional_source_paid = False
+
+    optional_attached_bonus = re.search(
+        r"you may discard (?:a|an) (special energy|pokémon tool card) "
+        r"from this pokémon\. if you do, this attack does (\d+) more damage",
+        text,
+    )
+    if optional_attached_bonus:
+        predicate = (is_special_energy
+                     if optional_attached_bonus.group(1) == "special energy"
+                     else is_pokemon_tool)
+        candidates = [card for card in full_stack(ctx.attacker)[1:]
+                      if predicate(card)]
+        chosen = await _choose_one(
+            ctx, candidates, "Choose a card to discard for more damage",
+            optional=True,
+        ) if candidates else None
+        if chosen is not None:
+            await ctx.discard_cards([chosen])
+            if chosen.parent is not ctx.attacker:
+                pre_damage_bonus += int(optional_attached_bonus.group(2))
+
+    optional_stadium_bonus = re.search(
+        r"you may discard (?:a|any) stadium(?: card)? in play\. "
+        r"if you do, this attack does (\d+) more damage", text,
+    )
+    if optional_stadium_bonus and ctx.stadium_in_play() is not None \
+            and await ctx.ask_yes_no("Discard the Stadium for more damage?"):
+        if await ctx.discard_stadium() is not None:
+            pre_damage_bonus += int(optional_stadium_bonus.group(1))
 
     if "turn 1 of your face-down prize cards face up" in text:
         prizes = face_down_prizes(ctx.board, ctx.player_id)
@@ -6953,7 +6984,8 @@ async def bw_legacy_attack(ctx):
     if bonus and "same number of cards in your hand as your opponent" in text \
             and ctx.hand_size() == ctx.hand_size(ctx.opponent_id):
         amount += bonus
-    if bonus and ("stadium card in play" in text or "stadium is in play" in text) \
+    if bonus and not optional_stadium_bonus \
+            and ("stadium card in play" in text or "stadium is in play" in text) \
             and ctx.stadium_in_play() is not None:
         amount += bonus
     if bonus and "if you have more prize cards left than your opponent" in text:
@@ -8328,6 +8360,17 @@ async def bw_legacy_attack(ctx):
     )
     if m and _attack_clause_allowed(ctx, text, m.start(), heads, coin_count):
         count = int(m.group(1) or 1)
+        # Later sentences can increase or replace this same mill, rather than
+        # starting a second independent discard from the opponent's deck.
+        followup = re.match(
+            r"\. if (.+?), discard (?:(\d+) more cards in this way|"
+            r"the top (\d+) cards instead)", text[m.end():],
+        )
+        if followup:
+            from spirit.game.card_effects.attack_state_clauses import public_attack_condition
+            if public_attack_condition(ctx, followup.group(1)) is True:
+                count = (count + int(followup.group(2)) if followup.group(2)
+                         else int(followup.group(3)))
         await ctx.discard_cards(ctx.deck_top(count, ctx.opponent_id))
 
     draw_until = re.search(r"draw cards until you have (\d+) cards in your hand", text)
@@ -8685,7 +8728,7 @@ async def bw_legacy_attack(ctx):
         elif leftovers:
             await ctx.shuffle_into_deck(leftovers)
 
-    if any(phrase in text for phrase in (
+    if not optional_stadium_bonus and any(phrase in text for phrase in (
         "discard a stadium in play", "discard that stadium",
         "discard that stadium card",
     )):
@@ -9551,7 +9594,8 @@ async def bw_legacy_attack(ctx):
             await ctx.heal(ctx.max_hp(pokemon), pokemon)
 
     # Attached Tool/Special Energy cleanup across one or both boards.
-    if "discard" in text and ("pokémon tool" in text or "special energy" in text):
+    if not optional_attached_bonus and "discard" in text \
+            and ("pokémon tool" in text or "special energy" in text):
         opposing_only = "your opponent's" in text or "defending pokémon" in text
         pokemon = ctx.opponent_pokemon_in_play() if opposing_only else \
             ctx.my_pokemon_in_play() + ctx.opponent_pokemon_in_play()
@@ -10952,7 +10996,9 @@ async def bw_legacy_attack(ctx):
     if "for the rest of this game, your opponent can't use any gx attacks" in text:
         ctx.lock_gx_attacks(ctx.opponent_id)
 
-    if "discard any stadium card in play" in text or "discard the stadium card" in text:
+    if not optional_stadium_bonus and (
+            "discard any stadium card in play" in text
+            or "discard the stadium card" in text):
         await ctx.discard_stadium()
 
     if "whenever your opponent flips a coin during his or her next turn, treat it as tails" in text:
@@ -11276,6 +11322,7 @@ async def bw_legacy_ability(ctx):
     # Only automatic triggers need the explicit yes/no choice.
     if optional and getattr(ctx.ability, "trigger", None) \
             and not await ctx.ask_yes_no(f"Use {ctx.ability.title}?"):
+        ctx.suppress_announce = True
         return
 
     from spirit.game.card_effects.hgss_era import resolve_hgss_power
@@ -12747,8 +12794,15 @@ async def bw_legacy_ability(ctx):
     if any(phrase in text for phrase in (
             "opponent reveal their hand", "opponent reveals their hand",
             "look at your opponent's hand")):
-        if "flip a coin" in text and not (await ctx.flip_coins(1, ctx.ability.title))[0]:
-            return
+        if "flip a coin" in text:
+            if "opponent's bench isn't full" in text and len(ctx.opponent_bench()) >= \
+                    effective_bench_capacity(ctx.board, ctx.opponent_id):
+                return
+            if not (await ctx.flip_coins(1, ctx.ability.title))[0]:
+                return
+            # The hand browser is an immediate prompt; deliver the queued
+            # coin animation before opening it on a heads result.
+            await ctx.flush_choreography()
         revealed = list(ctx.hand(ctx.opponent_id))
         if "discard a card" in text or "choose a card" in text and "discard it" in text:
             picks = await ctx.choose_from_revealed_hand(
@@ -12777,7 +12831,8 @@ async def bw_legacy_ability(ctx):
             )
             for pokemon in picks:
                 await ctx.bench_pokemon(pokemon)
-        elif "put a basic pokémon you find there onto your opponent's bench" in text:
+        elif ("put a basic pokémon you find there onto your opponent's bench" in text
+              or "put a basic pokémon you find there onto their bench" in text):
             candidates = [card for card in revealed if is_basic_pokemon(card)]
             picks = await ctx.choose_from_revealed_hand(
                 candidates, 1, of_player=ctx.opponent_id,

@@ -30,7 +30,9 @@ card = PokemonCardDef(
             title="Propagation",
             game_text="Once during your turn (before your attack), if this Pokémon is in your discard pile, you may put this Pokémon into your hand.",
             usable_from="discard",
-            activation=Activations.ONCE_PER_TURN,
+            # Moving from discard to the hidden hand resets the card's
+            # once-per-turn identity if it is discarded again.
+            activation=Activations.UNLIMITED,
             effect=propagation,
         ),
         Attack(

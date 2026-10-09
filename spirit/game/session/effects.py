@@ -61,6 +61,7 @@ from .passives import (
     effective_max_hp,
     effective_pokemon_types,
     pokemon_entry_blocked,
+    energy_provided_options,
     energy_removal_blocked,
     healing_blocked,
     supporter_effect_replacement,
@@ -1160,20 +1161,24 @@ class EffectContext:
         persistent = self.session.turn_state.forced_coins_through_turn.get(
             self.player_id
         )
-        if continuous is not None:
-            results = [0 if continuous else 1] * count
-        elif persistent is not None:
-            # The wire protocol represents heads as 0 and tails as 1.
-            results = [0 if persistent[0] else 1] * count
-        else:
-            results = [random.choice([0, 1]) for _ in range(count)]
+        def roll() -> List[int]:
+            if continuous is not None:
+                return [0 if continuous else 1] * count
+            if persistent is not None:
+                # The wire protocol represents heads as 0 and tails as 1.
+                return [0 if persistent[0] else 1] * count
+            return [random.choice([0, 1]) for _ in range(count)]
+
+        results = roll()
         forced = self.session.turn_state.forced_coin_result
         if forced is not None:
-            results[0] = 0 if forced else 1
+            # A continuous effect treats the flip as its specified result,
+            # including a flip whose outcome was chosen beforehand.
+            if continuous is None:
+                results[0] = 0 if forced else 1
             self.session.turn_state.forced_coin_result = None
         final = await self._maybe_reroll_attack_coins(
-            results, title, source,
-            lambda: [random.choice([0, 1]) for _ in range(count)])
+            results, title, source, roll)
         if final is None:
             await self._queue_coin_results(results, title, source)
         else:
@@ -1265,9 +1270,12 @@ class EffectContext:
         """Moves damage counters off `source` (HP update + raw counter placement,
         atomic), clamped to its actual damage; returns counters moved.
 
-        A single shielded destination fizzles the WHOLE move; in a
-        multi-target distribution shielded picks stay legal but their
-        counters are prevented (wasted), per the Unfazed Fat ruling.
+        A single attack/Ability-effect-shielded destination fizzles the whole
+        move; in a multi-target distribution those picks waste their counters.
+        A counter-placement shield such as Battle Cage instead prevents only
+        placement: counters are still removed from the source, even when the
+        destination is shielded. The source alone is never checked for that
+        placement shield.
         """
         if not self.pokemon_is_in_play(source):
             return 0
@@ -1375,6 +1383,14 @@ class EffectContext:
         """
         if (not cards and not display_cards) or count <= 0:
             return []
+        # The client cannot complete a mandatory in-place selection whose
+        # requested count exceeds the number of selectable entities. Keep a
+        # reveal browser with zero matches open so failed searches still show
+        # the inspected cards.
+        if cards:
+            count = min(count, len(cards))
+            if minimum is not None:
+                minimum = min(minimum, count)
         pid = player_id or self.player_id
         if pid == self.player_id and not ordered and display_cards is None \
                 and len(cards) == count and (minimum is None or minimum == count):
@@ -2570,6 +2586,8 @@ class EffectContext:
                 lambda e=energy, p=pokemon: self.session.fire_energy_attached_triggers(
                     self.player_id, e, p))
         await self.enforce_attachment_restrictions(pokemon)
+        from spirit.game.card_effects.pokemon import recover_from_festival_grounds
+        await recover_from_festival_grounds(self, pokemon)
         return True
 
     async def attach_from_hand_freely(
@@ -2685,6 +2703,8 @@ class EffectContext:
             self._shift_max_hp(old_holder, max_before_old)
         self._shift_max_hp(to_pokemon, max_before_new)
         await self.enforce_attachment_restrictions(to_pokemon)
+        from spirit.game.card_effects.pokemon import recover_from_festival_grounds
+        await recover_from_festival_grounds(self, to_pokemon)
         return True
 
     def _shift_max_hp(self, pokemon: PokemonEntity, max_before: int) -> None:
@@ -3082,9 +3102,15 @@ def is_basic_energy(card: CardEntity) -> bool:
 
 
 def is_energy_of_type(card: CardEntity, energy_type) -> bool:
-    """"a {L} Energy card": an Energy card carrying that type."""
-    types = card.get_attribute(AttrID.POKEMON_TYPES) or []
-    return is_energy_card(card) and         getattr(energy_type, "value", energy_type) in types
+    """Match an Energy card's effective type in its current zone."""
+    if not is_energy_card(card):
+        return False
+    root = card
+    while getattr(root, 'parent', None) is not None:
+        root = root.parent
+    board = getattr(root, '_board_state', None)
+    wanted = getattr(energy_type, 'value', energy_type)
+    return any(wanted in option for option in energy_provided_options(board, card))
 
 
 def physical_movement_cards(cards: Sequence[CardEntity]) -> List[CardEntity]:

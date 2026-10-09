@@ -2,7 +2,7 @@
 import unittest
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from tests import test_hgss_rules as fixtures
 from spirit.game.attributes import AttrID, PokemonTypes
 from spirit.game.session.effects import EffectContext
@@ -158,14 +158,40 @@ class AncientTraitTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_omega_barrage_two_attacks(self):
         rig, e = self.rig('XY5.Bunnelby_121')
-        rig.session.prompt_player_choice = AsyncMock(return_value=0)
+        rig.session.prompt_player_choice = AsyncMock(
+            side_effect=AssertionError('No confirmation before the second attack'))
         attack = next(a for a in self.actions(rig, e['target']) if a['selectableAction']['description'] == 'UsePokemonAttack')
         before = len(rig.board.find_player_area(P2, 'deck').children)
         self.assertFalse(await rig.session._execute_attack(P1, e['target'], attack))
+        self.assertEqual(rig.session.turn_state.auto_select_attack_entity_id,
+                         e['target'].entity_id)
+        rig.session.prompt_player_choice.assert_not_awaited()
         self.assertEqual(len(rig.board.find_player_area(P2, 'deck').children), before - 1)
         self.assertFalse(self.actions(rig, self.add(rig, 'BW1.WaterEnergy_107')))
         self.assertTrue(await rig.session._execute_attack(P1, e['target'], attack))
         self.assertEqual(len(rig.board.find_player_area(P2, 'deck').children), before - 2)
+
+    async def test_omega_barrage_done_skips_second_attack(self):
+        rig, e = self.rig('XY5.Bunnelby_121')
+        session = rig.session
+        attack = next(a for a in self.actions(rig, e['target'])
+                      if a['selectableAction']['description'] == 'UsePokemonAttack')
+        self.assertFalse(await session._execute_attack(P1, e['target'], attack))
+        remaining = len(rig.board.find_player_area(P2, 'deck').children)
+        session.prompt_selection_message = AsyncMock(
+            return_value={'selection': None})
+
+        # The smoke rig uses AI players; exercise the human offer/Done branch.
+        with patch('spirit.game.session.game_session.AIPlayer',
+                   new=type('HumanPlayer', (), {})):
+            await session._run_player_turn(P1)
+
+        offer = session.prompt_selection_message.await_args.args[2]
+        self.assertEqual(offer['sourceID'], e['target'].entity_id)
+        self.assertTrue(offer['ignoreFirst'])
+        self.assertFalse(offer['forced'])
+        self.assertEqual(len(rig.board.find_player_area(P2, 'deck').children),
+                         remaining)
 
     async def test_omega_barrier_sources(self):
         rig, e = self.rig('XY5.PrimalGroudonEX_86')

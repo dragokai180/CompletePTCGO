@@ -809,7 +809,7 @@ def compute_legal_actions(
         entries.extend(_retreat_entry(board, state, player_id, game_id))
     # A turn kept alive past an attack (Fluffy Barrage / Festival Lead) stays
     # in the attack phase: only attacking (or End Turn) remains legal. The
-    # session asks "perform another attack?" before re-offering.
+    # session re-offers the attack panel directly, with Done to end the turn.
     if state.attacks_used:
         entries = [
             e for e in entries

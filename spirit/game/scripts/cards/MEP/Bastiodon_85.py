@@ -1,8 +1,6 @@
 from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
-from spirit.game.card_effects.standard_era import (
-    standard_ability, standard_attack, standard_passive,
-)
+from spirit.game.scripts.cards.ME5.Bastiodon_62 import AncientBulwarkPassive
 
 
 card = PokemonCardDef(
@@ -29,7 +27,7 @@ card = PokemonCardDef(
         Ability(
             title="Ancient Bulwark",
             game_text="As long as this Pokémon is on your Bench, prevent all damage done to each of your Pokémon by attacks from your opponent's Pokémon that have 2 or less Energy attached.",
-            passive=standard_passive("As long as this Pokémon is on your Bench, prevent all damage done to each of your Pokémon by attacks from your opponent's Pokémon that have 2 or less Energy attached."),
+            passive=AncientBulwarkPassive(),
         ),
         Attack(
             title="Hammer In",

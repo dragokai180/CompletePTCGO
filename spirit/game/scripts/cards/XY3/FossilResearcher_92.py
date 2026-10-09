@@ -1,9 +1,33 @@
-from spirit.game.data_utils import SupporterCardDef
-from spirit.game.attributes import PokemonTypes, Rarities
-from spirit.game.card_effects.standard_era import (
-    standard_attack, standard_passive, standard_stadium_ability,
-    standard_trainer_condition, standard_trainer_effect,
-)
+from spirit.game.data_utils import SupporterCardDef, def_for
+from spirit.game.attributes import Rarities
+from spirit.game.session.effects import is_pokemon_card
+from spirit.game.session.passives import effective_bench_capacity
+
+
+_RESTORED_NAMES = {"Amaura", "Tyrunt"}
+
+
+def fossil_researcher_condition(board, player_id):
+    deck = board.find_player_area(player_id, "deck")
+    bench = board.find_player_area(player_id, "bench")
+    return bool(deck is not None and deck.children and bench is not None
+                and len(bench.children) < effective_bench_capacity(board, player_id))
+
+
+async def fossil_researcher(ctx):
+    free = max(0, effective_bench_capacity(ctx.board, ctx.player_id)
+               - len(ctx.my_bench()))
+    count = min(2, free)
+    if count:
+        picks = await ctx.search_deck(
+            lambda card: is_pokemon_card(card) and
+            getattr(def_for(card.archetype_id), "display_name", "") in _RESTORED_NAMES,
+            count=count, minimum=0,
+            prompt="Choose up to 2 Amaura or Tyrunt",
+        )
+        for card in picks:
+            await ctx.bench_pokemon(card)
+    await ctx.shuffle_deck()
 
 
 card = SupporterCardDef(
@@ -17,6 +41,6 @@ card = SupporterCardDef(
     set_code='XY3',
     regulation_mark=None,
     rarity=Rarities.Uncommon,
-    effect=standard_trainer_effect('Search your deck for up to 2 in any combination of Amaura or Tyrunt and put them onto your bench. Shuffle your deck afterward.'),
-    condition=standard_trainer_condition('Search your deck for up to 2 in any combination of Amaura or Tyrunt and put them onto your bench. Shuffle your deck afterward.'),
+    effect=fossil_researcher,
+    condition=fossil_researcher_condition,
 )

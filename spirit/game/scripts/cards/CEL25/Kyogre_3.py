@@ -13,7 +13,8 @@ async def aqua_storm(ctx):
     if not bench:
         return
     targets = await ctx.choose_cards(
-        bench, 2, prompt="Choose 2 of your opponent's Benched Pokémon",
+        bench, min(2, len(bench)),
+        prompt="Choose your opponent's Benched Pokémon",
     )
     if energy_count <= 0:
         return
