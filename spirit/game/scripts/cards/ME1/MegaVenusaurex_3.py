@@ -21,7 +21,7 @@ async def solar_transfer(ctx):
     """Move a Basic Grass Energy from 1 of your Pokémon to another."""
     pokemon = ctx.my_pokemon_in_play()
     await ctx.move_energy_freely(
-        pokemon, pokemon, predicate=_is_basic_grass_energy, max_count=1,
+        pokemon, pokemon, predicate=_is_basic_grass_energy,
         prompt="Choose a Basic Grass Energy to move",
     )
 

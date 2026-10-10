@@ -86,6 +86,12 @@ def main():
         logging.error(f"[Main] Failed to reload asset_map.json: {e}")
     manifest_manager.refresh()
 
+    # Build the large, shared login responses before sockets accept clients.
+    # Generating and JSON-encoding them during play stalls the asyncio loop for
+    # several seconds, long enough for unrelated clients to time out.
+    from spirit.packets.handlers.data_sync import prewarm_login_payloads
+    prewarm_login_payloads()
+
     http_server = AssetHTTPServer()
     http_server.start()
 

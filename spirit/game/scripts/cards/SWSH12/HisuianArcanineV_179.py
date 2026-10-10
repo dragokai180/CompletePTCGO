@@ -1,27 +1,9 @@
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability, Activations
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.attacks_common import damage_per, count_energy
-from spirit.game.card_effects.pokemon import energy_provides_type
-
-
-def _irresistible_force_condition(board, player_id, pokemon):
-    others = [p for p in board.pokemon_in_play(player_id) if p is not pokemon]
-    return any(
-        energy_provides_type(e, PokemonTypes.FIGHTING)
-        for p in others for e in board.attached_energies(p)
-    )
-
-
-async def irresistible_force(ctx):
-    others = [p for p in ctx.my_pokemon_in_play() if p is not ctx.source]
-    pool = [e for p in others for e in ctx.attached_energies(p)
-            if energy_provides_type(e, PokemonTypes.FIGHTING)]
-    if not pool:
-        return
-    picked = await ctx.choose_cards(
-        pool, 1, prompt="Choose a Fighting Energy to move to this Pokémon")
-    if picked:
-        await ctx.move_energy(picked[0], ctx.source)
+from spirit.game.scripts.cards.SWSH12.HisuianArcanineV_90 import (
+    _irresistible_force_condition, irresistible_force,
+)
 
 
 card = PokemonCardDef(

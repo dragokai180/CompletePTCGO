@@ -14,26 +14,13 @@ def _metal_transfer_condition(board, player_id, pokemon):
 
 
 async def metal_transfer(ctx):
-    pool = [
-        (e, p) for p in ctx.my_pokemon_in_play()
-        for e in ctx.attached_energies(p)
-        if energy_provides_type(e, PokemonTypes.METAL)
-    ]
-    if not pool:
-        return
-    picked = await ctx.choose_cards(
-        [e for e, _ in pool], 1, prompt="Choose a Metal Energy to move"
+    pokemon = ctx.my_pokemon_in_play()
+    await ctx.move_energy_freely(
+        pokemon, pokemon,
+        predicate=lambda energy: energy_provides_type(
+            energy, PokemonTypes.METAL.value),
+        prompt="Choose a Metal Energy to move",
     )
-    if not picked:
-        return
-    energy = picked[0]
-    holder = next(p for e, p in pool if e is energy)
-    targets = [p for p in ctx.my_pokemon_in_play() if p is not holder]
-    if not targets:
-        return
-    target = await ctx.choose_pokemon(targets, "Choose a Pokémon to move the Energy to")
-    if target is not None:
-        await ctx.move_energy(energy, target)
 
 
 card = PokemonCardDef(

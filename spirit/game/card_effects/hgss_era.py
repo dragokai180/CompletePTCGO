@@ -435,7 +435,8 @@ async def resolve_hgss_power(ctx, text):
     if transfer is not None:
         donors, targets, predicate = transfer
         await ctx.move_energy_freely(donors, targets, predicate=predicate,
-                                    max_count=1, prompt='Choose Energy to move')
+                                    max_count=None if 'as often as you like' in text else 1,
+                                    prompt='Choose Energy to move')
         return True
     hand_acceleration = {'Rain Dance': PokemonTypes.WATER, 'Water Acceleration': PokemonTypes.WATER,
                          'Forest Breath': PokemonTypes.GRASS, 'Self-Generation': PokemonTypes.LIGHTNING}

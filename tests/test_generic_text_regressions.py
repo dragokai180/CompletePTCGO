@@ -221,7 +221,7 @@ class GenericTextRegressions(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(predicate(grass))
                 self.assertFalse(predicate(fire))
                 self.assertFalse(predicate(special))
-                self.assertEqual(ctx.move_energy_freely.call_args.kwargs['max_count'], 1)
+                self.assertIsNone(ctx.move_energy_freely.call_args.kwargs.get('max_count'))
                 # The shared interpreter must preserve the same qualifier
                 # for future imports, even when no bespoke alias is present.
                 await bw_legacy_ability(ctx)

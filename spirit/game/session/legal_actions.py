@@ -916,7 +916,8 @@ def _out_of_zone_ability_entries(
                 ability = ABILITIES_BY_ID.get(ability_id) if ability_id else None
                 if ability is None or ability.usable_from != zone:
                     continue
-                if not ability.is_rule_action and out_of_play_ability_locked(board, card):
+                if not ability.is_rule_action and out_of_play_ability_locked(
+                        board, card, ability):
                     continue
                 if ability.effect is None:
                     continue

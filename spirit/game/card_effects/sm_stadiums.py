@@ -6,7 +6,7 @@ families before falling back to that interpreter. Reprints share the text.
 """
 from spirit.game.attributes import AttrID, PokemonTypes
 from spirit.game.data_utils import subtypes_for, has_rule_box
-from spirit.game.session.effects import is_basic_energy, is_basic_pokemon, is_pokemon_tool, is_pokemon_card
+from spirit.game.session.effects import is_basic_energy, is_basic_pokemon, is_energy_card, is_pokemon_tool, is_pokemon_card
 from spirit.game.card_effects.pokemon import energy_provides_type
 from spirit.game.session.passives import effective_bench_capacity
 
@@ -15,6 +15,8 @@ def stadium_effect_for_text(text):
     t = ' '.join(text.casefold().split())
     discard_search = 'that player may discard a card from their hand' in t and 'searches their deck for' in t
     heat_factory = 'that player may discard a fire energy card from their hand' in t and 'draw 3 cards' in t
+    scorched_earth = 'that player may discard a fire or fighting energy card from his or her hand' in t and 'draws 2 cards' in t
+    cycling_road = 'that player may discard a basic energy card from their hand in order to draw a card' in t
     coronet = 'that player may put 2 metal energy cards from their discard pile into their hand' in t
     brooklet = 'search their deck for a basic water pokémon or basic fighting pokémon' in t
     ultra_space = 'search their deck for an ultra beast card' in t
@@ -22,8 +24,9 @@ def stadium_effect_for_text(text):
     lumiose = 'search their deck for a basic pokémon and put it onto their bench' in t
     town_store = 'search their deck for a pokémon tool card' in t
     mesagoza = 'flip a coin' in t and 'searches their deck for a pokémon' in t
-    if not any((discard_search, heat_factory, coronet, brooklet, ultra_space,
-                artazon, lumiose, town_store, mesagoza)):
+    if not any((discard_search, heat_factory, scorched_earth, cycling_road,
+                coronet, brooklet, ultra_space, artazon, lumiose, town_store,
+                mesagoza)):
         return None
 
     async def effect(ctx):
@@ -60,8 +63,16 @@ def stadium_effect_for_text(text):
             await ctx.put_in_hand(cards, reveal=True)
             await ctx.shuffle_deck()
             return
-        if heat_factory or discard_search:
-            cost = [c for c in ctx.hand() if not heat_factory or energy_provides_type(c, PokemonTypes.FIRE.value)]
+        if heat_factory or scorched_earth or cycling_road or discard_search:
+            cost = [c for c in ctx.hand() if (
+                (heat_factory and is_energy_card(c)
+                 and energy_provides_type(c, PokemonTypes.FIRE.value))
+                or (scorched_earth and is_energy_card(c)
+                    and (energy_provides_type(c, PokemonTypes.FIRE.value)
+                         or energy_provides_type(c, PokemonTypes.FIGHTING.value)))
+                or (cycling_road and is_basic_energy(c))
+                or discard_search
+            )]
             if not cost:
                 return
             paid = await ctx.choose_cards(cost, 1, minimum=1, prompt='Choose a card to discard')
@@ -70,6 +81,9 @@ def stadium_effect_for_text(text):
             await ctx.discard_cards(paid)
             if heat_factory:
                 await ctx.draw_cards(3)
+                return
+            if scorched_earth or cycling_road:
+                await ctx.draw_cards(2 if scorched_earth else 1)
                 return
             fire = 'up to 2 fire energy cards' in t
             predicate = (lambda c: energy_provides_type(c, PokemonTypes.FIRE.value)) if fire else is_basic_energy

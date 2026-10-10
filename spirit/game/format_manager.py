@@ -144,10 +144,12 @@ class FormatManager:
         self._ref_cache: Dict[tuple, Tuple[Set[str], Set[str]]] = {}
         self._ref_cache_stamp = -1
         self._legacy_reprint_cache = {}
+        self._marked_reprint_cache = {}
         self.load_formats()
 
     def load_formats(self):
         self._legacy_reprint_cache = {}
+        self._marked_reprint_cache = {}
         self._ref_cache.clear()
         self._ref_cache_stamp = -1
         if os.path.exists(FORMATS_PATH):
@@ -249,6 +251,32 @@ class FormatManager:
         self._legacy_reprint_cache[fmt.guid] = (stamp, index)
         return index
 
+    def _marked_reprints(self, fmt: GameFormat):
+        """Index legal printings by name for formats with regulation marks."""
+        from spirit.game.data_utils import CARD_DEFS_BY_GUID
+
+        stamp = (
+            id(card_loader.cards), len(card_loader.cards),
+            id(CARD_DEFS_BY_GUID), len(CARD_DEFS_BY_GUID),
+            tuple(fmt.sets), fmt.all_sets, tuple(sorted(fmt.regulation_marks)),
+        )
+        cached = self._marked_reprint_cache.get(fmt.guid)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+
+        index = {}
+        for definition in CARD_DEFS_BY_GUID.values():
+            name = getattr(definition, "display_name", None)
+            if not name:
+                continue
+            mark = str(getattr(definition, "regulation_mark", "") or "").upper()
+            if mark not in fmt.regulation_marks:
+                continue
+            if fmt.allows_set(getattr(definition, "set_code", None)):
+                index.setdefault(name, set()).add(id(definition))
+        self._marked_reprint_cache[fmt.guid] = (stamp, index)
+        return index
+
     def is_card_eventually_legal(self, format_guid: str, card) -> bool:
         """Legality ignoring any legalFrom time gate (the formatLegality bool slot)."""
         fmt = self.by_guid(format_guid)
@@ -271,7 +299,7 @@ class FormatManager:
 
         # The loader's wire Card does not carry server-only regulation data;
         # definitions are registered globally by data_utils.
-        from spirit.game.data_utils import CARD_DEFS_BY_GUID, def_for
+        from spirit.game.data_utils import def_for
         definition = def_for(guid)
         mark = str(getattr(definition, "regulation_mark", "") or "").upper()
         if fmt.allows_set(set_code) and mark in fmt.regulation_marks:
@@ -286,14 +314,10 @@ class FormatManager:
         display_name = getattr(definition, "display_name", None)
         if not display_name:
             return False
-        return any(
-            other is not definition
-            and getattr(other, "display_name", None) == display_name
-            and str(getattr(other, "regulation_mark", "") or "").upper()
-                in fmt.regulation_marks
-            and fmt.allows_set(getattr(other, "set_code", None))
-            for other in CARD_DEFS_BY_GUID.values()
-        )
+        printings = self._marked_reprints(fmt).get(display_name, ())
+        return bool(printings and (
+            len(printings) > 1 or id(definition) not in printings
+        ))
 
     def is_card_legal(self, format_guid: str, card, now_ms: Optional[int] = None) -> bool:
         if not self.is_card_eventually_legal(format_guid, card):

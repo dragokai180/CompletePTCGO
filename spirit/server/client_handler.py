@@ -62,7 +62,11 @@ class ClientHandler:
                 try:
                     header_data = await asyncio.wait_for(
                         self.reader.readexactly(WargProtocol.HEADER_SIZE), timeout=idle)
-                except asyncio.IncompleteReadError:
+                except asyncio.IncompleteReadError as exc:
+                    logging.info(
+                        "[TCP] [%s] Peer closed while reading header (%s/%s bytes).",
+                        self.addr, len(exc.partial), exc.expected,
+                    )
                     break
                 except asyncio.TimeoutError:
                     logging.info(f"[TCP] [{self.addr}] Idle timeout ({idle}s); closing.")
@@ -75,10 +79,15 @@ class ClientHandler:
 
                 try:
                     body_data = await self.reader.readexactly(body_length)
-                except asyncio.IncompleteReadError:
+                except asyncio.IncompleteReadError as exc:
+                    logging.info(
+                        "[TCP] [%s] Peer closed while reading body (%s/%s bytes).",
+                        self.addr, len(exc.partial), exc.expected,
+                    )
                     break
 
                 if not self._rate_ok():
+                    await asyncio.sleep(0)
                     continue  # drop over-limit packet, keep the connection
 
                 message = WargProtocol.decode_body(body_data, flags)
@@ -88,6 +97,10 @@ class ClientHandler:
                     self._log_packet("Received", message, request_id, flags)
 
                 await self.router.route(message, request_id, flags)
+                # Catalog loading can send hundreds of already-buffered requests.
+                # readexactly() and drain() may both complete synchronously, so
+                # explicitly give gameplay, ping and other sockets a turn.
+                await asyncio.sleep(0)
 
         except ConnectionResetError:
             logging.info(f"[TCP] [{self.addr}] Connection reset by peer.")
@@ -114,13 +127,27 @@ class ClientHandler:
 
     async def send_packet(self, response_body, request_id, flags=WargFlags.CLEAR):
         try:
+            encode_started = time.perf_counter()
             encoded_body = WargProtocol.encode_body(response_body, flags)
+            encode_seconds = time.perf_counter() - encode_started
+            if encode_seconds >= 0.5:
+                logging.warning(
+                    "[TCP] [%s] Packet encoding blocked loop for %.3fs (%s bytes, flags=%s).",
+                    self.addr, encode_seconds, len(encoded_body), flags,
+                )
 
             if _log.isEnabledFor(logging.DEBUG):
                 self._log_packet("Sent", response_body, request_id, flags, encoded_body)
 
             header = WargProtocol.encode_header(len(encoded_body), request_id, flags)
+            write_started = time.perf_counter()
             self.writer.write(header + encoded_body)
+            write_seconds = time.perf_counter() - write_started
+            if write_seconds >= 0.5:
+                logging.warning(
+                    "[TCP] [%s] Packet write blocked loop for %.3fs (%s bytes, flags=%s).",
+                    self.addr, write_seconds, len(encoded_body), flags,
+                )
             # Bound the drain: a peer whose receive window is full (wedged client,
             # zero-window) would otherwise block this coroutine forever, freezing the
             # match under _wire_lock. On timeout, abort and fall into the disconnect
@@ -128,7 +155,10 @@ class ClientHandler:
             try:
                 await asyncio.wait_for(self.writer.drain(), timeout=config.SEND_TIMEOUT_SECONDS)
             except asyncio.TimeoutError:
-                logging.warning(f"[TCP] [{self.addr}] Send drain timed out; aborting stalled peer.")
+                logging.warning(
+                    "[TCP] [%s] Send drain timed out after %ss (%s bytes); aborting stalled peer.",
+                    self.addr, config.SEND_TIMEOUT_SECONDS, len(encoded_body),
+                )
                 metrics.inc("send_timeouts")
                 try:
                     self.writer.transport.abort()

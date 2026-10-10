@@ -634,6 +634,9 @@ async def _damage_up_to_two(ctx, targets_pool, amount, prompt):
 
 async def dark_asset(ctx):
     """On play from hand: you may draw until you have 6 cards in your hand."""
+    if ctx.hand_size() >= 6:
+        ctx.suppress_announce = True
+        return
     if await ctx.ask_yes_no("Draw cards until you have 6 cards in your hand?"):
         await ctx.draw_until(6)
 

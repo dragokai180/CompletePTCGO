@@ -3,6 +3,9 @@
 import time
 import asyncio
 import logging
+import sys
+import threading
+import traceback
 from typing import Callable
 
 _counters: dict[str, int] = {}
@@ -59,16 +62,45 @@ def snapshot() -> dict:
 async def sample_loop_lag(interval: float = 1.0):
     """Sleeps `interval` and records how much longer than `interval` it actually
     took — the classic asyncio starvation probe. Never raises out of the loop."""
-    while True:
-        start = time.perf_counter()
-        try:
-            await asyncio.sleep(interval)
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:  # defensive: keep the sampler alive
-            logging.debug(f"[Metrics] lag sampler hiccup: {e}")
-            continue
-        lag_ms = max(0.0, (time.perf_counter() - start - interval) * 1000.0)
-        _lag_samples.append(lag_ms)
-        if len(_lag_samples) > _LAG_WINDOW:
-            del _lag_samples[0]
+    heartbeat = [time.monotonic()]
+    stop_watchdog = threading.Event()
+    loop_thread_id = threading.get_ident()
+
+    def watch_blocked_loop():
+        last_report = 0.0
+        while not stop_watchdog.wait(0.25):
+            now = time.monotonic()
+            if now - heartbeat[0] < interval + 1.0 or now - last_report < 10.0:
+                continue
+            frame = sys._current_frames().get(loop_thread_id)
+            if frame is not None:
+                logging.warning(
+                    "[Metrics] Event loop stalled; current stack:\n%s",
+                    "".join(traceback.format_stack(frame, limit=12)),
+                )
+                last_report = now
+
+    watchdog = threading.Thread(target=watch_blocked_loop, name="loop-watchdog", daemon=True)
+    watchdog.start()
+    last_lag_warning = 0.0
+    try:
+        while True:
+            start = time.perf_counter()
+            heartbeat[0] = time.monotonic()
+            try:
+                await asyncio.sleep(interval)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # defensive: keep the sampler alive
+                logging.debug(f"[Metrics] lag sampler hiccup: {e}")
+                continue
+            lag_ms = max(0.0, (time.perf_counter() - start - interval) * 1000.0)
+            _lag_samples.append(lag_ms)
+            if len(_lag_samples) > _LAG_WINDOW:
+                del _lag_samples[0]
+            now = time.monotonic()
+            if lag_ms >= 1000.0 and now - last_lag_warning >= 5.0:
+                logging.warning("[Metrics] Event loop lag %.0f ms", lag_ms)
+                last_lag_warning = now
+    finally:
+        stop_watchdog.set()

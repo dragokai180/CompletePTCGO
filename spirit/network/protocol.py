@@ -94,6 +94,10 @@ class WargProtocol:
 
     @staticmethod
     def encode_body(data, flags):
+        # Callers may reuse a previously encoded JSON or Protobuf body.  The
+        # header still carries the original flags and request ID.
+        if isinstance(data, bytes):
+            return data
         if flags & WargFlags.PROTOBUF:
             
             # The PTCGO client expects a ProtoMessage wrapper

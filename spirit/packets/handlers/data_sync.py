@@ -1,4 +1,5 @@
 import logging
+import asyncio
 import sys
 import os
 import hashlib
@@ -10,7 +11,7 @@ import time
 from spirit.game.models.avatar import get_avatar_items, get_default_avatar_items_list, AvatarArchetype
 from spirit.database.player_data import merge_account_settings
 from spirit.game.account_attributes import build_account_attributes
-from spirit.network.protocol import WargFlags
+from spirit.network.protocol import WargFlags, WargProtocol
 from spirit.network.message_names import InboundMsg, OutboundMsg
 from spirit.database.economy_data import list_dynamic_pages
 from .base import BaseHandler, handle
@@ -91,6 +92,7 @@ def _set_display_sort_key(set_data):
 # Per-process caches invalidated on reload: serialized card attrs and static payloads
 _CARD_ATTRS_CACHE = {}
 _STATIC_PAYLOAD_CACHE = {}
+_LOCALIZATION_WIRE_CACHE = {}
 
 
 def _dynamic_page_is_active(content, now_ms):
@@ -109,6 +111,7 @@ def _dynamic_page_is_active(content, now_ms):
 def _clear_derived_caches():
     _CARD_ATTRS_CACHE.clear()
     _STATIC_PAYLOAD_CACHE.clear()
+    _LOCALIZATION_WIRE_CACHE.clear()
 
 
 def _cached_payload(name, builder):
@@ -177,11 +180,13 @@ reload_sets()
 # Global cache for localizations
 CACHED_LOCALIZATIONS = None
 CACHED_LOCALIZATIONS_DICT = {}
+_LOCALIZATION_MD5 = None
+_LOCALIZATION_RELEASE_WIRE = None
 
 
 def _load_localizations():
     """Loads the localization DB plus card display names into the module caches (idempotent)."""
-    global CACHED_LOCALIZATIONS
+    global CACHED_LOCALIZATIONS, _LOCALIZATION_MD5, _LOCALIZATION_RELEASE_WIRE
     if CACHED_LOCALIZATIONS is not None:
         return
     localizations = []
@@ -228,6 +233,32 @@ def _load_localizations():
     for item in custom_strings:
         CACHED_LOCALIZATIONS_DICT[item["key"].lower()] = item["value"]
     CACHED_LOCALIZATIONS = localizations
+    localization_payload = json.dumps(
+        localizations, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    _LOCALIZATION_MD5 = "spirit_hash_v4_" + hashlib.md5(localization_payload).hexdigest()
+    _LOCALIZATION_RELEASE_WIRE = json.dumps({
+        "core": {"md5": _LOCALIZATION_MD5, "localizationList": CACHED_LOCALIZATIONS}
+    }).encode("utf-8")
+
+
+def _localization_wire(locale, include_core):
+    """Reuse the exact JSON body for every client requesting the same release."""
+    cache_key = (locale, include_core)
+    wire = _LOCALIZATION_WIRE_CACHE.get(cache_key)
+    if wire is None:
+        # Only the short locale field varies. JSON-encoding 42k strings for a
+        # new locale during a match used to block the event loop for seconds.
+        wire = (
+            b'{"name": ' + json.dumps(OutboundMsg.ALL_LOCALIZATION_RELEASES.value).encode("utf-8")
+            + b', "value": {"locale": ' + json.dumps(locale).encode("utf-8")
+            + b', "version": "spirit_v4", "releases": '
+            + (_LOCALIZATION_RELEASE_WIRE if include_core else b'{}') + b'}}'
+        )
+        if len(_LOCALIZATION_WIRE_CACHE) >= 8:
+            _LOCALIZATION_WIRE_CACHE.pop(next(iter(_LOCALIZATION_WIRE_CACHE)))
+        _LOCALIZATION_WIRE_CACHE[cache_key] = wire
+    return wire
 
 # Archetype keys prioritized for Energy sets
 # "Free_Energy" MUST be first to prevent KeyNotFoundException in OwnedStacks
@@ -599,10 +630,9 @@ class DataSyncHandler(BaseHandler):
                "versionData": v}
         await self.client.send_packet(res, request_id, flags=WargFlags.CLEAR)
 
-    @handle(InboundMsg.GET_PROTOBUF_ALL_AVATAR_ARCHETYPES_LIST)
-    async def handle_get_protobuf_all_avatar_archetypes_list(self, msg, rid, flags):
+    def _build_avatar_archetypes(self, hour):
         proto = cake_item_pb2.AllAvatarArchetypesFound()
-        proto.checksum = f"spirit_avatars_{int(time.time() / 3600)}"
+        proto.checksum = f"spirit_avatars_{hour}"
         
         # Load real items dynamically from the separate avatar model
         real_items = get_avatar_items()
@@ -634,7 +664,18 @@ class DataSyncHandler(BaseHandler):
             )
             dummy_avatar.to_proto(proto.archetypes, self._to_proto_uuid)
             
-        await self.client.send_packet(proto, rid, flags=WargFlags.PROTOBUF)
+        return proto
+
+    @handle(InboundMsg.GET_PROTOBUF_ALL_AVATAR_ARCHETYPES_LIST)
+    async def handle_get_protobuf_all_avatar_archetypes_list(self, msg, rid, flags):
+        hour = int(time.time() / 3600)
+        wire = _cached_payload(
+            f"avatar_proto_wire_{hour}",
+            lambda: WargProtocol.encode_body(
+                self._build_avatar_archetypes(hour), WargFlags.PROTOBUF
+            ),
+        )
+        await self.client.send_packet(wire, rid, flags=WargFlags.PROTOBUF)
 
 
     @handle(InboundMsg.GET_PROTOBUF_ARCHETYPES_LIST)
@@ -727,7 +768,9 @@ class DataSyncHandler(BaseHandler):
     async def handle_get_deck_list(self, message, request_id, flags):
         res = {"messageName": OutboundMsg.DECK_LIST.value, "decks": []}
         if self.client.player:
-            res = self.client.player.get_decks_data()
+            # Validating every saved deck can still take noticeable CPU time.
+            # Keep the event loop free for gameplay and heartbeats during login.
+            res = await asyncio.to_thread(self.client.player.get_decks_data)
             res["messageName"] = OutboundMsg.DECK_LIST.value
         await self.client.send_packet(res, request_id, flags=WargFlags.CLEAR)
 
@@ -1044,11 +1087,11 @@ class DataSyncHandler(BaseHandler):
     async def handle_get_archetype_ids_by_family(self, message, request_id, flags):
         family_map = _cached_payload("family_id_map", self._build_family_id_map)
         logging.info(f"[TCP] [{self.client.addr}] Sending {len(family_map)} families in ID map.")
-        res = {
+        wire = _cached_payload("family_id_map_wire", lambda: WargProtocol.encode_body({
             "messageName": OutboundMsg.ARCHETYPE_IDS_BY_FAMILY.value,
-            "familyMap": family_map
-        }
-        await self.client.send_packet(res, request_id, flags=WargFlags.CLEAR)
+            "familyMap": family_map,
+        }, WargFlags.CLEAR))
+        await self.client.send_packet(wire, request_id, flags=WargFlags.CLEAR)
 
     @staticmethod
     def _build_format_legality():
@@ -1068,9 +1111,11 @@ class DataSyncHandler(BaseHandler):
 
     @handle(InboundMsg.GET_FORMAT_LEGALITY_FOR_ARCHETYPES)
     async def handle_get_format_legality_for_archetypes(self, msg, rid, flags):
-        res = {"messageName": OutboundMsg.FORMAT_LEGALITY_FOR_ARCHETYPES.value,
-               "archLegality": _cached_payload("format_legality", self._build_format_legality)}
-        await self.client.send_packet(res, rid, flags=WargFlags.CLEAR)
+        wire = _cached_payload("format_legality_wire", lambda: WargProtocol.encode_body({
+            "messageName": OutboundMsg.FORMAT_LEGALITY_FOR_ARCHETYPES.value,
+            "archLegality": _cached_payload("format_legality", self._build_format_legality),
+        }, WargFlags.CLEAR))
+        await self.client.send_packet(wire, rid, flags=WargFlags.CLEAR)
 
     @handle(InboundMsg.GET_ALL_LOCALIZATION_RELEASES)
     async def handle_get_all_localization_releases(self, message, request_id, flags):
@@ -1078,35 +1123,12 @@ class DataSyncHandler(BaseHandler):
         if CACHED_LOCALIZATIONS is None:
             await run_db(_load_localizations)
 
-        res = {
-            "messageName": OutboundMsg.ALL_LOCALIZATION_RELEASES.value,
-            "locale": locale, 
-        "version": "spirit_v4",
-            "releases": {}
-        }
-        
         client_checksums = message.get("keyedChecksums", {})
-        server_releases = ["core"]
-        # Hash the contents, not only the number of entries.  Rewording or
-        # replacing a localization must invalidate the client's cached release
-        # even when the list length stays unchanged.
-        localization_payload = json.dumps(
-            CACHED_LOCALIZATIONS,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        current_md5 = "spirit_hash_v4_" + hashlib.md5(localization_payload).hexdigest()
-        
-        for rk in server_releases:
-            if client_checksums.get(rk) != current_md5:
-                res["releases"][rk] = {
-                    "md5": current_md5,
-                    "localizationList": CACHED_LOCALIZATIONS
-                }
-            
+        include_core = client_checksums.get("core") != _LOCALIZATION_MD5
         logging.info(f"[TCP] Sent {len(CACHED_LOCALIZATIONS)} localization strings for {locale}.")
-        await self.client.send_packet(res, request_id, flags=WargFlags.CLEAR)
+        await self.client.send_packet(
+            _localization_wire(locale, include_core), request_id, flags=WargFlags.CLEAR
+        )
 
     @handle(InboundMsg.GET_SET_DATA)
     async def handle_get_set_data(self, message, request_id, flags):
@@ -1132,3 +1154,41 @@ class DataSyncHandler(BaseHandler):
             ]
         }
         await self.client.send_packet(res, request_id, flags=WargFlags.CLEAR)
+
+
+def prewarm_login_payloads():
+    """Move expensive shared login work before the TCP server starts listening."""
+    started = time.perf_counter()
+    _load_localizations()
+    _cached_payload("archetype_keys", DataSyncHandler._build_archetype_keys)
+    _cached_payload("family_map", DataSyncHandler._build_family_map)
+    # The first client otherwise builds serialized card archetypes one set at a
+    # time inside the asyncio loop. Some sets take several seconds and stall
+    # every connected player while the catalog is loading.
+    for key in CARDS_BY_KEY:
+        _cached_card_archetypes_bytes(key)
+        _archetypes_checksum(key)
+    for locale in ("en_US", "pt_BR"):
+        _localization_wire(locale, True)
+        _localization_wire(locale, False)
+
+    family_map = _cached_payload("family_id_map", DataSyncHandler._build_family_id_map)
+    _cached_payload("family_id_map_wire", lambda: WargProtocol.encode_body({
+        "messageName": OutboundMsg.ARCHETYPE_IDS_BY_FAMILY.value,
+        "familyMap": family_map,
+    }, WargFlags.CLEAR))
+
+    legality = _cached_payload("format_legality", DataSyncHandler._build_format_legality)
+    _cached_payload("format_legality_wire", lambda: WargProtocol.encode_body({
+        "messageName": OutboundMsg.FORMAT_LEGALITY_FOR_ARCHETYPES.value,
+        "archLegality": legality,
+    }, WargFlags.CLEAR))
+    hour = int(time.time() / 3600)
+    handler = DataSyncHandler(None)
+    _cached_payload(
+        f"avatar_proto_wire_{hour}",
+        lambda: WargProtocol.encode_body(
+            handler._build_avatar_archetypes(hour), WargFlags.PROTOBUF
+        ),
+    )
+    logging.info("[DataSync] Prepared shared login payloads in %.1fs", time.perf_counter() - started)

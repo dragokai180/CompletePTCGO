@@ -583,6 +583,8 @@ class MockHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             return self._build_virtual_split_locked(filename, asset_full_path, clean_base)
 
     def _build_virtual_split_locked(self, filename, asset_full_path, clean_base):
+        build_started = time.perf_counter()
+        logging.info("[HTTP] Building virtual bundle %s", filename)
         with open(asset_full_path, 'rb') as f:
             file_bytes = f.read()
 
@@ -611,7 +613,11 @@ class MockHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
             # 3. Serialize back with LZ4 packer
             file_bytes = env.file.save(packer="lz4")
-            logging.info(f"[HTTP] Built {filename}: {os.path.getsize(asset_full_path)} -> {len(file_bytes)} bytes.")
+            logging.info(
+                "[HTTP] Built %s: %s -> %s bytes in %.2fs.",
+                filename, os.path.getsize(asset_full_path), len(file_bytes),
+                time.perf_counter() - build_started,
+            )
         except Exception as e:
             logging.warning(f"[HTTP] UnityPy CAB customize failed ({e}); raw byte replacement fallback.")
             # Fallback to byte replacement for non-standard/mock asset bundles (e.g. in test suites)

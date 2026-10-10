@@ -380,6 +380,15 @@ def standard_ability_condition(game_text: str):
             activation_clause = activation_clause.replace(source_name, "this pokémon")
         if not ability_position_allowed(board, player_id, source, text):
             return False
+        named_capsule = re.search(
+            r"if this pokémon has an? ((?:ancient|future) booster energy capsule) attached",
+            activation_clause,
+        )
+        if named_capsule and (source is None or not any(
+            is_pokemon_tool(card) and card_name(card) == named_capsule.group(1)
+            for card in full_stack(source)[1:]
+        )):
+            return False
         if "if you have no cards in your hand" in activation_clause and hand:
             return False
         opposing_prizes = re.search(
@@ -1642,8 +1651,122 @@ def standard_trainer_effect(game_text: str):
         if await resolve_hgss_trainer(ctx):
             return
 
+        # Alternative private searches need an explicit branch: the generic
+        # search would take only its first count and accept both card classes.
+        if text.startswith("search your deck for 1 basic pokémon-ex or 3 basic pokémon") \
+                and "onto your bench" in text:
+            free = max(0, effective_bench_capacity(ctx.board, ctx.player_id)
+                       - len(ctx.my_bench()))
+            if not free:
+                return
+            branch = await ctx.choose(
+                "Choose a search",
+                ["1 Basic Pokémon-EX", "Up to 3 Basic Pokémon other than Pokémon-EX"],
+            )
+            want_ex = branch == 0
+            count = min(free, 1 if want_ex else 3)
+            picks = await ctx.search_deck(
+                lambda card: is_basic_pokemon(card)
+                and _pokemon_ex(card) == want_ex
+                and ctx.can_bench_pokemon(card),
+                count=count, minimum=0,
+                prompt="Choose Basic Pokémon for your Bench",
+            )
+            for pokemon in picks:
+                await ctx.bench_pokemon(pokemon)
+            await ctx.shuffle_deck()
+            return
+
+        # The extra draw depends on the physical card just discarded.  A
+        # generic fixed-draw pass loses that identity (Roller Skater and the
+        # Team Aqua/Magma Grunts).
+        if text.startswith("discard a card from your hand.") \
+                and "if you discarded" in text and "more card" in text:
+            base = re.search(r"\bdraw (\d+) cards", text)
+            bonus = re.search(
+                r"if you discarded an? (.+?), draw (\d+) more cards?",
+                text,
+            )
+            if base and bonus:
+                paid = await ctx.discard_from_hand(
+                    1, exclude=[ctx.source], prompt="Choose a card to discard",
+                )
+                if not paid:
+                    return
+                await ctx.draw_cards(int(base.group(1)))
+                descriptor = bonus.group(1).removesuffix(" in this way")
+                card = paid[0]
+                team = re.fullmatch(r"team (aqua|magma) pokémon", descriptor)
+                if descriptor == "energy card":
+                    qualifies = is_energy_card(card)
+                elif team:
+                    qualifies = (is_pokemon_card(card)
+                                 and (f"team {team.group(1)}" in _card_subtypes(card)
+                                      or _card_name(card).casefold().startswith(
+                                          f"team {team.group(1)}'s ")))
+                else:
+                    qualifies = False
+                if qualifies:
+                    await ctx.draw_cards(int(bonus.group(2)))
+                return
+
+        if text.startswith("your opponent reveals his or her hand. discard as many cards as you like") \
+                and "draw that many cards" in text:
+            await ctx.reveal_hand(ctx.opponent_id, ctx.player_id)
+            candidates = [card for card in ctx.hand() if card is not ctx.source]
+            picks = await ctx.choose_cards(
+                candidates, len(candidates), minimum=0,
+                prompt="Choose cards to discard",
+            ) if candidates else []
+            if picks:
+                await ctx.discard_cards(picks)
+                await ctx.draw_cards(len(picks))
+            return
+
         # Choice and coin cards must resolve one complete printed branch
         # before broad discard/search patterns consume only half of it.
+        if text.startswith("choose 1:") and "shuffle your hand into your deck then draw 5 cards" in text \
+                and "switch your active pokémon" in text:
+            options = ["Shuffle your hand into your deck, then draw 5 cards"]
+            if ctx.my_bench():
+                options.append("Switch your Active Pokémon")
+            index = await ctx.choose("Choose an effect", options) if len(options) > 1 else 0
+            if index == 0:
+                await ctx.shuffle_into_deck(list(ctx.hand()))
+                await ctx.draw_cards(5)
+            else:
+                target = await ctx.choose_pokemon(
+                    ctx.my_bench(), "Choose your new Active Pokémon")
+                if target is not None:
+                    await ctx.switch_active(ctx.player_id, target)
+            return
+        if text.startswith("choose 1:") and "draw cards until you have 5 cards" in text \
+                and "your pokémon's attacks do 20 more damage" in text:
+            index = await ctx.choose(
+                "Choose an effect",
+                ["Draw cards until you have 5 cards in your hand",
+                 "Your Pokémon's attacks do 20 more damage this turn"],
+            )
+            if index == 0:
+                await ctx.draw_until(5)
+            else:
+                ctx.add_turn_damage_modifier(TurnDamageModifier(
+                    amount=20, player_id=ctx.player_id,
+                ))
+            return
+        if text.startswith("look at the top card of your deck, and then choose 1:") \
+                and "draw 5 cards from the bottom of your deck" in text:
+            top = ctx.deck_top(1)
+            if top:
+                await ctx.reveal_cards(top, to_player=ctx.player_id)
+            index = await ctx.choose(
+                "Choose an effect",
+                ["Discard your hand and draw 5 cards from the top",
+                 "Discard your hand and draw 5 cards from the bottom"],
+            )
+            await ctx.discard_cards(list(ctx.hand()))
+            await ctx.draw_cards(5, from_bottom=index == 1)
+            return
         if text.startswith("choose 1:") and "put a judge card from your discard pile" in text:
             judges = [card for card in ctx.discard_pile()
                       if _card_name(card).casefold() == "judge"]
@@ -3956,6 +4079,8 @@ def standard_trainer_condition(game_text: str):
                        for c in discard) or bool(hand and deck)
         if "look at the top card of either player's deck" in text:
             return bool(deck or (opponent_id and cards(board, opponent_id, "deck")))
+        if text.startswith("look at the top card of your deck, and then choose 1:"):
+            return bool(deck)
         if text.startswith('you may play 2 puzzle of time cards at once'):
             return bool(deck) or bool(
                 any(_card_name(entry).casefold() == 'puzzle of time' for entry in hand)
@@ -3973,6 +4098,10 @@ def standard_trainer_condition(game_text: str):
         own_bench = list(own_bench_area.children) if own_bench_area else []
         opposing_bench = list(opposing_bench_area.children) \
             if opposing_bench_area else []
+
+        if text.startswith("search your deck for 1 basic pokémon-ex or 3 basic pokémon") \
+                and len(own_bench) >= effective_bench_capacity(board, player_id):
+            return False
 
         if "heal 120 damage from the pokémon you moved to your bench" in text:
             return bool(own_bench and board.active_pokemon(player_id))
@@ -4287,7 +4416,6 @@ def standard_trainer_condition(game_text: str):
         if "put a basic pokémon from your opponent's discard pile onto" in text:
             if not any(is_basic_pokemon(entry) for entry in opponent_discard):
                 return False
-            from spirit.game.session.passives import effective_bench_capacity
             if len(opposing_bench) >= effective_bench_capacity(board, opponent_id):
                 return False
 

@@ -141,6 +141,25 @@ def _pokemon_ex(card) -> bool:
     return "EX" in subtypes or _name(card).endswith("-EX")
 
 
+def _bench_rulebox_targets(pool, wording: str):
+    """Restrict a Bench damage clause to the rule-box classes it names."""
+    qualifier = re.match(
+        r"(?:-gx|-ex| ex| v)(?: (?:or|and) (?:benched )?"
+        r"pokémon(?:-gx|-ex| ex| v))*", wording,
+    )
+    if qualifier is None:
+        return pool
+    classes = set(re.findall(
+        r"pokémon(-gx|-ex| ex| v)", "pokémon" + qualifier.group(),
+    ))
+    return [pokemon for pokemon in pool if (
+        "-gx" in classes and _has_exact_subtype(pokemon, "GX")
+        or "-ex" in classes and _pokemon_ex(pokemon)
+        or " ex" in classes and _has_exact_subtype(pokemon, "ex")
+        or " v" in classes and is_pokemon_v(pokemon.archetype_id)
+    )]
+
+
 def _has_tool(pokemon) -> bool:
     return any(is_pokemon_tool(card) for card in full_stack(pokemon)[1:])
 
@@ -3546,6 +3565,12 @@ class _BWTextPassive(Passive):
         if "active pokémon-gx or pokémon-ex" in self.text \
                 and not (_has_subtype(pokemon, "GX") or _pokemon_ex(pokemon)):
             return count
+        if "active pokémon-gx or pokémon-ex" in self.text \
+                and ctx.board.active_pokemon(pokemon.owning_player_id) is not pokemon:
+            return count
+        if "opponent's basic pokémon" in self.text \
+                and _stage(pokemon) != PokemonStage.BASIC.value:
+            return count
         return count + 1
 
     async def extra_prizes_for_knockout(self, pokemon, ctx, count, carrier):
@@ -4294,6 +4319,9 @@ def _formula_damage(ctx, text: str) -> Optional[int]:
         if scoped_counters is not None:
             return per * scoped_counters
         if "damage counters on this pokémon" in subject:
+            return per * _damage_counter_count(ctx, ctx.attacker)
+        if ctx.attacker is not None and subject == \
+                f"damage counters on {_name(ctx.attacker).casefold()}":
             return per * _damage_counter_count(ctx, ctx.attacker)
         if "damage counters on the defending pokémon" in subject:
             return per * _damage_counter_count(ctx, ctx.defender)
@@ -5332,6 +5360,201 @@ async def bw_legacy_attack(ctx):
     text = text.replace("new defending pokémon", "new active pokémon")
     printed = getattr(ctx.ability, "damage", 0) or 0
     primary_damage_dealt = 0
+    each_opponent_coin = re.match(
+        r"for each of your opponent's pokémon, flip a coin\. if heads, "
+        r"this attack does (\d+) damage to that pokémon\.", text,
+    )
+    if each_opponent_coin:
+        targets = list(ctx.opponent_pokemon_in_play())
+        results = await ctx.flip_coins(len(targets), ctx.ability.title)
+        for target, heads in zip(targets, results):
+            if heads:
+                await ctx.deal_damage(
+                    int(each_opponent_coin.group(1)), target=target,
+                    apply_modifiers=(target is ctx.defender),
+                )
+        return
+    bench_coin_spread = re.match(
+        r"for each benched pokémon \(both yours and your opponent's\), "
+        r"flip a coin\. if heads, this attack does (\d+) damage to that pokémon\.",
+        text,
+    )
+    if bench_coin_spread:
+        targets = list(ctx.my_bench()) + list(ctx.opponent_bench())
+        results = await ctx.flip_coins(len(targets), ctx.ability.title)
+        if printed:
+            await ctx.deal_damage(
+                printed, ignore_weakness=True, ignore_resistance=True,
+            )
+        for target, heads in zip(targets, results):
+            if heads:
+                await ctx.deal_damage(
+                    int(bench_coin_spread.group(1)), target=target,
+                    apply_modifiers=False,
+                )
+        return
+    coin_scaled_spread = re.match(
+        r"flip (\d+) coins\. this attack does (\d+) damage "
+        r"(?:times the number of|for each) heads to each of your "
+        r"opponent's pokémon\.", text,
+    )
+    if coin_scaled_spread:
+        coin_count, per_head = map(int, coin_scaled_spread.groups())
+        heads = sum(await ctx.flip_coins(coin_count, ctx.ability.title))
+        if heads:
+            for target in list(ctx.opponent_pokemon_in_play()):
+                await ctx.deal_damage(
+                    per_head * heads, target=target,
+                    apply_modifiers=(target is ctx.defender),
+                )
+        return
+    chosen_until_tails = re.match(
+        r"choose 1 of your opponent's pokémon\. flip a coin until you get "
+        r"tails\. this attack does (\d+) damage times the number of heads "
+        r"to that pokémon\.", text,
+    )
+    if chosen_until_tails:
+        targets = list(ctx.opponent_pokemon_in_play())
+        target = await ctx.choose_pokemon(targets, "Choose a Pokémon to damage") \
+            if targets else None
+        if target is None:
+            return
+        heads = 0
+        while (await ctx.flip_coins(1, ctx.ability.title))[0]:
+            heads += 1
+        if heads:
+            await ctx.deal_damage(
+                int(chosen_until_tails.group(1)) * heads, target=target,
+                apply_modifiers=(target is ctx.defender),
+            )
+        return
+    coin_snipe = re.match(
+        r"flip (\d+) coins\. this attack does (\d+) damage times the "
+        r"number of heads to 1 of your opponent's pokémon\.", text,
+    )
+    if coin_snipe:
+        coin_count, per_head = map(int, coin_snipe.groups())
+        heads = sum(await ctx.flip_coins(coin_count, ctx.ability.title))
+        if heads:
+            targets = list(ctx.opponent_pokemon_in_play())
+            target = await ctx.choose_pokemon(
+                targets, "Choose a Pokémon to damage") if targets else None
+            if target is not None:
+                await ctx.deal_damage(
+                    per_head * heads, target=target,
+                    apply_modifiers=(target is ctx.defender),
+                )
+        return
+    coin_side_spread = re.match(
+        r"flip a coin\. if heads, this attack does (\d+) damage to each "
+        r"of your opponent's pokémon\.(?: if tails, this attack does "
+        r"(\d+) damage to each of your pokémon\.)?", text,
+    )
+    if coin_side_spread:
+        heads = (await ctx.flip_coins(1, ctx.ability.title))[0]
+        amount = int(coin_side_spread.group(1)) if heads else \
+            int(coin_side_spread.group(2) or 0)
+        targets = ctx.opponent_pokemon_in_play() if heads else \
+            ctx.my_pokemon_in_play()
+        if amount:
+            for target in list(targets):
+                await ctx.deal_damage(
+                    amount, target=target,
+                    apply_modifiers=(target is ctx.defender),
+                )
+        return
+    coin_side_snipe = re.match(
+        r"flip a coin\. if heads, this attack does (\d+) damage to 1 "
+        r"of your opponent's pokémon\. if tails, this attack does "
+        r"(\d+) damage to 1 of your pokémon\.", text,
+    )
+    if coin_side_snipe:
+        heads = (await ctx.flip_coins(1, ctx.ability.title))[0]
+        amount = int(coin_side_snipe.group(1 if heads else 2))
+        targets = list(ctx.opponent_pokemon_in_play() if heads else
+                       ctx.my_pokemon_in_play())
+        target = await ctx.choose_pokemon(targets, "Choose a Pokémon to damage") \
+            if targets else None
+        if target is not None:
+            await ctx.deal_damage(
+                amount, target=target,
+                apply_modifiers=(target is ctx.defender),
+            )
+        return
+    coin_ignore_wr_snipe = re.match(
+        r"flip a coin\. if heads, choose 1 of your opponent's pokémon\. "
+        r"this attack does (\d+) damage to that pokémon\.", text,
+    )
+    if coin_ignore_wr_snipe:
+        if (await ctx.flip_coins(1, ctx.ability.title))[0]:
+            targets = list(ctx.opponent_pokemon_in_play())
+            target = await ctx.choose_pokemon(
+                targets, "Choose a Pokémon to damage") if targets else None
+            if target is not None:
+                await ctx.deal_damage(
+                    int(coin_ignore_wr_snipe.group(1)), target=target,
+                    apply_modifiers=(target is ctx.defender),
+                    ignore_weakness=True, ignore_resistance=True,
+                )
+        return
+    coin_active_or_self = re.match(
+        r"flip a coin\. if heads, this attack does (\d+) damage to the "
+        r"defending pokémon\. if tails, this pokémon does (\d+) damage "
+        r"to itself\.", text,
+    )
+    if coin_active_or_self:
+        heads = (await ctx.flip_coins(1, ctx.ability.title))[0]
+        if heads:
+            await ctx.deal_damage(int(coin_active_or_self.group(1)))
+        else:
+            await ctx.deal_damage(
+                int(coin_active_or_self.group(2)), target=ctx.attacker,
+                apply_modifiers=False,
+            )
+        return
+    # These attacks choose a target (or a board-wide spread) and count only
+    # Pokémon satisfying the printed name/attack predicate.  Their damage is
+    # wholly coin-dependent, so it must not fall through to Active damage.
+    named_coin_snipe = re.fullmatch(
+        r'choose 1 of your opponent\'s pokémon and flip a coin for each of your '
+        r'pokémon in play that has "([^"]+)" in its name\. this attack does '
+        r'(\d+) damage to the chosen pokémon for each heads\..*', text,
+    )
+    if named_coin_snipe:
+        targets = list(ctx.opponent_pokemon_in_play())
+        target = await ctx.choose_pokemon(targets, "Choose a Pokémon to damage") \
+            if targets else None
+        if target is None:
+            return
+        name_part, per_head = named_coin_snipe.groups()
+        count = sum(name_part in _name(pokemon).casefold()
+                    for pokemon in ctx.my_pokemon_in_play())
+        heads = sum(bool(result) for result in await ctx.flip_coins(
+            count, ctx.ability.title)) if count else 0
+        if heads:
+            await ctx.deal_damage(
+                int(per_head) * heads, target=target,
+                apply_modifiers=(target is ctx.defender),
+            )
+        return
+    attack_coin_spread = re.fullmatch(
+        r'flip a coin for each of your pokémon in play that has the (.+?) '
+        r'attack\. this attack does (\d+) damage for each heads to each of '
+        r'your opponent\'s pokémon\..*', text,
+    )
+    if attack_coin_spread:
+        attack_name, per_head = attack_coin_spread.groups()
+        count = sum(_has_attack_named(pokemon, attack_name)
+                    for pokemon in ctx.my_pokemon_in_play())
+        heads = sum(bool(result) for result in await ctx.flip_coins(
+            count, ctx.ability.title)) if count else 0
+        if heads:
+            for target in list(ctx.opponent_pokemon_in_play()):
+                await ctx.deal_damage(
+                    int(per_head) * heads, target=target,
+                    apply_modifiers=(target is ctx.defender),
+                )
+        return
     no_effect = re.match(r"if (.+?), this attack does nothing(?:\.|$)", text)
     if no_effect:
         from spirit.game.card_effects.attack_state_clauses import public_attack_condition
@@ -5416,8 +5639,11 @@ async def bw_legacy_attack(ctx):
     # Register it only for a KO caused by this hit; prize-prevention effects
     # are still authoritative in the shared knockout resolver.
     prize_attack = re.fullmatch(
-        r"if (?:your opponent's|the defending) pokémon is knocked out "
-        r"by damage from this attack, take (\d+) more prize cards?\.?",
+        r"if (?:your opponent's|the defending) "
+        r"(?P<victim>pokémon(?:-gx or pokémon-ex)?|basic pokémon|"
+        r"mega evolution pokémon) is knocked out by damage from this attack, "
+        r"take (?P<bonus>\d+) more prize cards?\.?(?: \(you can't use more "
+        r"than 1 gx attack in a game\.\))?",
         text,
     )
     if prize_attack:
@@ -5425,7 +5651,18 @@ async def bw_legacy_attack(ctx):
         dealt = await ctx.deal_damage(printed)
         if dealt > 0 and defender is not None and defender in ctx.knockouts \
                 and defender.entity_id in ctx.attack_damage:
-            ctx.extra_prizes += int(prize_attack.group(1))
+            victim = prize_attack.group("victim")
+            eligible = (
+                victim == "pokémon"
+                or victim == "pokémon-gx or pokémon-ex" and (
+                    _has_exact_subtype(defender, "GX") or _pokemon_ex(defender))
+                or victim == "basic pokémon"
+                and _stage(defender) == PokemonStage.BASIC.value
+                or victim == "mega evolution pokémon"
+                and _has_exact_subtype(defender, "MEGA")
+            )
+            if eligible:
+                ctx.extra_prizes += int(prize_attack.group("bonus"))
         return
     if "play rock-paper-scissors" in text:
         while True:
@@ -6261,6 +6498,8 @@ async def bw_legacy_attack(ctx):
     typed_coins = re.search(r"flip a coin for each (\w+) energy attached to", text)
     if typed_coins:
         coin_count = _energy_count(ctx, ctx.attacker, typed_coins.group(1))
+    if "flip a coin for each damage counter on this pokémon" in text:
+        coin_count = _damage_counter_count(ctx, ctx.attacker)
     board_coins = re.search(r"flip a coin for each (?:of your |your )?(.+?) (?:you have )?in play", text)
     if board_coins:
         descriptor = board_coins.group(1).strip()
@@ -6269,7 +6508,14 @@ async def bw_legacy_attack(ctx):
             coin_count = len(pool)
         elif descriptor.endswith(" pokémon"):
             ptype = getattr(PokemonTypes, descriptor.split()[0].upper(), None)
-            coin_count = sum(ptype is not None and ptype.value in effective_pokemon_types(ctx.board, p) for p in pool)
+            if ptype is not None:
+                coin_count = sum(ptype.value in effective_pokemon_types(
+                    ctx.board, pokemon) for pokemon in pool)
+            elif descriptor.startswith("team aqua "):
+                coin_count = sum(_name(pokemon).casefold().startswith(
+                    "team aqua's ") for pokemon in pool)
+            else:
+                coin_count = 0
         else:
             coin_count = sum(_name(p).casefold() == descriptor for p in pool)
     # A few legacy exports lost the leading "Flip a coin." sentence while
@@ -6916,6 +7162,40 @@ async def bw_legacy_attack(ctx):
         m = re.search(r"does (\d+) more damage for each heads", text)
         if m:
             amount = printed + int(m.group(1)) * heads
+        base_plus_heads = re.search(
+            r"does (\d+) damage plus (\d+) more damage for each heads", text)
+        if base_plus_heads:
+            amount = int(base_plus_heads.group(1)) \
+                + int(base_plus_heads.group(2)) * heads
+        heads_plus = re.search(
+            r"if heads, this attack does (\d+) damage plus (\d+) "
+            r"(?:more )?damage", text)
+        if heads_plus:
+            amount = int(heads_plus.group(1)) + (
+                int(heads_plus.group(2)) if heads else 0)
+        if heads == 0 and re.search(
+                r"if heads, this attack does \d+ damage times "
+                r"(?:the amount|the number) of", text):
+            amount = 0
+        # A few attacks print a separate result for exactly 1, 2, or all
+        # heads instead of a linear per-head formula.
+        numbered_heads = re.finditer(
+            r"if (\d+) of them (?:is|are) heads, this attack does "
+            r"(\d+) (more )?damage(?: plus (\d+) more damage)?", text)
+        all_heads = re.finditer(
+            r"if all of them are heads, this attack does "
+            r"(\d+) (more )?damage(?: plus (\d+) more damage)?", text)
+        head_branches = [
+            (int(match.group(1)), *match.groups()[1:])
+            for match in numbered_heads
+        ] + [
+            (coin_count, *match.groups()) for match in all_heads
+        ]
+        for needed, value, more, plus in head_branches:
+            if heads == needed:
+                base = printed if more else int(value)
+                bonus = int(value) if more else int(plus or 0)
+                amount = base + bonus
         if "if both of them are tails, this attack does nothing" in text \
                 and heads == 0:
             amount = 0
@@ -6926,6 +7206,11 @@ async def bw_legacy_attack(ctx):
         both_heads = re.search(r"if both of them are heads, this attack does (\d+) more damage", text)
         if both_heads:
             amount = printed + (int(both_heads.group(1)) if heads == coin_count else 0)
+        both_heads_plus = re.search(
+            r"if both of them are heads, this attack does (\d+) damage "
+            r"plus (\d+) more damage", text)
+        if both_heads_plus and heads == coin_count:
+            amount = int(both_heads_plus.group(1)) + int(both_heads_plus.group(2))
         m = re.search(r"if heads, this attack does (\d+) more damage", text)
         if m and heads:
             amount = (printed if amount is None else amount) + int(m.group(1))
@@ -7111,6 +7396,8 @@ async def bw_legacy_attack(ctx):
     if snipe_allowed:
         damage, count = int(snipe.group(1)), int(snipe.group(2))
         pool = ctx.opponent_bench() if snipe.group(3) else ctx.opponent_pokemon_in_play()
+        if snipe.group(3):
+            pool = _bench_rulebox_targets(pool, text[snipe.end():])
         if "that has any damage counters" in text:
             pool = [p for p in pool if _damage_counter_count(ctx, p) > 0]
         snipe_scale = re.search(
@@ -7162,8 +7449,13 @@ async def bw_legacy_attack(ctx):
             continue
         targets = ctx.opponent_bench() if opposing else ctx.my_bench()
         suffix = text[spread.end():].split('.', 1)[0]
+        targets = _bench_rulebox_targets(targets, text[spread.end():])
         if "that has any damage counters" in suffix:
             targets = [p for p in targets if _damage_counter_count(ctx, p)]
+        if "that shares a type with" in suffix:
+            defending_types = set(effective_pokemon_types(ctx.board, ctx.defender))
+            targets = [p for p in targets if defending_types.intersection(
+                effective_pokemon_types(ctx.board, p))]
         for target in list(targets):
             await ctx.deal_damage(int(damage), target=target,
                                   apply_modifiers=None)
@@ -7286,6 +7578,9 @@ async def bw_legacy_attack(ctx):
     if repeat_hits:
         for _ in range(int(repeat_hits.group(1))):
             targets = list(ctx.opponent_pokemon_in_play())
+            if "pokémon-gx or pokémon-ex" in text:
+                targets = [p for p in targets if
+                           _has_exact_subtype(p, "GX") or _pokemon_ex(p)]
             target = await ctx.choose_pokemon(targets, "Choose a Pokémon to damage") \
                 if targets else None
             if target is not None:
@@ -7462,7 +7757,9 @@ async def bw_legacy_attack(ctx):
             )
 
     # Coin recoil / ordinary recoil.
-    recoil = re.search(r"this pokémon does (\d+) damage to itself", text)
+    source_name = re.escape(_name(ctx.attacker).casefold()) if ctx.attacker else r"(?!)"
+    recoil = re.search(
+        rf"(?:this pokémon|{source_name}) does (\d+) damage to itself", text)
     conditional_optional_recoil = "you may do" in text and "if you do" in text
     if recoil and (not conditional_optional_recoil or optional_recoil_taken) \
             and _attack_clause_allowed(ctx, text, recoil.start(), heads, coin_count):
@@ -8360,6 +8657,9 @@ async def bw_legacy_attack(ctx):
     )
     if m and _attack_clause_allowed(ctx, text, m.start(), heads, coin_count):
         count = int(m.group(1) or 1)
+        clause = text[text.rfind(".", 0, m.start()) + 1:m.start()]
+        if "for each heads" in clause:
+            count *= heads or 0
         # Later sentences can increase or replace this same mill, rather than
         # starting a second independent discard from the opponent's deck.
         followup = re.match(
@@ -8371,7 +8671,8 @@ async def bw_legacy_attack(ctx):
             if public_attack_condition(ctx, followup.group(1)) is True:
                 count = (count + int(followup.group(2)) if followup.group(2)
                          else int(followup.group(3)))
-        await ctx.discard_cards(ctx.deck_top(count, ctx.opponent_id))
+        if count:
+            await ctx.discard_cards(ctx.deck_top(count, ctx.opponent_id))
 
     draw_until = re.search(r"draw cards until you have (\d+) cards in your hand", text)
     if draw_until:
@@ -11013,10 +11314,15 @@ async def bw_legacy_attack(ctx):
             and "their turn ends" in text:
         ctx.end_turn_if_energy_attached_to(ctx.defender)
 
-    if "if the defending pokémon is knocked out during your next turn, take 2 more prize cards" in text:
+    next_turn_prizes = re.search(
+        r"(?:if the defending pokémon is knocked out during your next turn|"
+        r"during your next turn, if the defending pokémon is knocked out), "
+        r"take (\d+) more prize cards?", text,
+    )
+    if next_turn_prizes:
         ctx.add_passive_through_own_next_turn(
             ctx.defender,
-            _BWPrizeRule(ctx.player_id, bonus=2),
+            _BWPrizeRule(ctx.player_id, bonus=int(next_turn_prizes.group(1))),
         )
 
     if "during your opponent's next turn, if this pokémon is knocked out" in text \
@@ -11320,10 +11626,21 @@ async def bw_legacy_ability(ctx):
         return
     # Clicking an activated Ability is already the player's confirmation.
     # Only automatic triggers need the explicit yes/no choice.
-    if optional and getattr(ctx.ability, "trigger", None) \
-            and not await ctx.ask_yes_no(f"Use {ctx.ability.title}?"):
-        ctx.suppress_announce = True
-        return
+    if optional and getattr(ctx.ability, "trigger", None):
+        refill = re.search(r"draw cards until you have (\d+) cards", text)
+        if refill and not re.search(
+                r"\b(?:discard|shuffle|put)\b", text[:refill.start()]):
+            target = int(refill.group(1))
+            first_turn = re.search(
+                r"if it's your first turn, draw cards until you have (\d+)", text)
+            if first_turn and ctx.session.turn_state.turn_number in (1, 2):
+                target = int(first_turn.group(1))
+            if ctx.hand_size() >= target:
+                ctx.suppress_announce = True
+                return
+        if not await ctx.ask_yes_no(f"Use {ctx.ability.title}?"):
+            ctx.suppress_announce = True
+            return
 
     from spirit.game.card_effects.hgss_era import resolve_hgss_power
     from spirit.game.card_effects.hand_entry import resolve_hand_entry
@@ -11393,6 +11710,31 @@ async def bw_legacy_ability(ctx):
     if getattr(ctx.ability, "trigger", None) is None \
             and not await _pay_shared_ability_discard_cost(ctx, text):
         ctx.suppress_announce = True
+        return
+
+    if "you may choose 1: put a supporter card from your discard pile" in text \
+            and "search your deck for a supporter card" in text:
+        supporters = [card for card in ctx.discard_pile()
+                      if is_supporter_card(card)]
+        options = []
+        if supporters:
+            options.append("Put a Supporter from your discard pile into your hand")
+        if ctx.deck():
+            options.append("Search your deck for a Supporter")
+        if not options:
+            return
+        index = await ctx.choose("Choose an effect", options) if len(options) > 1 else 0
+        if options[index].startswith("Put a Supporter"):
+            chosen = await _choose_one(ctx, supporters, "Choose a Supporter")
+            if chosen is not None:
+                await ctx.put_in_hand([chosen], reveal=True)
+        else:
+            picks = await ctx.search_deck(
+                is_supporter_card, 1, minimum=0, reveal_result=True,
+                prompt="Choose a Supporter",
+            )
+            await ctx.put_in_hand(picks, reveal=True)
+            await ctx.shuffle_deck()
         return
 
     # These activated Abilities have a required consequence after the first
@@ -13507,6 +13849,9 @@ async def bw_legacy_ability(ctx):
     # Retaliation after an opposing attack damaged this Pokemon.
     attacker = getattr(ctx, "damaged_by", None)
     if attacker is not None and attacker.owning_player_id != ctx.player_id:
+        if re.search(r"this pokémon .*has a pokémon tool(?: card)? attached", text) \
+                and not _has_tool(ctx.source):
+            return
         counters = re.search(
             r"(?:put|place) (\d+) damage counters? on the attacking pokémon",
             text,

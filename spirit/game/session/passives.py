@@ -13,7 +13,7 @@ import re
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import unicodedata
 
-from spirit.game.attributes import AttrID, PokemonTypes, PokemonStage, TrainerType
+from spirit.game.attributes import AttrID, AbilityTypes, PokemonTypes, PokemonStage, TrainerType
 from spirit.game.data_utils import ABILITIES_BY_ID, def_for, subtypes_for
 from spirit.game.models.board import (
     BENCH_SLOT_COUNT,
@@ -715,11 +715,13 @@ def _ability_position_allows(board: BoardState, pokemon: PokemonEntity, ability:
     return board.active_pokemon(pokemon.owning_player_id) is pokemon
 
 
-def _collect_passives(board: BoardState) -> List[Tuple[Passive, BoardEntity, bool]]:
-    """All (passive, carrier, is_ability) triples currently switched on by
-    board position, before ability locks are applied. is_ability is True only
-    for passives contributed by a Pokemon's own PIE_ABILITIES entry."""
-    triples: List[Tuple[Passive, BoardEntity, bool]] = []
+def _collect_passives(board: BoardState) -> List[Tuple[Passive, BoardEntity, Any]]:
+    """All (passive, carrier, printed ability or None) triples currently on.
+
+    Keep the printed ability so suppression can distinguish modern Abilities
+    from legacy Poke-Powers and Poke-Bodies.
+    """
+    triples: List[Tuple[Passive, BoardEntity, Any]] = []
     for player_id in board.player_ids:
         for pokemon in board.pokemon_in_play(player_id):
             # Card-level PokemonCardDef(passive=): rules text that is not an
@@ -736,7 +738,8 @@ def _collect_passives(board: BoardState) -> List[Tuple[Passive, BoardEntity, boo
                     # A Tool-granted ability's passive rides the tool, not the
                     # Pokemon, so Path to the Peak can't switch it off.
                     triples.append((ability.passive, pokemon,
-                                    not (ability.is_granted or ability.is_rule_action)))
+                                    None if ability.is_granted or ability.is_rule_action
+                                    else ability))
             for attachment in _descendants(pokemon):
                 if isinstance(attachment, PokemonEntity):
                     # Some Pokemon turn themselves into attached Energy or a
@@ -777,7 +780,8 @@ def _carrier_in_play(entity: BoardEntity) -> bool:
 
 
 def _locks_abilities_of(
-    triples: List[Tuple[Passive, BoardEntity, bool]], pokemon: PokemonEntity
+    triples: List[Tuple[Passive, BoardEntity, Any]], pokemon: PokemonEntity,
+    ability: Any = None,
 ) -> bool:
     """Whether any collected passive turns `pokemon`'s Abilities off.
 
@@ -792,6 +796,8 @@ def _locks_abilities_of(
     effects again only once the lock is gone. Stealthy Hood works because it
     is a Tool.
     """
+    if ability is not None and ability.ability_type != AbilityTypes.POKE_ABILITY:
+        return False
     shielded = any(p.blocks_ability_effects(pokemon, c)
                    for p, c, from_ability in triples if not from_ability)
     for passive, carrier, is_ability in triples:
@@ -816,7 +822,8 @@ def _suppression_sources(board: BoardState):
         state, "abilities_disabled_through_turn", 0)
     independent = [entry for entry in triples if not entry[2]]
     return [entry for entry in triples if not entry[2] or not (
-        disabled or _locks_abilities_of(independent, entry[1]))]
+        (disabled and entry[2].ability_type == AbilityTypes.POKE_ABILITY)
+        or _locks_abilities_of(independent, entry[1], entry[2]))]
 
 
 def ability_locked(
@@ -835,10 +842,11 @@ def ability_locked(
             or getattr(ability, "is_rule_action", False):
         return False
     state = getattr(board, "turn_state", None)
-    if state is not None and state.turn_number <= getattr(
+    modern = ability is None or ability.ability_type == AbilityTypes.POKE_ABILITY
+    if modern and state is not None and state.turn_number <= getattr(
             state, "abilities_disabled_through_turn", 0):
         return True
-    if _locks_abilities_of(_suppression_sources(board), pokemon):
+    if modern and _locks_abilities_of(_suppression_sources(board), pokemon, ability):
         return True
     if ability is None:
         return False
@@ -849,7 +857,9 @@ def ability_locked(
     )
 
 
-def out_of_play_ability_locked(board: BoardState, card: BoardEntity) -> bool:
+def out_of_play_ability_locked(
+    board: BoardState, card: BoardEntity, ability: Any = None,
+) -> bool:
     """Whether a passive is disabling the Abilities of a card in a hand or a
     discard pile (Garbotoxin).
 
@@ -858,6 +868,8 @@ def out_of_play_ability_locked(board: BoardState, card: BoardEntity) -> bool:
     if not isinstance(card, PokemonEntity):
         return False
     if card._containing_area_name() not in ("hand", "discard"):
+        return False
+    if ability is not None and ability.ability_type != AbilityTypes.POKE_ABILITY:
         return False
     state = getattr(board, "turn_state", None)
     if state is not None and state.turn_number <= getattr(
@@ -902,10 +914,19 @@ def active_passives(board: BoardState) -> List[Tuple[Passive, BoardEntity]]:
         state, "abilities_disabled_through_turn", 0
     )
 
-    def blocked(pokemon: PokemonEntity) -> bool:
-        return all_abilities_disabled or _locks_abilities_of(triples, pokemon)
+    def blocked(entry) -> bool:
+        _, pokemon, ability = entry
+        return ((all_abilities_disabled
+                 and ability.ability_type == AbilityTypes.POKE_ABILITY)
+                or _locks_abilities_of(triples, pokemon, ability))
 
-    enabled = [entry for entry in triples if not (entry[2] and blocked(entry[1]))]
+    enabled = [entry for entry in triples if not (entry[2] and blocked(entry))]
+    # Narrow locks such as Psychic Lock name a printed Poké-Power rather than
+    # all Abilities. They must also silence continuous/triggered passives.
+    enabled = [entry for entry in enabled if not (entry[2] and any(
+        passive.blocks_ability(entry[1], entry[2], carrier)
+        for passive, carrier, _ in enabled
+    ))]
     return [(p, c) for p, c, _ in enabled
             if not _suppressed_special_energy(enabled, c)
             and not _suppressed_tool(enabled, c)]
@@ -916,7 +937,7 @@ def tool_suppressed(board: BoardState, tool: BoardEntity) -> bool:
     granted_abilities in PIE_ABILITIES, not just its passive hooks."""
     triples = _suppression_sources(board)
     enabled = [entry for entry in triples if not (
-        entry[2] and _locks_abilities_of(triples, entry[1]))]
+        entry[2] and _locks_abilities_of(triples, entry[1], entry[2]))]
     return _suppressed_tool(enabled, tool)
 
 
@@ -1033,6 +1054,30 @@ def effective_attack_cost(
     board: BoardState, pokemon: PokemonEntity, cost: Dict[str, int], attack=None
 ) -> Dict[str, int]:
     """An attack's cost after cost-modifying passives (e.g. Excited Heart)."""
+    # Some attacks print an alternate cost when a named Tool is attached.
+    # Apply that printed cost before other modifiers (Head Ringer, etc.).
+    text = getattr(attack, "game_text", "") or ""
+    alternate = re.fullmatch(
+        r"If this Pokémon has an? (.+?) attached, this attack can be used for "
+        r"((?:Grass|Fire|Water|Lightning|Psychic|Fighting|Darkness|Metal|"
+        r"Fairy|Dragon|Colorless)+)\.", text.strip(), re.IGNORECASE,
+    )
+    if alternate:
+        tool_name, symbols = alternate.groups()
+        if any(
+            child.get_attribute(AttrID.TRAINER_TYPE) == TrainerType.POKEMON_TOOL.value
+            and (getattr(def_for(child.archetype_id), "display_name", "") or "").casefold()
+            == tool_name.casefold()
+            for child in pokemon.children
+        ):
+            alternate_cost = {}
+            for symbol in re.findall(
+                r"Grass|Fire|Water|Lightning|Psychic|Fighting|Darkness|Metal|"
+                r"Fairy|Dragon|Colorless", symbols, re.IGNORECASE,
+            ):
+                name = symbol.capitalize()
+                alternate_cost[name] = alternate_cost.get(name, 0) + 1
+            cost = alternate_cost
     seen_keys = set()
     for passive, carrier in active_passives(board):
         key = passive.stacking_key
@@ -1472,7 +1517,7 @@ def special_energy_suppressed(board: BoardState, energy: BoardEntity) -> bool:
     """Whether `energy` is a Special Energy neutralized by a passive."""
     triples = _suppression_sources(board)
     enabled = [entry for entry in triples if not (
-        entry[2] and _locks_abilities_of(triples, entry[1]))]
+        entry[2] and _locks_abilities_of(triples, entry[1], entry[2]))]
     return _suppressed_special_energy(enabled, energy)
 
 

@@ -5291,7 +5291,7 @@ class GameSession:
             return False
         if card._containing_area_name() in ("hand", "discard"):
             if not ability.is_rule_action and out_of_play_ability_locked(
-                    self.board_state, card):
+                    self.board_state, card, ability):
                 return False
         elif ability_locked(self.board_state, card, ability) \
                 and not ability.is_granted:

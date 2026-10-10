@@ -108,6 +108,12 @@ def public_attack_condition(ctx, clause):
     if c == 'lysandre labs is in play':
         stadium = ctx.stadium_in_play()
         return stadium is not None and _name(stadium) == 'lysandre labs'
+    if c in ("your opponent's active pokémon has a pokémon tool attached",
+             "your opponent's active pokémon has a pokémon tool card attached to it",
+             "the defending pokémon has a pokémon tool card attached to it"):
+        return defender is not None and any(
+            is_pokemon_tool(card) for card in full_stack(defender)[1:]
+        )
     if c == 'you have fewer pokémon in play than your opponent':
         return len(ctx.my_pokemon_in_play()) < len(ctx.opponent_pokemon_in_play())
     m = re.fullmatch(r'you have (?:at least )?(\d+)(?: or more)? (?:(\w+) )?energy in play', c)

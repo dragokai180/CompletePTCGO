@@ -9,6 +9,7 @@ against -- do not reword them.
 """
 
 from enum import Enum
+import os
 
 from spirit.game.models.board import BENCH_SLOT_COUNT
 
@@ -182,7 +183,7 @@ GAME_OPTION_RECONNECTING_KEY = "Reconnecting"
 GAME_OPTION_RECONNECTING_VALUE = "true"
 # Grace window a detached player has to reconnect before the game is awarded to
 # the connected opponent (via the concede/end_game flow).
-RECONNECT_GRACE_SECONDS = 30
+RECONNECT_GRACE_SECONDS = max(30, int(os.environ.get("SPIRIT_RECONNECT_GRACE_SECONDS", "120")))
 RECONNECT_SEQUENCE_SETTLE_SECONDS = 1.75
 # ForceSelectionFinished's client command (m.d) ends by clearing the same
 # prompt override the disconnect banner sets; the banner must wait it out.

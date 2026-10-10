@@ -14,14 +14,12 @@ def _irresistible_force_condition(board, player_id, pokemon):
 
 async def irresistible_force(ctx):
     others = [p for p in ctx.my_pokemon_in_play() if p is not ctx.source]
-    pool = [e for p in others for e in ctx.attached_energies(p)
-            if energy_provides_type(e, PokemonTypes.FIGHTING)]
-    if not pool:
-        return
-    picked = await ctx.choose_cards(
-        pool, 1, prompt="Choose a Fighting Energy to move to this Pokémon")
-    if picked:
-        await ctx.move_energy(picked[0], ctx.source)
+    await ctx.move_energy_freely(
+        others, [ctx.source],
+        predicate=lambda energy: energy_provides_type(
+            energy, PokemonTypes.FIGHTING.value),
+        prompt="Choose a Fighting Energy to move to this Pokémon",
+    )
 
 
 card = PokemonCardDef(
