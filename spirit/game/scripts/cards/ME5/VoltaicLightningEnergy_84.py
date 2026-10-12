@@ -1,6 +1,8 @@
 from spirit.game.data_utils import EnergyCardDef
-from spirit.game.attributes import AttrID, PokemonTypes, Rarities
-from spirit.game.session.passives import Passive, carrier_pokemon
+from spirit.game.attributes import PokemonTypes, Rarities
+from spirit.game.session.passives import (
+    Passive, carrier_pokemon, effective_pokemon_types,
+)
 
 
 class VoltaicLightningPassive(Passive):
@@ -13,7 +15,7 @@ class VoltaicLightningPassive(Passive):
         pokemon = carrier_pokemon(carrier)
         if pokemon is not calc.attacker:
             return
-        types = pokemon.get_attribute(AttrID.POKEMON_TYPES) or []
+        types = effective_pokemon_types(calc.board, pokemon)
         if PokemonTypes.LIGHTNING.value in types:
             calc.amount += 20
 

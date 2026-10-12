@@ -1,8 +1,26 @@
-from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Activations, Triggers
+from spirit.game.data_utils import Attack, Ability, PokemonCardDef, Triggers, def_for
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
-from spirit.game.card_effects.standard_era import (
-    standard_ability, standard_attack, standard_passive,
-)
+from spirit.game.card_effects.standard_era import standard_attack
+
+
+async def kinesis_before_evolve(ctx):
+    evolution = ctx.evolved_pokemon
+    if evolution is None or def_for(evolution.archetype_id).display_name != 'M Alakazam-EX':
+        ctx.suppress_announce = True
+        return
+    active = ctx.opponent_active()
+    if active is None or not await ctx.ask_yes_no('Use Kinesis?'):
+        ctx.suppress_announce = True
+        return
+    await ctx.deal_damage(20, target=active, apply_modifiers=False,
+                          as_counters=True, is_attack=False)
+    bench = list(ctx.opponent_bench())
+    if bench:
+        target = bench[0] if len(bench) == 1 else await ctx.choose_pokemon(
+            bench, 'Choose a Benched Pokémon for Kinesis')
+        if target is not None:
+            await ctx.deal_damage(30, target=target, apply_modifiers=False,
+                                  as_counters=True, is_attack=False)
 
 
 card = PokemonCardDef(
@@ -27,7 +45,8 @@ card = PokemonCardDef(
         Ability(
             title='Kinesis',
             game_text="When you play M Alakazam-EX from your hand to evolve this Pokémon, before it evolves, you may put 2 damage counters on your opponent's Active Pokémon and 3 damage counters on 1 of your opponent's Benched Pokémon.",
-            passive=standard_passive("When you play M Alakazam-EX from your hand to evolve this Pokémon, before it evolves, you may put 2 damage counters on your opponent's Active Pokémon and 3 damage counters on 1 of your opponent's Benched Pokémon."),
+            trigger=Triggers.BEFORE_EVOLVE,
+            effect=kinesis_before_evolve,
         ),
         Attack(
             title='Suppression',

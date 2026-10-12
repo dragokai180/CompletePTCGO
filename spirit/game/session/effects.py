@@ -1018,7 +1018,8 @@ class EffectContext:
         # too -- otherwise Regidrago VSTAR's Apex Dragon (or any other
         # attack-copying effect) can replay a GX attack freely.
         if getattr(ability, "gx", False) and self.player_id in self.session.turn_state.gx_used \
-                and not self.session.turn_state.can_repeat_gx(self.player_id, self.attacker):
+                and not self.session.turn_state.can_repeat_gx(
+                    self.player_id, self.attacker, self.board):
             logging.info(
                 f"[Effects {self.game_id}] Copied GX attack '{ability.title}' "
                 f"blocked: player {self.player_id} already used a GX attack "
@@ -1244,6 +1245,44 @@ class EffectContext:
                 amount=counters * 10, target=by_id[entity_id], as_counters=True,
             )
 
+    async def distribute_repeated_damage(
+        self, count: int, damage: int,
+        candidates: Optional[List[PokemonEntity]] = None,
+    ) -> None:
+        """Choose every hit in one picker, with a live damage total per target.
+
+        Each click remains a separate hit when damage is resolved, so a
+        prevention effect that applies to one hit is not bypassed by combining
+        several hits into a larger one.
+        """
+        pool = list(candidates) if candidates is not None else self.opponent_pokemon_in_play()
+        in_play = {p.entity_id for p in self.opponent_pokemon_in_play()}
+        pool = [p for p in pool if p.entity_id in in_play]
+        if count <= 0 or damage <= 0 or not pool:
+            return
+        placement = await self.session.prompt_damage_counter_placement(
+            self.player_id, self.source.entity_id, pool, count,
+            amount_per_click=damage,
+            prompt=f"Choose {count} hits ({damage} damage per click).",
+        )
+        by_id = {pokemon.entity_id: pokemon for pokemon in pool}
+        hits = {entity_id: clicks for entity_id, clicks in placement.items()
+                if entity_id in by_id and type(clicks) is int and clicks > 0}
+        remaining = count - sum(hits.values())
+        if remaining > 0:
+            fallback = next(iter(hits), pool[0].entity_id)
+            hits[fallback] = hits.get(fallback, 0) + remaining
+        hits_left = count
+        for entity_id, clicks in hits.items():
+            target = by_id[entity_id]
+            for _ in range(min(clicks, hits_left)):
+                await self.deal_damage(
+                    damage, target=target,
+                    apply_modifiers=(target is self.defender),
+                    ignore_weakness=True, ignore_resistance=True,
+                )
+                hits_left -= 1
+
     async def set_damage_counters(self, target: Optional[PokemonEntity],
                                   counters: int) -> None:
         """Sets a Pokemon's damage to exactly `counters` (HP = max - 10n,
@@ -1441,6 +1480,11 @@ class EffectContext:
         optional: bool = False,
     ) -> Optional[PokemonEntity]:
         """Picks one in-play Pokemon via the card browser; None if declined."""
+        # A mandatory choice with a single public target has only one result.
+        # In particular, Switch/gust effects should resolve without opening a
+        # one-card picker. Optional choices must still let the player decline.
+        if len(candidates) == 1 and not optional:
+            return candidates[0]
         picks = await self.choose_cards(
             candidates, 1, minimum=0 if optional else None,
             prompt=prompt, player_id=player_id,
@@ -2051,6 +2095,18 @@ class EffectContext:
         Sends immediately (not via the deferred bracket runs) so the reveal,
         pick, hand-in, swap, re-hide and shuffle choreograph in order.
         """
+        return await self.swap_source_with_prize(
+            basic_only=True, reveal_to_opponent=True, mandatory=False)
+
+    async def swap_source_with_prize(
+        self, *, basic_only: bool, reveal_to_opponent: bool,
+        mandatory: bool,
+    ) -> bool:
+        """Pick through the Prize fan, move to hand and replace with source.
+
+        Send each step immediately. The WithOpenPrizeCards bracket closes the
+        client's Prize display after a pick; ordinary moves leave it open.
+        """
         session = self.session
         prize_area = self.board.find_player_area(self.player_id, "prizePile")
         if not prize_area or not prize_area.children:
@@ -2058,10 +2114,14 @@ class EffectContext:
         prizes = face_down_prizes(self.board, self.player_id)
         if not prizes:
             return False
-        basics = [c for c in prizes if is_basic_pokemon(c)]
+        selectable = [c for c in prizes if is_basic_pokemon(c)] \
+            if basic_only else prizes
         picked_id = await session.prompt_prize_reveal_pick(
             self.player_id, self.source.entity_id,
-            [c.entity_id for c in prizes], [c.entity_id for c in basics],
+            [c.entity_id for c in prizes],
+            [c.entity_id for c in selectable],
+            minimum=int(mandatory),
+            prompt="Choose a Prize card" if mandatory else None,
         )
         picked = self.board.get_entity(picked_id) if picked_id else None
         opponent = self.opponent_id
@@ -2071,22 +2131,21 @@ class EffectContext:
             slot = getattr(picked, "board_slot", None)
             if slot is None:
                 slot = prize_area.children.index(picked)
-            # The picker has already seen the Prize fan.  Explicitly show only
-            # the chosen Basic to the opponent while it is still in the Prize
-            # pile; introducing its attributes alongside the hand move alone
-            # does not play the client's reveal animation.
-            opponent_viewer = session.players[opponent]
-            await session.send_game_sequence(
-                [opponent_viewer], GameSequence.SERIAL_SEQUENCE,
-                [session._entity_introduced_msg(picked)],
-            )
-            await session.send_game_sequence(
-                [opponent_viewer], GameSequence.GROUPED_MOVE,
-                [session._reveal_card_msg(picked.entity_id, True),
-                 session._entity_moved_msg(picked.entity_id, prize_area.entity_id, slot)],
-            )
+            if reveal_to_opponent:
+                # Heavy Ball reveals the Basic; Gladion keeps its pick private.
+                opponent_viewer = session.players[opponent]
+                await session.send_game_sequence(
+                    [opponent_viewer], GameSequence.SERIAL_SEQUENCE,
+                    [session._entity_introduced_msg(picked)],
+                )
+                await session.send_game_sequence(
+                    [opponent_viewer], GameSequence.GROUPED_MOVE,
+                    [session._reveal_card_msg(picked.entity_id, True),
+                     session._entity_moved_msg(
+                         picked.entity_id, prize_area.entity_id, slot)],
+                )
             hand = self.board.find_player_area(self.player_id, "hand")
-            # Take the Basic to hand via WithOpenPrizeCards: once a Prize is
+            # Take the Prize to hand via WithOpenPrizeCards: once a Prize is
             # picked, r.B's own cleanup skips the fan teardown and defers to
             # this bracket, which cancels the explore command, flips+flies the
             # taken card to hand and CLOSES the present (blackout off,
@@ -2096,9 +2155,11 @@ class EffectContext:
             self.board.move_card(picked.entity_id, hand.entity_id)
             take = [session._entity_introduced_msg(picked),
                     session._entity_moved_msg(picked.entity_id, hand.entity_id, pos)]
-            for viewer in both:
+            for pid, viewer in session.players.items():
                 await session.send_game_sequence(
-                    [viewer], GameSequence.WITH_OPEN_PRIZE_CARDS, list(take))
+                    [viewer], GameSequence.WITH_OPEN_PRIZE_CARDS,
+                    list(take) if pid == self.player_id or reveal_to_opponent
+                    else [take[-1]])
             # The source card takes the vacated face-down Prize slot.
             if self.board.move_card(self.source.entity_id, prize_area.entity_id, slot):
                 await session.send_game_sequence(
@@ -3181,6 +3242,26 @@ def split_pokemon_stack(
     ]
     attachments = [card for card in cards if card.entity_id not in evolution_ids]
     return evolution_cards, attachments
+
+
+def devolution_chain(pokemon: PokemonEntity) -> List[PokemonEntity]:
+    """The actual evolution cards, top first, skipping absent Rare Candy stages.
+
+    Pokémon attached as Tools are excluded by ``split_pokemon_stack``. A
+    LEGEND's second half is likewise not an evolution card.
+    """
+    if isinstance(pokemon, CompositePokemonEntity):
+        return [pokemon]
+    evolution_cards, _ = split_pokemon_stack(pokemon)
+    chain = [pokemon]
+    remaining = [card for card in evolution_cards if card is not pokemon]
+    for name in evolves_from_chain(pokemon.archetype_id):
+        previous = next((card for card in remaining
+                         if card.get_attribute(AttrID.EVOLUTION_LOGIC_NAME) == name), None)
+        if previous is not None:
+            chain.append(previous)
+            remaining.remove(previous)
+    return chain
 
 
 def is_colorless_no_rule_box(card: CardEntity) -> bool:

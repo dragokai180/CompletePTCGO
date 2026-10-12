@@ -569,6 +569,16 @@ async def resolve_hgss_trainer(ctx):
         for pid in (ctx.player_id, ctx.opponent_id):
             await ctx.draw_cards(4, player_id=pid)
         return True
+    if name == "Team Rocket's Trickery":
+        await ctx.draw_cards(2)
+        opponent_hand = list(ctx.hand(ctx.opponent_id))
+        if opponent_hand:
+            chosen = await ctx.choose_cards(
+                opponent_hand, 1, minimum=1, player_id=ctx.opponent_id,
+                prompt="Choose a card to discard",
+            )
+            await ctx.discard_cards(chosen)
+        return True
     if name == 'Life Herb':
         if (await ctx.flip_coins(1, name))[0]:
             candidates = [p for p in ctx.my_pokemon_in_play() if p.get_attribute(AttrID.SPECIAL_CONDITIONS)

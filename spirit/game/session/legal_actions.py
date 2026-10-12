@@ -43,6 +43,7 @@ from .passives import (
     can_evolve_same_turn,
     effective_attack_cost,
     effective_bench_capacity,
+    effective_pokemon_types,
     effective_retreat_cost,
     effective_supporter_limit,
     extra_manual_energy_attachments,
@@ -163,6 +164,8 @@ class TurnState:
     vunion_played: Set[Tuple[str, str]] = field(default_factory=set)
     # Bonnie permits only the named Pokemon to reuse GX, for this turn.
     gx_repeat_names_this_turn: Dict[str, Set[str]] = field(default_factory=dict)
+    # Misty & Lorelei permits any Water Pokemon to reuse a GX attack this turn.
+    gx_repeat_water_this_turn: Set[str] = field(default_factory=set)
     # Players forbidden from declaring GX attacks for the rest of the game
     # (Clear Vision-GX). This is distinct from spending one's own GX token.
     gx_locked_players: Set[str] = field(default_factory=set)
@@ -268,10 +271,14 @@ class TurnState:
         """
         return (self.kos_suffered_last_turn or {}).get(player_id, [])
 
-    def can_repeat_gx(self, player_id: str, pokemon) -> bool:
+    def can_repeat_gx(self, player_id: str, pokemon, board=None) -> bool:
         definition = def_for(getattr(pokemon, "archetype_id", ""))
         name = (getattr(definition, "display_name", "") or "").casefold()
-        return name in self.gx_repeat_names_this_turn.get(player_id, set())
+        return name in self.gx_repeat_names_this_turn.get(player_id, set()) or (
+            player_id in self.gx_repeat_water_this_turn
+            and board is not None
+            and PokemonTypes.WATER.value in effective_pokemon_types(board, pokemon)
+        )
 
     def begin_turn(self, player_id: str, board: Optional[Any] = None):
         """Advances to the next turn, resets the once-per-turn flags, rotates
@@ -303,6 +310,7 @@ class TurnState:
         self.used_abilities = set()
         self.used_named_abilities = set()
         self.gx_repeat_names_this_turn.clear()
+        self.gx_repeat_water_this_turn.clear()
         self.damage_modifiers = [
             m for m in self.damage_modifiers
             if getattr(m, "expires_after_turn", None) is not None
@@ -1139,7 +1147,7 @@ def passive_copy_candidates(
         if attack.vstar and player_id in state.vstar_used:
             continue
         if attack.gx and (player_id in state.gx_locked_players or (
-                player_id in state.gx_used and not state.can_repeat_gx(player_id, active))):
+                player_id in state.gx_used and not state.can_repeat_gx(player_id, active, board))):
             continue
         if attack.condition is not None and not attack.condition(board, player_id, active):
             continue
@@ -1195,7 +1203,7 @@ def _attack_entries(
             continue
         if definition is not None and definition.gx \
                 and player_id in state.gx_used \
-                and not state.can_repeat_gx(player_id, active):
+                and not state.can_repeat_gx(player_id, active, board):
             continue
         if definition is not None and definition.gx \
                 and player_id in state.gx_locked_players:

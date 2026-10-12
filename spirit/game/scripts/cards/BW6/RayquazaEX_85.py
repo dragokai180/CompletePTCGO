@@ -39,7 +39,7 @@ card = PokemonCardDef(
         ),
         Attack(
             title="Dragon Burst",
-            game_text="Discard all basic Fire Energy or all basic Lightning Energy attached to this Pokémon. This attack does 60 damage times the number of Energy you discarded.",
+            game_text="Discard all basic Fire Energy or all basic Lightning Energy attached to this Pokémon. This attack does 60 damage times the number of Energy cards you discarded.",
             cost={PokemonTypes.FIRE: 1, PokemonTypes.LIGHTNING: 1},
             damage=60,
             damage_operator="x",

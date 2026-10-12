@@ -93,6 +93,68 @@ class SpecialEnergyAuditTests(unittest.IsolatedAsyncioTestCase):
                                     for m in call.args[2])
                             for call in rig.session.send_game_sequence.await_args_list))
 
+    async def test_discard_return_cards_do_not_return_knocked_out_pokemon(self):
+        for path in ('SM11.RecycleEnergy_212', 'SM11.UTurnBoard_211'):
+            with self.subTest(card=path):
+                rig, entries = self.rig('BW1.Snivy_1')
+                victim = entries['p1_active']
+                attacker = entries['p2_active']
+                attached = self.add(rig, fixtures.definition(path), P1, 'hand')
+                rig.attach(attached, victim)
+                ctx = EffectContext(rig.session, P2, attacker,
+                                    Attack('Knock Out'))
+                hp = victim.get_attribute(AttrID.HP)
+                ctx.attack_damage[victim.entity_id] = (hp, hp)
+                ctx.knockouts.append(victim)
+                rig.session.send_game_sequence = AsyncMock()
+                rig.session._take_prizes = AsyncMock(return_value=[])
+
+                await rig.session.resolve_knockouts(ctx)
+
+                self.assertIn(victim, ctx.discard_pile(P1))
+                self.assertNotIn(victim, ctx.hand(P1))
+                self.assertIn(attached, ctx.hand(P1))
+
+    async def test_explicit_knockout_return_still_returns_pokemon(self):
+        for path, water, returns in (
+                ('HGSS4.RescueEnergy_90', False, True),
+                ('XY9.SplashEnergy_113', True, True),
+                ('XY9.SplashEnergy_113', False, False)):
+            with self.subTest(card=path, water=water):
+                rig, entries = self.rig('BW1.Snivy_1')
+                victim = entries['p1_active']
+                if water:
+                    victim.set_attribute(
+                        AttrID.POKEMON_TYPES, [PokemonTypes.WATER.value])
+                attached = self.add(rig, fixtures.definition(path), P1, 'hand')
+                rig.attach(attached, victim)
+                ctx = EffectContext(rig.session, P2, entries['p2_active'],
+                                    Attack('Knock Out'))
+                hp = victim.get_attribute(AttrID.HP)
+                ctx.attack_damage[victim.entity_id] = (hp, hp)
+                ctx.knockouts.append(victim)
+                rig.session.send_game_sequence = AsyncMock()
+                rig.session._take_prizes = AsyncMock(return_value=[])
+
+                await rig.session.resolve_knockouts(ctx)
+
+                self.assertIn(victim,
+                              ctx.hand(P1) if returns else ctx.discard_pile(P1))
+
+        rig, entries = self.rig('SM11.Aegislash_95')
+        victim = entries['p1_active']
+        ctx = EffectContext(rig.session, P2, entries['p2_active'],
+                            Attack('Knock Out'))
+        hp = victim.get_attribute(AttrID.HP)
+        ctx.attack_damage[victim.entity_id] = (hp, hp)
+        ctx.knockouts.append(victim)
+        rig.session.send_game_sequence = AsyncMock()
+        rig.session._take_prizes = AsyncMock(return_value=[])
+
+        await rig.session.resolve_knockouts(ctx)
+
+        self.assertIn(victim, ctx.hand(P1))
+
     async def test_triple_acceleration_provides_three_only_to_evolution(self):
         for path in ('SM10.TripleAccelerationEnergy_190',
                      'SM10.TripleAccelerationEnergy_234'):

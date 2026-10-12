@@ -1,5 +1,6 @@
 """Trainer choices, paid discards and conditional draws resolve together."""
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from tests import test_hgss_rules as fixtures
@@ -7,7 +8,8 @@ from spirit.game.attributes import PokemonTypes
 from spirit.game.data_utils import def_for
 from spirit.game.session.effects import EffectContext
 from spirit.game.session.legal_actions import compute_legal_actions
-from spirit.game.card_effects.bw_era import _pokemon_ex
+from spirit.game.card_effects.bw_era import _pokemon_ex, bw_legacy_passive
+from spirit.game.card_effects.standard_era import _opponent_switch_targets_on_board
 from spirit.game.session.passives import effective_bench_capacity
 from spirit.tools.effect_smoke import P1, P2
 
@@ -121,6 +123,90 @@ class TrainerChoiceAndDiscardTests(unittest.IsolatedAsyncioTestCase):
         await fixtures.definition('XY8.Brigette_161').effect(ctx)
         self.assertEqual(ctx.search_deck.await_args.kwargs['count'], 1)
         self.assertIn(chosen, ctx.my_bench())
+
+    async def test_roxie_allows_modern_ex_but_excludes_legacy_ex_and_gx(self):
+        rig, _, ctx = self.trainer('SM12.Roxie_205')
+        modern = self.add(rig, fixtures.definition('SV1.Miraidonex_81'),
+                          P1, 'hand')
+        legacy = self.add(rig, fixtures.definition('XY8.MewtwoEX_61'),
+                          P1, 'hand')
+        gx = self.add(rig, fixtures.definition('SM12.ArceusDialgaPalkiaGX_156'),
+                      P1, 'hand')
+        ctx.choose_cards = AsyncMock(return_value=[modern])
+        before = len(ctx.deck())
+
+        await fixtures.definition('SM12.Roxie_205').effect(ctx)
+
+        offered = ctx.choose_cards.await_args.args[0]
+        self.assertIn(modern, offered)
+        self.assertNotIn(legacy, offered)
+        self.assertNotIn(gx, offered)
+        self.assertIn(modern, ctx.discard_pile())
+        self.assertEqual(len(ctx.deck()), before - 3)
+
+    def test_great_catcher_targets_old_ex_and_gx_but_not_modern_ex(self):
+        rig, _, _ = self.trainer('SM12.GreatCatcher_192')
+        legacy = self.add(rig, fixtures.definition('XY8.MewtwoEX_61'),
+                          P2, 'bench')
+        modern = self.add(rig, fixtures.definition('SV1.Miraidonex_81'),
+                          P2, 'bench')
+        gx = self.add(rig, fixtures.definition('SM12.ArceusDialgaPalkiaGX_156'),
+                      P2, 'bench')
+        text = "Switch 1 of your opponent's Benched Pokémon-GX or Pokémon-EX."
+        targets = _opponent_switch_targets_on_board(rig.board, P1,
+                                                     text.casefold())
+        self.assertIn(legacy, targets)
+        self.assertIn(gx, targets)
+        self.assertNotIn(modern, targets)
+
+    def test_modern_ex_prize_protection_does_not_match_old_ex(self):
+        rig, entities = self.rig('ME1.Shedinja_61')
+        holder = entities['target']
+        modern = self.add(rig, fixtures.definition('SV1.Miraidonex_81'),
+                          P2, 'bench')
+        legacy = self.add(rig, fixtures.definition('XY8.MewtwoEX_61'),
+                          P2, 'bench')
+        shield = bw_legacy_passive(
+            "If this Pokémon is Knocked Out by damage from an attack from "
+            "your opponent's Pokémon ex, your opponent can't take any "
+            "Prize cards for it."
+        )
+        for attacker, expected in ((modern, 0), (legacy, 1)):
+            with self.subTest(attacker=attacker.archetype_id):
+                ctx = SimpleNamespace(
+                    attacker=attacker, board=rig.board,
+                    attack_damage={holder.entity_id: 60},
+                    is_attack_effect=lambda: True,
+                )
+                self.assertEqual(
+                    shield.modify_prizes_for_knockout(holder, ctx, 1, holder),
+                    expected,
+                )
+
+    async def test_energy_grace_allows_modern_ex_as_destination(self):
+        rig, entities = self.rig('XY2.Milotic_23')
+        source = entities['target']
+        ability = next(ability for ability in
+                       fixtures.definition('XY2.Milotic_23').abilities
+                       if ability.title == 'Energy Grace')
+        ctx = EffectContext(rig.session, P1, source, ability)
+        modern = self.add(rig, fixtures.definition('SV1.Miraidonex_81'),
+                          P1, 'bench')
+        legacy = self.add(rig, fixtures.definition('XY8.MewtwoEX_61'),
+                          P1, 'bench')
+        energies = [self.add(rig, def_for(self.energies[PokemonTypes.FIRE.value]),
+                             P1, 'discard') for _ in range(3)]
+        ctx.choose_pokemon = AsyncMock(return_value=modern)
+        ctx.choose_cards = AsyncMock(return_value=energies)
+        ctx.knock_out = AsyncMock(return_value=True)
+        ctx.attach_energy = AsyncMock(return_value=True)
+
+        await ability.effect(ctx)
+
+        offered = ctx.choose_pokemon.await_args.args[0]
+        self.assertIn(modern, offered)
+        self.assertNotIn(legacy, offered)
+        self.assertEqual(ctx.attach_energy.await_count, 3)
 
     async def test_roller_skater_draws_two_or_four_for_paid_card(self):
         for kind, expected in (('item', 2), ('energy', 4)):

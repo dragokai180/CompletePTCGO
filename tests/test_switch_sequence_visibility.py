@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from tests import test_hgss_rules as fixtures
 from spirit.game.card_effects.trainers import catcher_switch_both, escape_rope
+from spirit.game.session.effects import EffectContext
 from spirit.tools.effect_smoke import P1, P2
 
 
@@ -12,6 +13,56 @@ class SwitchSequenceVisibilityTests(unittest.IsolatedAsyncioTestCase):
     setUpClass = classmethod(fixtures.HgssRulesTests.setUpClass.__func__)
     ctx = fixtures.HgssRulesTests.ctx
     rig = fixtures.HgssRulesTests.rig
+
+    async def test_single_bench_switches_without_picker(self):
+        for path, own, opposing in (
+                ('BW1.Switch_104', True, False),
+                ('SWSH2.BosssOrders_154', False, True),
+                ('SM3.Guzma_115', True, True)):
+            with self.subTest(card=path):
+                rig, entities = self.rig(path, 'trainer')
+                ctx = EffectContext(rig.session, P1, entities['target'], None)
+                for player_id, reduce in ((P1, own), (P2, opposing)):
+                    if reduce:
+                        rig.to_area(
+                            rig.board.find_player_area(player_id, 'bench').children[-1],
+                            player_id, 'discard',
+                        )
+                new_own = ctx.my_bench()[0] if own else None
+                new_opposing = ctx.opponent_bench()[0] if opposing else None
+                ctx.choose_cards = AsyncMock(
+                    side_effect=AssertionError('one target must not open a picker'))
+                ctx.session._wait_for_client_catchup = AsyncMock(
+                    side_effect=AssertionError('no choice needs client catch-up'))
+
+                await fixtures.definition(path).effect(ctx)
+
+                ctx.choose_cards.assert_not_awaited()
+                if own:
+                    self.assertIs(rig.board.active_pokemon(P1), new_own)
+                if opposing:
+                    self.assertIs(rig.board.active_pokemon(P2), new_opposing)
+
+    async def test_multiple_switch_targets_still_prompt(self):
+        rig, entities = self.rig('BW1.Switch_104', 'trainer')
+        ctx = EffectContext(rig.session, P1, entities['target'], None)
+        chosen = ctx.my_bench()[-1]
+        ctx.choose_cards = AsyncMock(return_value=[chosen])
+
+        await fixtures.definition('BW1.Switch_104').effect(ctx)
+
+        ctx.choose_cards.assert_awaited_once()
+        self.assertIs(rig.board.active_pokemon(P1), chosen)
+
+    async def test_optional_single_pokemon_choice_can_be_declined(self):
+        _, _, ctx = self.ctx('BW1.Snivy_1', 'Tackle')
+        ctx.choose_cards = AsyncMock(return_value=[])
+
+        picked = await ctx.choose_pokemon(
+            [ctx.my_bench()[0]], 'Choose a Pokémon', optional=True)
+
+        self.assertIsNone(picked)
+        ctx.choose_cards.assert_awaited_once()
 
     def record(self, ctx):
         events = []

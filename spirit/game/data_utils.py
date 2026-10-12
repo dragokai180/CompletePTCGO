@@ -306,7 +306,7 @@ _MULTI_PRIZE_SUBTYPES = {
     "LEGEND": 2,
     "SV_Mega": 3,
 }
-_RULE_BOX_SUBTYPES = set(_MULTI_PRIZE_SUBTYPES) | {"Radiant"}
+_RULE_BOX_SUBTYPES = set(_MULTI_PRIZE_SUBTYPES) | {"Radiant", "Prism Star"}
 
 
 def is_pokemon_v(archetype_id: Optional[str]) -> bool:
@@ -378,6 +378,7 @@ def evolves_from(archetype_id: Optional[str], base_logic_name: str) -> bool:
 class Triggers:
     """Events the game session fires scripted abilities on (Ability.trigger)."""
     ON_PLAY = "on_play"  # the Pokemon is played from hand onto the bench
+    BEFORE_EVOLVE = "before_evolve"  # the lower Pokemon, before hand-played evolution
     ON_EVOLVE = "on_evolve"  # the Pokemon evolves into this card
     ON_KNOCKED_OUT = "on_knocked_out"  # this Pokemon is Knocked Out
     BETWEEN_TURNS = "between_turns"  # fires on every Pokemon Checkup

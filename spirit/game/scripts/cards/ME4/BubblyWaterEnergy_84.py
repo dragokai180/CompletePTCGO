@@ -1,5 +1,6 @@
 from spirit.game.data_utils import EnergyCardDef
-from spirit.game.attributes import AttrID, PokemonTypes, Rarities
+from spirit.game.attributes import PokemonTypes, Rarities
+from spirit.game.card_effects.energies import _pokemon_has_type
 from spirit.game.card_effects.passives_common import condition_immunity_passive
 from spirit.game.session.passives import carrier_pokemon
 
@@ -8,16 +9,14 @@ def _water_holder(target, carrier):
     holder = carrier_pokemon(carrier)
     if holder is not target:
         return False
-    types = target.get_attribute(AttrID.POKEMON_TYPES) or []
-    return PokemonTypes.WATER.value in types
+    return _pokemon_has_type(target, PokemonTypes.WATER)
 
 
 async def bubbly_water_on_attach(ctx):
     pokemon = ctx.attached_to
     if pokemon is None:
         return
-    types = pokemon.get_attribute(AttrID.POKEMON_TYPES) or []
-    if PokemonTypes.WATER.value in types:
+    if _pokemon_has_type(pokemon, PokemonTypes.WATER, ctx.board):
         await ctx.cure_all_conditions(pokemon)
 
 

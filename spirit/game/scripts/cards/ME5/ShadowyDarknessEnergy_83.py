@@ -1,7 +1,9 @@
 from spirit.game.data_utils import EnergyCardDef
-from spirit.game.attributes import AttrID, PokemonTypes, Rarities
+from spirit.game.attributes import PokemonTypes, Rarities
 from spirit.game.card_effects.passives_common import is_in_active_spot
-from spirit.game.session.passives import Passive, carrier_pokemon
+from spirit.game.session.passives import (
+    Passive, carrier_pokemon, effective_pokemon_types,
+)
 
 
 class ShadowyDarknessPassive(Passive):
@@ -14,7 +16,7 @@ class ShadowyDarknessPassive(Passive):
             return False
         if is_in_active_spot(holder):
             return False
-        types = holder.get_attribute(AttrID.POKEMON_TYPES) or []
+        types = effective_pokemon_types(calc.board, holder)
         if PokemonTypes.DARKNESS.value not in types:
             return False
         return bool(calc.is_attack and calc.is_opposing)

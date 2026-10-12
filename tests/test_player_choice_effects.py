@@ -185,16 +185,38 @@ class PlayerChoiceEffectsTests(unittest.IsolatedAsyncioTestCase):
                         untouched = list(ctx.deck(other))
                         top = ctx.deck_top(1, owner)[0]
                         ctx.choose = AsyncMock(return_value=0 if owner == actor else 1)
-                        ctx.ask_yes_no = AsyncMock(return_value=discard)
+                        events = []
+                        revealed_to = []
+                        original_flush = ctx.flush_choreography
+
+                        async def flush():
+                            revealed_to.extend(
+                                viewer for viewer, message, _ in ctx._messages
+                                if message['name'] == 'EntityIntroduced'
+                                and message['value']['entityID'] == top.entity_id
+                            )
+                            events.append('reveal')
+                            await original_flush()
+
+                        async def wait(player_id):
+                            self.assertEqual(player_id, actor)
+                            events.append('wait')
+
+                        async def decide(prompt):
+                            self.assertEqual(prompt, 'Discard this card?')
+                            self.assertEqual(events, ['reveal', 'wait'])
+                            self.assertEqual(revealed_to, [actor])
+                            self.assertIs(ctx.deck_top(1, owner)[0], top)
+                            return discard
+
+                        ctx.flush_choreography = flush
+                        ctx.session._wait_for_client_catchup = wait
+                        ctx.ask_yes_no = decide
                         await effect(ctx)
                         self.assertEqual(ctx.deck(other), untouched)
                         self.assertEqual(ctx.deck(owner), before[:-1] if discard else before)
                         if discard:
                             self.assertIn(top, ctx.discard_pile(owner))
-                        else:
-                            intros = [(viewer, m) for viewer, m, _ in ctx._messages if m['name'] == 'EntityIntroduced']
-                            self.assertEqual([viewer for viewer, _ in intros], [actor])
-                            self.assertEqual(intros[0][1]['value']['entityID'], top.entity_id)
 
     async def test_borne_ashore_uses_selected_cards_owner_and_available_bench(self):
         for path in ('SM2.Alomomola_36', 'SWSH10.Mantine_34'):

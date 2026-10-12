@@ -567,8 +567,9 @@ async def catcher_switch_both(ctx):
     my_bench = ctx.my_bench()
     if not my_bench:
         return
-    await ctx.flush_choreography()
-    await ctx.session._wait_for_client_catchup(ctx.player_id)
+    if len(my_bench) > 1:
+        await ctx.flush_choreography()
+        await ctx.session._wait_for_client_catchup(ctx.player_id)
     mine = await ctx.choose_pokemon(
         my_bench, "Choose your new Active Pokémon"
     )
@@ -712,7 +713,7 @@ async def battle_vip_pass(ctx):
 
 
 def dream_ball_playable(board, player_id):
-    """Dream Ball never plays from hand: its window is the prize-take prompt."""
+    """Prize-only Items never play from the ordinary hand action menu."""
     return False
 
 
@@ -742,7 +743,18 @@ async def dream_ball_prize_window(ctx):
     if not await ctx.ask_yes_no("Play Dream Ball? Search your deck for a "
                                 "Pokémon and put it onto your Bench."):
         return
-    await ctx.session._execute_play_trainer(pid, ctx.source)
+    await ctx.session._execute_play_trainer(
+        pid, ctx.source, from_prize_window=True)
+
+
+async def greedy_dice_prize_window(ctx):
+    """Offer Greedy Dice only at the instant it is taken face down."""
+    ctx.suppress_announce = True
+    if trainer_play_blocked(ctx.board, ctx.player_id, ctx.source):
+        return
+    if await ctx.ask_yes_no("Play Greedy Dice? Flip a coin; if heads, take 1 more Prize card."):
+        await ctx.session._execute_play_trainer(
+            ctx.player_id, ctx.source, from_prize_window=True)
 
 
 async def power_tablet(ctx):

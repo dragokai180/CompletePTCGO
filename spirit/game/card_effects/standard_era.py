@@ -18,6 +18,7 @@ from spirit.game.attributes import (
     SpecialConditions,
 )
 from spirit.game.card_effects.bw_era import (
+    DevolutionEvolutionLock,
     _ability_attached_energy_discard_cost,
     _ability_cost_handled_inline,
     _ability_hand_discard_cost,
@@ -30,15 +31,19 @@ from spirit.game.card_effects.bw_era import (
     bw_legacy_passive,
 )
 from spirit.game.card_effects.pokemon import energy_provides_type
+from spirit.game.card_effects.energies import (
+    _pokemon_has_type as _live_pokemon_has_type,
+)
 from spirit.game.prizes import face_down_prizes
 from spirit.game.data_utils import (
     Ability, Activations, Attack, Triggers, def_for, evolves_from,
 )
 from spirit.game.session.passives import (
     Passive, TurnDamageModifier, effective_max_hp, effective_pokemon_types,
-    effective_bench_capacity, pokemon_entry_blocked,
+    effective_bench_capacity, evolution_blocked, pokemon_entry_blocked,
 )
 from spirit.game.session.effects import (
+    devolution_chain,
     full_stack,
     is_basic_energy,
     is_basic_pokemon,
@@ -62,11 +67,6 @@ from spirit.game.session.effects import (
 standard_attack = bw_legacy_attack
 standard_ability = bw_legacy_ability
 standard_passive = bw_legacy_passive
-
-
-class _DevolutionEvolutionLock(Passive):
-    def blocks_evolution(self, player_id, target, carrier):
-        return target is carrier
 
 
 def standard_ability_source_zone(text: str) -> Optional[str]:
@@ -140,14 +140,11 @@ def normalize_standard_card_definition(definition) -> None:
             continue
         inferred_trigger = standard_trigger(text)
         inferred_activation = standard_activation(text)
-        if (shared_passive and inferred_trigger == Triggers.ON_ENERGY_ATTACHED) \
-                or ability.title.casefold() == "kinesis":
+        if shared_passive and inferred_trigger == Triggers.ON_ENERGY_ATTACHED:
             # These are observers, not callbacks on the newly played card.
             # Energy Evolution / Energy Signal watch an already in-play
-            # carrier, while Kinesis belongs to the Alakazam-EX that becomes
-            # the lower evolution card.  Converting them to declared triggers
-            # removes the carrier from active_passives before their event and
-            # silently disables the printed effect.
+            # carrier. Converting them to declared triggers removes the
+            # observer from active_passives before its event fires.
             ability.effect = None
             ability.trigger = None
             ability.activation = None
@@ -399,9 +396,11 @@ def standard_ability_condition(game_text: str):
             prizes = board.find_player_area(opponent_id, "prizePile") if opponent_id else None
             if prizes is None or len(prizes.children) > int(opposing_prizes.group(1)):
                 return False
-        if "if you have a stadium in play" in activation_clause:
+        if re.search(r"if you have (?:a|any) stadium(?: card)? in play",
+                     activation_clause):
             stadium = board.find_global_area("activeStadium")
-            if stadium is None or not stadium.children:
+            if not (stadium and stadium.children
+                    and stadium.children[0].owning_player_id == player_id):
                 return False
         if "opponent's bench isn't full" in activation_clause \
                 and not has_bench_space(opponent_id):
@@ -855,7 +854,7 @@ def hyper_transfer_condition(board, player_id, source=None) -> bool:
 async def hyper_transfer(ctx):
     pokemon = ctx.my_pokemon_in_play()
     await ctx.move_energy_freely(
-        pokemon, pokemon, predicate=is_basic_energy, max_count=1,
+        pokemon, pokemon, predicate=is_basic_energy,
         prompt="Choose a basic Energy to move",
     )
 
@@ -974,13 +973,14 @@ def _opponent_switch_targets_on_board(board, player_id: str, text: str):
 
     if re.search(r"pok.mon-gx or pok.mon-ex", text):
         targets = [pokemon for pokemon in targets
-                   if _card_subtypes(pokemon).intersection({"gx", "ex"})]
+                   if _has_exact_subtype(pokemon, "GX")
+                   or _pokemon_ex(pokemon)]
     elif re.search(r"benched pok.mon-gx", text):
         targets = [pokemon for pokemon in targets
-                   if "gx" in _card_subtypes(pokemon)]
+                   if _has_exact_subtype(pokemon, "GX")]
     elif re.search(r"benched pok.mon-ex", text):
         targets = [pokemon for pokemon in targets
-                   if "ex" in _card_subtypes(pokemon)]
+                   if _pokemon_ex(pokemon)]
     elif re.search(r"benched pok.mon v(?:\s|\.|,|$)", text):
         targets = [pokemon for pokemon in targets
                    if "v" in _card_subtypes(pokemon)]
@@ -1369,6 +1369,40 @@ async def _generic_search(ctx, text: str, *, count_override: int | None = None) 
     return True
 
 
+async def _search_distinct_type_pokemon(ctx, limit: int, *, basic=False,
+                                        bench=False):
+    """Search up to `limit` Pokemon without repeating a printed type."""
+    used_types = set()
+    for _ in range(limit):
+        if bench and len(ctx.my_bench()) >= effective_bench_capacity(
+                ctx.board, ctx.player_id):
+            break
+        candidates = [card for card in ctx.deck()
+                      if is_pokemon_card(card)
+                      and (not basic or is_basic_pokemon(card))
+                      and (not bench or ctx.can_bench_pokemon(card))
+                      and not used_types.intersection(
+                          card.get_attribute(AttrID.POKEMON_TYPES) or ())]
+        if not candidates:
+            break
+        eligible_ids = {card.entity_id for card in candidates}
+        picks = await ctx.search_deck(
+            lambda card: card.entity_id in eligible_ids,
+            count=1, minimum=0,
+            prompt="Choose a Pokémon of a different type",
+            reveal_result=not bench,
+        )
+        if not picks:
+            break
+        chosen = picks[0]
+        used_types.update(chosen.get_attribute(AttrID.POKEMON_TYPES) or ())
+        if bench:
+            await ctx.bench_pokemon(chosen)
+        else:
+            await ctx.put_in_hand([chosen], reveal=True)
+    await ctx.shuffle_deck()
+
+
 def _top_deck_count(text: str) -> Optional[int]:
     match = re.search(
         r"(?:look at|reveal) the top (?:(\d+) cards?|card) of "
@@ -1570,6 +1604,42 @@ def standard_trainer_effect(game_text: str):
         from spirit.game.card_effects.sm_searches import resolve_sm_search
         if await resolve_sm_search(ctx):
             return
+        if text.startswith("each player shuffles their hand into their deck") \
+                and ("and flips a coin" in text
+                     or "then, flip a coin" in text):
+            # Ilima gives each player a separate flip; Harlequin uses one
+            # flip by its controller to decide both draw counts.
+            for pid in ctx.board.player_ids:
+                hand = list(ctx.hand(pid))
+                if hand:
+                    await ctx.shuffle_into_deck(hand, player_id=pid)
+            if "each player shuffles their hand into their deck and flips a coin" in text:
+                for pid in ctx.board.player_ids:
+                    heads = (await ctx.flip_coins(
+                        1, "Ilima", player_id=pid))[0]
+                    await ctx.draw_cards(6 if heads else 3, player_id=pid)
+            else:
+                heads = (await ctx.flip_coins(1, "Harlequin"))[0]
+                await ctx.draw_cards(5 if heads else 3, player_id=ctx.player_id)
+                await ctx.draw_cards(3 if heads else 5, player_id=ctx.opponent_id)
+            return
+        if text.startswith("draw 2 cards. look at your face-down prize cards"):
+            await ctx.draw_cards(2)
+            await ctx.reveal_cards(
+                face_down_prizes(ctx.board, ctx.player_id),
+                to_player=ctx.player_id)
+            return
+        if text.startswith("ask your opponent if each player may take a prize card"):
+            if await ctx.ask_yes_no(
+                    "May each player take a Prize card?", player_id=ctx.opponent_id):
+                # Resolve both takes before deciding a simultaneous Prize win.
+                await ctx.take_prizes(1, check_win=False)
+                await ctx.take_prizes(1, player_id=ctx.opponent_id,
+                                      check_win=False)
+                await ctx.session._resolve_simultaneous_win_conditions()
+            else:
+                await ctx.draw_cards(4)
+            return
         if "your zygarde-gx can use its gx attack" in text:
             # Discarding is not an "if you do" cost. A protected Prism Star
             # stays in play, but the independent GX permission still applies.
@@ -1649,6 +1719,96 @@ def standard_trainer_effect(game_text: str):
             return
         from spirit.game.card_effects.hgss_era import resolve_hgss_trainer
         if await resolve_hgss_trainer(ctx):
+            return
+
+        if text.startswith("draw 2 cards. if you do, discard a random card from your opponent's hand"):
+            if await ctx.draw_cards(2):
+                opposing_hand = list(ctx.hand(ctx.opponent_id))
+                if opposing_hand:
+                    await ctx.discard_cards([random.choice(opposing_hand)])
+            return
+
+        if "1 of your psychic pokémon was knocked out during your opponent's last turn" in text \
+                and "choose 2 cards you find there" in text:
+            opposing_hand = list(ctx.hand(ctx.opponent_id))
+            count = min(2, len(opposing_hand))
+            chosen = await ctx.choose_from_revealed_hand(
+                opposing_hand, count, minimum=count,
+                of_player=ctx.opponent_id,
+                prompt="Choose cards to shuffle into your opponent's deck",
+            )
+            if chosen:
+                await ctx.shuffle_into_deck(chosen, player_id=ctx.opponent_id)
+            return
+
+        if text.startswith("search your deck for any number of basic energy cards of different types"):
+            # Energy Search Pro has one optional selection per Basic Energy
+            # type. The generic search defaults an unnumbered request to 1.
+            groups = [
+                (lambda card, kind=kind: kind in _basic_energy_types(card),
+                 1, f"{kind.name.title()} Energy")
+                for kind in PokemonTypes
+                if kind not in (PokemonTypes.UNSET, PokemonTypes.COLORLESS)
+                and any(kind.value in _basic_energy_types(card) for card in ctx.deck())
+            ]
+            selected = await ctx.search_deck_groups(
+                groups, prompt="Choose Basic Energy cards of different types"
+            ) if groups else []
+            await ctx.put_in_hand(
+                [card for group in selected for card in group], reveal=True)
+            await ctx.shuffle_deck()
+            return
+
+        if text.startswith("search your deck for up to 3 basic pokémon of different types") \
+                and "onto your bench" in text:
+            await _search_distinct_type_pokemon(ctx, 3, basic=True, bench=True)
+            return
+
+        if text.startswith("search your deck for up to 2 basic energy cards") \
+                and "discard 5 other cards from your hand" in text \
+                and "search for up to 3 pokémon of different types" in text:
+            # Sabrina & Brycen: the optional five-card payment enables a
+            # second search; it is not part of the first search's result.
+            other_cards = [card for card in ctx.hand() if card is not ctx.source]
+            paid = []
+            if len(other_cards) >= 5 and await ctx.ask_yes_no(
+                    "Discard 5 cards to also search for Pokémon?"):
+                paid = await ctx.choose_cards(
+                    other_cards, 5, minimum=5,
+                    prompt="Choose 5 cards to discard",
+                )
+                if len(paid) == 5:
+                    await ctx.discard_cards(paid)
+            energies = await ctx.search_deck(
+                is_basic_energy, count=2, minimum=0,
+                prompt="Choose Basic Energy cards",
+                reveal_result=True,
+            )
+            await ctx.put_in_hand(energies, reveal=True)
+            if len(paid) == 5:
+                await _search_distinct_type_pokemon(ctx, 3)
+            else:
+                await ctx.shuffle_deck()
+            return
+
+        if text.startswith("search your deck for up to 3 water energy cards") \
+                and "your water pokémon can use their gx attacks" in text:
+            other_cards = [card for card in ctx.hand() if card is not ctx.source]
+            if len(other_cards) >= 5 and await ctx.ask_yes_no(
+                    "Discard 5 cards to allow Water Pokémon GX attacks again?"):
+                paid = await ctx.choose_cards(
+                    other_cards, 5, minimum=5,
+                    prompt="Choose 5 cards to discard",
+                )
+                if len(paid) == 5:
+                    await ctx.discard_cards(paid)
+                    ctx.session.turn_state.gx_repeat_water_this_turn.add(ctx.player_id)
+            energies = await ctx.search_deck(
+                _type_predicate("water"), count=3, minimum=0,
+                prompt="Choose Water Energy cards", reveal_result=True,
+            )
+            await ctx.put_in_hand(energies, reveal=True)
+            await ctx.shuffle_deck()
             return
 
         # Alternative private searches need an explicit branch: the generic
@@ -1759,6 +1919,8 @@ def standard_trainer_effect(game_text: str):
             top = ctx.deck_top(1)
             if top:
                 await ctx.reveal_cards(top, to_player=ctx.player_id)
+                await ctx.flush_choreography()
+                await ctx.session._wait_for_client_catchup(ctx.player_id)
             index = await ctx.choose(
                 "Choose an effect",
                 ["Discard your hand and draw 5 cards from the top",
@@ -2044,10 +2206,10 @@ def standard_trainer_effect(game_text: str):
             incoming = [card for card in ctx.discard_pile()
                         if is_pokemon_card(card)
                         and "ogerpon" in _card_name(card).casefold()
-                        and "ex" in _card_subtypes(card)]
+                        and _has_exact_subtype(card, "ex")]
             targets = [pokemon for pokemon in ctx.my_pokemon_in_play()
                        if "ogerpon" in _card_name(pokemon).casefold()
-                       and "ex" in _card_subtypes(pokemon)]
+                       and _has_exact_subtype(pokemon, "ex")]
             chosen = await _choose_one(ctx, incoming, "Choose an Ogerpon ex") \
                 if incoming else None
             target = await ctx.choose_pokemon(
@@ -2100,9 +2262,11 @@ def standard_trainer_effect(game_text: str):
             pairs = legend_pairs(legends)
             selected = None
             if pairs:
-                first = await _choose_one(
-                    ctx, [pair[0] for pair in pairs], "Choose a Pokémon LEGEND"
+                choices = await ctx.choose_cards(
+                    [pair[0] for pair in pairs], 1,
+                    prompt="Choose a Pokémon LEGEND", display_cards=viewed,
                 )
+                first = choices[0] if choices else None
                 selected = next((pair for pair in pairs if pair[0] is first), None)
             top = None
             if selected is not None:
@@ -2292,7 +2456,8 @@ def standard_trainer_effect(game_text: str):
             if "aren't pokémon-gx or pokémon-ex" in descriptor:
                 candidates = [card for card in candidates
                               if is_pokemon_card(card)
-                              and not {"gx", "ex"}.intersection(_card_subtypes(card))]
+                              and not _has_exact_subtype(card, "GX")
+                              and not _pokemon_ex(card)]
             if "ultra beast" in descriptor:
                 candidates = [card for card in candidates
                               if "ultra beast" in _card_subtypes(card)]
@@ -2317,13 +2482,15 @@ def standard_trainer_effect(game_text: str):
             return
 
         if text.startswith("look at your face-down prize cards and put 1 of them"):
-            prizes = face_down_prizes(ctx.board, ctx.player_id)
-            chosen = await _choose_one(ctx, prizes, "Choose a Prize card") \
-                if prizes else None
-            if chosen is not None:
-                await ctx.put_in_hand([chosen], reveal=False)
-                await ctx.put_in_prizes([ctx.source])
-                await ctx.shuffle_prizes()
+            # Gladion only works when played from hand. During a normal play
+            # its card is on activeTrainer; effects replayed from other zones
+            # must not exchange a Prize.
+            source_area = getattr(ctx.source, "parent", None)
+            if source_area is not None and source_area.get_attribute(
+                    AttrID.NAME) == "activeTrainer":
+                await ctx.swap_source_with_prize(
+                    basic_only=False, reveal_to_opponent=False,
+                    mandatory=True)
             return
 
         if text.startswith("look at your face-down prize cards. you may reveal an ultra beast"):
@@ -2722,7 +2889,8 @@ def standard_trainer_effect(game_text: str):
             basics = []
             compatible = {}
             for pokemon in ctx.my_pokemon_in_play():
-                if not is_basic_pokemon(pokemon):
+                if not is_basic_pokemon(pokemon) or evolution_blocked(
+                        ctx.board, ctx.player_id, pokemon):
                     continue
                 logic = pokemon.get_attribute(AttrID.EVOLUTION_LOGIC_NAME)
                 evolutions = [
@@ -2756,14 +2924,14 @@ def standard_trainer_effect(game_text: str):
             if 'has "ogerpon" in its name' in text:
                 candidates = [card for card in candidates
                               if "ogerpon" in _card_name(card).casefold()
-                              and "ex" in _card_subtypes(card)]
+                              and _has_exact_subtype(card, "ex")]
             incoming = await _choose_one(ctx, candidates, "Choose a Pokémon") \
                 if candidates else None
             targets = list(ctx.my_pokemon_in_play())
             if 'has "ogerpon" in its name' in text:
                 targets = [pokemon for pokemon in targets
                            if "ogerpon" in _card_name(pokemon).casefold()
-                           and "ex" in _card_subtypes(pokemon)]
+                           and _has_exact_subtype(pokemon, "ex")]
             outgoing = await ctx.choose_pokemon(
                 targets, "Choose the Pokémon to replace"
             ) if incoming is not None and targets else None
@@ -2777,7 +2945,7 @@ def standard_trainer_effect(game_text: str):
         # attachments and damage.
         if text.startswith("devolve 1 of your evolved"):
             candidates = [pokemon for pokemon in ctx.my_pokemon_in_play()
-                          if is_evolution_pokemon(pokemon)]
+                          if len(devolution_chain(pokemon)) > 1]
             if "psychic pokémon" in text:
                 candidates = [pokemon for pokemon in candidates
                               if _pokemon_has_type(ctx.board, pokemon,
@@ -2786,23 +2954,22 @@ def standard_trainer_effect(game_text: str):
                 candidates, "Choose an evolved Pokémon"
             ) if candidates else None
             if target is not None:
-                steps = max(1, sum(is_evolution_pokemon(card)
-                                   for card in full_stack(target)))
-                stack = full_stack(target)
+                chain = devolution_chain(target)
+                steps = len(chain) - 1
                 area = target.parent
                 if "any number of evolution cards" in text and steps > 1:
                     steps = 1 + await ctx.choose("How many Evolution cards to remove?",
                                                 [str(n) for n in range(1, steps + 1)])
-                await ctx.devolve_pokemon(
+                removed = await ctx.devolve_pokemon(
                     target, steps=steps,
                     destination="deck" if "shuffling" in text else "hand",
                 )
-                if "shuffling" in text:
+                if removed and "shuffling" in text:
                     await ctx.shuffle_deck()
-                if "can't evolve this turn" in text:
-                    remaining = next((c for c in stack if c.parent is area), None)
+                if removed and "can't evolve this turn" in text:
+                    remaining = next((c for c in chain if c.parent is area), None)
                     if remaining is not None:
-                        ctx.add_temporary_passive(remaining, _DevolutionEvolutionLock(),
+                        ctx.add_temporary_passive(remaining, DevolutionEvolutionLock(),
                                                  ctx.session.turn_state.turn_number)
             return
 
@@ -3055,6 +3222,8 @@ def standard_trainer_effect(game_text: str):
             card = (ctx.deck_top(1, player_id=sides[index]) or [None])[0]
             if card is not None:
                 await ctx.reveal_cards([card], to_player=ctx.player_id)
+                await ctx.flush_choreography()
+                await ctx.session._wait_for_client_catchup(ctx.player_id)
                 if await ctx.ask_yes_no("Discard this card?"):
                     await ctx.discard_cards([card])
             return
@@ -3593,9 +3762,10 @@ def standard_trainer_effect(game_text: str):
             free = max(0, effective_bench_capacity(ctx.board, ctx.opponent_id)
                        - len(ctx.opponent_bench()))
             picks = await ctx.choose_cards(
-                basics, min(free, len(basics)), minimum=0,
+                basics, max(1, min(free, len(basics))), minimum=0,
                 prompt="Choose Basic Pokémon for your opponent's Bench",
-            ) if basics and free else []
+                display_cards=viewed,
+            ) if viewed else []
             for pokemon in picks:
                 await ctx.bench_pokemon(pokemon)
             await ctx.shuffle_deck(ctx.opponent_id)
@@ -3685,7 +3855,48 @@ def standard_trainer_effect(game_text: str):
             if first_turn_draw and ctx.session.turn_state.turn_number == 2 \
                     and ctx.session.first_player_id != ctx.player_id:
                 count = int(first_turn_draw.group(1))
+            prizes = ctx.board.find_player_area(ctx.opponent_id, "prizePile")
+            prize_count = len(prizes.children) if prizes is not None else 0
+            prize_override = re.search(
+                r"if your opponent has (\d+) or fewer prize cards remaining, "
+                r"draw (\d+) cards instead", text,
+            )
+            if prize_override and prize_count <= int(prize_override.group(1)):
+                count = int(prize_override.group(2))
+            bonus = re.search(r"draw (\d+) more cards", text)
+            if bonus:
+                opponent_active = ctx.opponent_active()
+                my_active = ctx.my_active()
+                prize_bonus = re.search(
+                    r"if your opponent has (\d+) or fewer prize cards remaining",
+                    text,
+                )
+                add_bonus = (
+                    "your opponent's active pokémon is a pokémon ex" in text
+                    and opponent_active is not None
+                    and _has_exact_subtype(opponent_active, "ex")
+                ) or (
+                    "you have a stadium in play" in text
+                    and ctx.stadium_in_play() is not None
+                    and ctx.stadium_in_play().owning_player_id == ctx.player_id
+                ) or (
+                    "your active pokémon is a tag team pokémon" in text
+                    and my_active is not None and "tag team" in _card_subtypes(my_active)
+                ) or (
+                    "both active pokémon are the same type" in text
+                    and my_active is not None and opponent_active is not None
+                    and bool(set(effective_pokemon_types(ctx.board, my_active))
+                             & set(effective_pokemon_types(ctx.board, opponent_active)))
+                ) or (
+                    prize_bonus is not None
+                    and prize_count <= int(prize_bonus.group(1))
+                )
+                if add_bonus:
+                    count += int(bonus.group(1))
             await ctx.draw_cards(count)
+            if bonus and "if you have 10 or more cards in your hand" in text \
+                    and ctx.hand_size() >= 10:
+                await ctx.draw_cards(int(bonus.group(1)))
 
         if "switch your active pokémon" in text and ctx.my_bench():
             target = await ctx.choose_pokemon(
@@ -3837,6 +4048,9 @@ def standard_trainer_effect(game_text: str):
             # Typed/subtype filtering is intentionally conservative: every
             # matching printed word must be present in the definition/type.
             candidates = ctx.my_pokemon_in_play()
+            for subtype in ("ancient", "future"):
+                if f"your {subtype} pokémon" in text:
+                    candidates = [p for p in candidates if subtype in _card_subtypes(p)]
             for word, ptype in (
                 ("grass", PokemonTypes.GRASS), ("fire", PokemonTypes.FIRE),
                 ("water", PokemonTypes.WATER), ("lightning", PokemonTypes.LIGHTNING),
@@ -4478,12 +4692,20 @@ def standard_trainer_condition(game_text: str):
             if state is None or not state.pokemon_lost_last_turn(player_id):
                 return False
 
-        if "1 of your fairy pokémon was knocked out during your opponent's last turn" in text:
+        typed_ko = re.search(
+            r"1 of your (grass|fire|water|lightning|psychic|fighting|"
+            r"darkness|metal|fairy|dragon|colorless) pokémon was knocked out "
+            r"during your opponent's last turn", text,
+        )
+        if typed_ko:
             state = getattr(board, "turn_state", None)
             ledger = state.pokemon_lost_last_turn(player_id) if state else []
-            if not any(_definition_has_type(
-                    entry.get("archetype_id"), PokemonTypes.FAIRY
-            ) for entry in ledger):
+            pokemon_type = getattr(PokemonTypes, typed_ko.group(1).upper())
+            if not any(
+                    pokemon_type.value in entry["pokemon_types"]
+                    if "pokemon_types" in entry else _definition_has_type(
+                        entry.get("archetype_id"), pokemon_type)
+                    for entry in ledger):
                 return False
 
         if re.search(
@@ -4537,11 +4759,12 @@ def standard_trainer_condition(game_text: str):
                 and "counts as evolving" in text:
             valid = False
             for pokemon in board.pokemon_in_play(player_id):
-                if not is_basic_pokemon(pokemon):
+                if not is_basic_pokemon(pokemon) or evolution_blocked(
+                        board, player_id, pokemon):
                     continue
                 logic = pokemon.get_attribute(AttrID.EVOLUTION_LOGIC_NAME)
                 if any(is_evolution_pokemon(entry)
-                       and entry.get_attribute(AttrID.EVOLUTION_LOGIC_FROM) == logic
+                       and evolves_from(entry.archetype_id, logic)
                        for entry in hand):
                     valid = True
                     break
@@ -4559,15 +4782,17 @@ def standard_trainer_condition(game_text: str):
             if 'has "ogerpon" in its name' in text:
                 candidates = [entry for entry in candidates
                               if "ogerpon" in _card_name(entry).casefold()
-                              and "ex" in _card_subtypes(entry)]
+                              and _has_exact_subtype(entry, "ex")]
                 targets = [entry for entry in targets
                            if "ogerpon" in _card_name(entry).casefold()
-                           and "ex" in _card_subtypes(entry)]
+                           and _has_exact_subtype(entry, "ex")]
             if not candidates or not targets:
                 return False
 
         if text.startswith("devolve 1 of your evolved") and not any(
-                is_evolution_pokemon(pokemon)
+                len(devolution_chain(pokemon)) > 1
+                and ("psychic pokémon" not in text
+                     or _pokemon_has_type(board, pokemon, PokemonTypes.PSYCHIC))
                 for pokemon in board.pokemon_in_play(player_id)):
             return False
 
@@ -4942,9 +5167,8 @@ def energy_attach_to(game_text: str):
             return False
         if type_match:
             pokemon_type = getattr(PokemonTypes, type_match.group(1).upper(), None)
-            return pokemon_type is not None and pokemon_type.value in (
-                pokemon.get_attribute(AttrID.POKEMON_TYPES) or []
-            )
+            return pokemon_type is not None and _live_pokemon_has_type(
+                pokemon, pokemon_type)
         if team_match:
             definition = def_for(pokemon.archetype_id)
             label = f"Team {team_match.group(1).title()}"
@@ -4956,9 +5180,13 @@ def energy_attach_to(game_text: str):
 
 
 async def splash_energy_on_ko(ctx):
-    """Return Splash Energy's Knocked Out Water Pokemon to its owner's hand."""
+    """Return the eligible Pokémon for Splash or Rescue Energy."""
     pokemon = getattr(ctx, "knocked_out_pokemon", None)
     if pokemon is None:
+        return
+    if _card_name(ctx.source) == "Splash Energy" \
+            and PokemonTypes.WATER.value not in (
+                getattr(ctx, "knocked_out_types", None) or []):
         return
     stack = getattr(ctx, "knocked_out_stack", None) or [pokemon]
     evolution_cards, _ = split_pokemon_stack(pokemon, stack)

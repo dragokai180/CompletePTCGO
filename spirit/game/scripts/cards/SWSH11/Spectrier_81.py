@@ -7,9 +7,9 @@ async def night_footsteps(ctx):
     candidates = ctx.opponent_pokemon_in_play()
     if not candidates:
         return
-    count = min(2, len(candidates))
-    targets = await ctx.choose_cards(
-        candidates, count, prompt="Choose 2 of your opponent's Pokémon"
+    targets = list(candidates) if len(candidates) <= 2 else await ctx.choose_cards(
+        candidates, 2, minimum=2,
+        prompt="Choose 2 of your opponent's Pokémon"
     )
     for target in targets:
         await ctx.deal_damage(20, target=target, apply_modifiers=False, as_counters=True)

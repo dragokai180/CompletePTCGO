@@ -8,7 +8,8 @@ class LayOfTheLandPassive(Passive):
         if pokemon is not carrier:
             return cost
         area = board.find_global_area("activeStadium")
-        if not (area and area.children):
+        if not (area and area.children
+                and area.children[0].owning_player_id == pokemon.owning_player_id):
             return cost
         return 0
 

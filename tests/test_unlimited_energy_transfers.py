@@ -121,3 +121,79 @@ class UnlimitedEnergyTransferTests(unittest.IsolatedAsyncioTestCase):
                 await ctx.ability.effect(ctx)
                 self.assertEqual(ctx.move_energy_freely.call_args.kwargs[
                     "max_count"], expected_limit)
+
+    async def test_attached_to_one_transfer_abilities_move_multiple_typed_energies(self):
+        cases = (
+            ("BW1.Klinklang_76", "Shift Gear", PokemonTypes.METAL),
+            ("BW6.Hydreigon_97", "Dark Trance", PokemonTypes.DARKNESS),
+            ("BW11.Hydreigon_99", "Dark Trance", PokemonTypes.DARKNESS),
+            ("XY1.Aromatisse_93", "Fairy Transfer", PokemonTypes.FAIRY),
+        )
+        for path, title, energy_type in cases:
+            with self.subTest(card=path):
+                rig, _, ctx = self.ctx(path, title)
+                self.clear_energy(rig, ctx)
+                destination = ctx.my_bench()[0]
+                matching = [self.attach_basic(rig, ctx.source, energy_type)
+                            for _ in range(2)]
+                other = self.attach_basic(rig, ctx.source, PokemonTypes.WATER)
+                offered = await self.move_two(ctx, destination)
+                self.assertTrue(all(other not in pool for pool in offered))
+                self.assertTrue(all(energy in ctx.attached_energies(destination)
+                                    for energy in matching))
+
+    async def test_hyper_transfer_moves_multiple_basic_energies(self):
+        rig, _, ctx = self.ctx("XY9.GolduckBREAK_18", "Hyper Transfer")
+        self.clear_energy(rig, ctx)
+        destination = ctx.my_bench()[0]
+        basics = [self.attach_basic(rig, ctx.source, PokemonTypes.WATER)
+                  for _ in range(2)]
+        special = self.add(rig, fixtures.definition(
+            "SM1.RainbowEnergy_137"), P1, "hand")
+        rig.attach(special, ctx.source)
+        offered = await self.move_two(ctx, destination)
+        self.assertTrue(all(special not in pool for pool in offered))
+        self.assertTrue(all(energy in ctx.attached_energies(destination)
+                            for energy in basics))
+
+    async def test_plasma_transfer_moves_multiple_plasma_energy_cards(self):
+        for path in ("BW10.PorygonZ_74", "PROMO_BW.PorygonZ_BW84"):
+            with self.subTest(card=path):
+                rig, _, ctx = self.ctx(path, "Plasma Transfer")
+                self.clear_energy(rig, ctx)
+                destination = ctx.my_bench()[0]
+                plasma = []
+                for _ in range(2):
+                    energy = self.add(rig, fixtures.definition(
+                        "BW10.PlasmaEnergy_91"), P1, "hand")
+                    rig.attach(energy, ctx.source)
+                    plasma.append(energy)
+                basic = self.attach_basic(rig, ctx.source, PokemonTypes.METAL)
+                offered = await self.move_two(ctx, destination)
+                self.assertTrue(all(basic not in pool for pool in offered))
+                self.assertTrue(all(energy in ctx.attached_energies(destination)
+                                    for energy in plasma))
+
+    async def test_other_generic_repeated_movers_keep_their_routes(self):
+        cases = (
+            ("SM1.LunalaGX_66", "Psychic Transfer", PokemonTypes.PSYCHIC,
+             False, False),
+            ("XY5.Eelektross_65", "Energy Connect", PokemonTypes.WATER,
+             True, True),
+            ("SV1.Armarouge_41", "Fire Off", PokemonTypes.FIRE,
+             True, True),
+            ("ME2PT5.Azumarillex_84", "Bubble Gathering", PokemonTypes.WATER,
+             True, False),
+        )
+        for path, title, energy_type, bench_source, active_target in cases:
+            with self.subTest(card=path):
+                rig, _, ctx = self.ctx(path, title)
+                self.clear_energy(rig, ctx)
+                donor = ctx.my_bench()[0] if bench_source else ctx.source
+                destination = ctx.my_active() if active_target else (
+                    ctx.source if bench_source else ctx.my_bench()[0])
+                cards = [self.attach_basic(rig, donor, energy_type)
+                         for _ in range(2)]
+                await self.move_two(ctx, destination)
+                self.assertTrue(all(card in ctx.attached_energies(destination)
+                                    for card in cards))

@@ -116,13 +116,14 @@ from .effects import (
     resolve_trainer_effect,
     resolve_triggered_ability,
     split_pokemon_stack,
+    devolution_chain,
     full_stack,
 )
 from .passives import (
     ability_locked, active_passives, active_to_bench_counters,
     burn_recovery_blocked, effective_bench_capacity, effective_max_hp,
     effective_retreat_cost, energy_attachment_blocked, energy_attach_taxer,
-    evolve_heal_amount, extra_manual_energy_attachments,
+    evolve_heal_amount, evolution_blocked, extra_manual_energy_attachments,
     forced_coin_result,
     passive_discard_destination,
     player_visualizations,
@@ -2709,6 +2710,7 @@ class GameSession:
             hook_ctx.knocked_out_pokemon = pokemon
             hook_ctx.knocked_out_stack = list(stack)
             hook_ctx.knocked_out_attachments = list(stack[1:])
+            hook_ctx.knocked_out_types = knockout_types[pokemon.entity_id]
             await hook(hook_ctx)
             if hook_ctx._messages:
                 await self._flush_effect_runs(hook_ctx)
@@ -3157,10 +3159,12 @@ class GameSession:
     async def prompt_prize_reveal_pick(
         self, player_id: str, source_id: str,
         prize_ids: List[str], selectable_ids: List[str],
+        *, minimum: int = 0, prompt: Optional[str] = None,
     ) -> Optional[str]:
-        """"Look at your Prize cards": reveals every Prize face-up to the picker,
-        then offers the standard prize fan restricted to `selectable_ids` (up to
-        1, may decline). Returns the picked entityID or None.
+        """Show every Prize to its owner, then select through the Prize fan.
+
+        `minimum=0` permits declining (Heavy Ball); `minimum=1` requires one
+        Prize (Gladion). Only `selectable_ids` can be picked.
 
         The prize node (PrizeCardTargetInformation) satisfies the client's
         IsInPrizeSelectionNode() so the peek-your-prizes click handler stays
@@ -3169,6 +3173,8 @@ class GameSession:
         prize_area = self.board_state.find_player_area(player_id, "prizePile")
         if isinstance(player, AIPlayer):
             return selectable_ids[0] if selectable_ids else None
+        prompt_id = prompt or PROMPT_REVEAL_BASIC_FROM_PRIZE
+        required = bool(minimum)
         # Reveal every Prize face-up to the picker only (the fan renders faces
         # off the entity attrs; r.B itself carries no reveal). Caller re-hides.
         intros = [self._entity_introduced_msg(self.board_state.get_entity(pid))
@@ -3178,11 +3184,11 @@ class GameSession:
         info = {
             "name": SelectionKind.PRIZE_CARD.value,
             "selected": True,
-            "targetPrompt": {"id": PROMPT_REVEAL_BASIC_FROM_PRIZE},
+            "targetPrompt": {"id": prompt_id},
             "validTargets": selectable_ids,
             "numberToSelect": 1,
-            "minimumToSelect": 0,
-            "forced": False,
+            "minimumToSelect": int(required),
+            "forced": required,
             "presentPrizesAllowed": True,
             "horizontalLayout": False,
         }
@@ -3191,10 +3197,10 @@ class GameSession:
             offer = {
                 "gameID": self.game_id,
                 "counter": counter,
-                "prompt": {"id": PROMPT_REVEAL_BASIC_FROM_PRIZE},
+                "prompt": {"id": prompt_id},
                 "offerLength": 60000,
                 "startingTimestamp": int(time.time() * 1000),
-                "forced": False,
+                "forced": required,
                 "targetType": SelectionKind.PRIZE_CARD.value,
                 "ignoreFirst": True,
                 "selectionParams": {},
@@ -3211,7 +3217,7 @@ class GameSession:
                 expected_counter=counter,
             )
             selection = reply.get("selection")
-            if selection is None:
+            if selection is None and not required:
                 return None
             if isinstance(selection, dict):
                 for response in (selection.get("targetResponses") or []):
@@ -3219,7 +3225,8 @@ class GameSession:
                         for t in (response.get("entityList") or []):
                             if t in selectable_ids:
                                 return t
-                return None
+                if not required:
+                    return None
         return None
 
     async def _resolve_simultaneous_win_conditions(self):
@@ -5376,6 +5383,18 @@ class GameSession:
         area = target.parent if target is not None else None
         if not target or not area:
             return False
+        # Effect-driven evolution (Rare Candy, Grand Tree, etc.) must respect
+        # explicit evolution locks as well as normal hand-played evolution.
+        if evolution_blocked(self.board_state, player_id, target):
+            return False
+
+        if played_from_hand:
+            def _before_evolve_ctx(ctx):
+                ctx.evolved_pokemon = card
+                ctx.evolved_from = target
+            await self._fire_triggered_abilities(
+                player_id, target, Triggers.BEFORE_EVOLVE,
+                ctx_setup=_before_evolve_ctx, from_hand=True)
 
         slot = self.board_state.bench_slot_of(target)
 
@@ -5523,13 +5542,8 @@ class GameSession:
         owner_id = pokemon.owning_player_id
         if area is None or owner_id is None:
             return None
-        evolves_from = pokemon.get_attribute(AttrID.EVOLUTION_LOGIC_FROM)
-        prev = next(
-            (c for c in pokemon.children
-             if isinstance(c, PokemonEntity)
-             and c.get_attribute(AttrID.EVOLUTION_LOGIC_NAME) == evolves_from),
-            None,
-        )
+        chain = devolution_chain(pokemon)
+        prev = chain[1] if len(chain) > 1 else None
         dest = self.board_state.find_player_area(owner_id, destination_name)
         if prev is None or dest is None:
             return None
@@ -5790,17 +5804,21 @@ class GameSession:
         )
         return incoming
 
-    async def _execute_play_trainer(self, player_id, card) -> bool:
+    async def _execute_play_trainer(self, player_id, card, *, from_prize_window=False) -> bool:
         """Plays an Item/Supporter: revealed onto activeTrainer, effect resolves,
-        then discarded. Returns True when the effect ended the turn (Rotom Bike)."""
+        then discarded. A Prize-only Item has already passed its provenance
+        check when its take trigger calls this with from_prize_window=True.
+        Returns True when the effect ended the turn (Rotom Bike)."""
         from spirit.game.session.legal_actions import trainer_condition_met
         definition = def_for(card.archetype_id)
-        if not trainer_condition_met(getattr(definition, 'condition', None),
-                                     self.board_state, player_id, card):
+        if not from_prize_window and not trainer_condition_met(
+                getattr(definition, 'condition', None),
+                self.board_state, player_id, card):
             return False
         trainer_area = self.board_state.find_global_area("activeTrainer")
-        discard_area = self.board_state.find_player_area(player_id, "discard")
-        if not trainer_area or not discard_area:
+        final_area = self.board_state.find_player_area(
+            player_id, discard_area_name(card.archetype_id))
+        if not trainer_area or not final_area:
             return False
         if not self.board_state.move_card(card.entity_id, trainer_area.entity_id):
             return False
@@ -5861,12 +5879,13 @@ class GameSession:
             # untagged rides a plain GroupedMove.
             await self._flush_effect_runs(ctx)
 
-        # Normally the trainer discards after resolving; skip when the effect
-        # relocated it elsewhere (Hisuian Heavy Ball swaps itself into prizes).
+        # Normally the Trainer leaves play after resolving. Prism Star's
+        # discard replacement sends it to the Lost Zone; skip when the effect
+        # relocated it elsewhere (Hisuian Heavy Ball swaps into prizes).
         if card.parent is trainer_area:
-            position = len(discard_area.children)
-            self.board_state.move_card(card.entity_id, discard_area.entity_id)
-            discard = self._entity_moved_msg(card.entity_id, discard_area.entity_id, position)
+            position = len(final_area.children)
+            self.board_state.move_card(card.entity_id, final_area.entity_id)
+            discard = self._entity_moved_msg(card.entity_id, final_area.entity_id, position)
             await self.send_game_sequence(
                 list(self.players.values()), GameSequence.TRAINER_CARD, [discard]
             )
@@ -6185,7 +6204,7 @@ class GameSession:
             return False
         if ability is not None and ability.gx \
                 and player_id in self.turn_state.gx_used \
-                and not self.turn_state.can_repeat_gx(player_id, card):
+                and not self.turn_state.can_repeat_gx(player_id, card, self.board_state):
             return False
         # Clear Vision-GX also blocks a GX permitted again by Bonnie.
         if ability is not None and getattr(ability, "gx", False) \

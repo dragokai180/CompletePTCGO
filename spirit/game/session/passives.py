@@ -157,6 +157,12 @@ class Passive:
     def modify_damage_dealt(self, calc: DamageCalc, carrier: BoardEntity):
         """Attacker-side "does more/less damage" step (runs before W/R)."""
 
+    def apply_bench_weakness_resistance(
+        self, calc: DamageCalc, carrier: BoardEntity
+    ) -> bool:
+        """Whether this attack applies W/R to an opposing Benched Pokémon."""
+        return False
+
     def modify_weakness(self, calc: DamageCalc, carrier: BoardEntity):
         """May clear calc.weakness_applies (e.g. "... have no Weakness"), or
         rewrite calc.weak_types / calc.weakness_multiplier."""
@@ -1017,6 +1023,12 @@ def compute_damage(
                 continue
             calc.amount += mod.amount
         calc.amount = max(0, calc.amount)
+
+        if not calc.apply_modifiers:
+            calc.apply_modifiers = any(
+                passive.apply_bench_weakness_resistance(calc, carrier)
+                for passive, carrier in passives
+            )
 
     if calc.apply_modifiers and attacker is not None:
         for passive, carrier in passives:

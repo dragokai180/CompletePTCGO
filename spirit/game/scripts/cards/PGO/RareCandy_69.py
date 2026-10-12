@@ -1,7 +1,7 @@
 from spirit.game.data_utils import ItemCardDef, evolves_from
 from spirit.game.attributes import Rarities, AttrID, PokemonStage
 from spirit.game.session.effects import is_basic_pokemon, is_pokemon_card
-from spirit.game.session.passives import pokemon_play_blocked
+from spirit.game.session.passives import evolution_blocked, pokemon_play_blocked
 
 
 def _stage2_matches(hand_cards, logic_name, board, player_id):
@@ -22,6 +22,7 @@ def _turn_eligible_basics(board, player_id):
     return [
         p for p in board.pokemon_in_play(player_id)
         if is_basic_pokemon(p) and turn_state.may_evolve_target(p.entity_id)
+        and not evolution_blocked(board, player_id, p)
     ]
 
 

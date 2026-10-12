@@ -6,7 +6,8 @@ from spirit.game.session.passives import effective_max_hp
 
 def _magma_gain_condition(board, player_id, pokemon):
     stadium_area = board.find_global_area("activeStadium")
-    if not (stadium_area and stadium_area.children):
+    if not (stadium_area and stadium_area.children
+            and stadium_area.children[0].owning_player_id == player_id):
         return False
     return pokemon.get_attribute(AttrID.HP, 0) < effective_max_hp(board, pokemon)
 

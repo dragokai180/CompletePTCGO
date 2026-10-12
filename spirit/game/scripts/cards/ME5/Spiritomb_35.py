@@ -14,8 +14,8 @@ async def spiritual_end(ctx):
     candidates = ctx.opponent_pokemon_in_play()
     if not candidates:
         return
-    picks = await ctx.choose_cards(
-        candidates, min(2, len(candidates)), minimum=1,
+    picks = list(candidates) if len(candidates) <= 2 else await ctx.choose_cards(
+        candidates, 2, minimum=2,
         prompt="Choose 2 of your opponent's Pokémon",
     )
     for pokemon in picks:

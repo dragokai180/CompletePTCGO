@@ -1,6 +1,6 @@
 """Public-zone Trainer prerequisites and multi-category SM recovery."""
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from tests import test_hgss_rules as fixtures
 from spirit.game.attributes import AttrID, PokemonTypes
 from spirit.game.data_utils import CARD_DEFS_BY_GUID
@@ -27,6 +27,22 @@ class SmTrainerContinuationTests(unittest.IsolatedAsyncioTestCase):
 
     def clear_discard(self,rig,ctx):
         for card in list(ctx.discard_pile()):rig.to_area(card,P1,'deck')
+
+    async def test_played_cyrus_prism_star_goes_to_lost_zone(self):
+        rig, e, ctx, definition = self.setup_card('SM5.Cyrus_120')
+        ctx.my_active().set_attribute(
+            AttrID.POKEMON_TYPES, [PokemonTypes.WATER.value])
+        self.add(rig, self.filler, P2, 'bench')
+        keep = ctx.opponent_bench()[:2]
+        rig.session.send_game_sequence = AsyncMock()
+        rig.session._broadcast_attack_sources = AsyncMock()
+
+        with patch.object(EffectContext, 'choose_cards',
+                          AsyncMock(return_value=keep)):
+            await rig.session._execute_play_trainer(P1, e['target'])
+
+        self.assertIn(e['target'], ctx.lost_zone(P1))
+        self.assertNotIn(e['target'], ctx.discard_pile(P1))
 
     async def test_aether_employee_only_recovers_alolan_pokemon(self):
         rig,e,ctx,definition=self.setup_card('SM8.AetherFoundationEmployee_168')

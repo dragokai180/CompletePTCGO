@@ -358,19 +358,11 @@ def plasma_transfer_condition(board, player_id, pokemon=None):
 
 
 async def plasma_transfer(ctx):
-    energies = [
-        energy for p in ctx.my_pokemon_in_play()
-        for energy in ctx.attached_energies(p) if is_plasma_energy(energy)
-    ]
-    picked = await ctx.choose_cards(energies, 1, prompt="Choose a Plasma Energy to move")
-    if not picked:
-        return
-    energy = picked[0]
-    source = carrier_pokemon(energy)
-    targets = [p for p in ctx.my_pokemon_in_play() if p is not source]
-    target = await ctx.choose_pokemon(targets, "Choose a Pokémon to receive the Energy")
-    if target is not None:
-        await ctx.move_energy(energy, target)
+    pokemon = ctx.my_pokemon_in_play()
+    await ctx.move_energy_freely(
+        pokemon, pokemon, predicate=is_plasma_energy,
+        prompt="Choose a Plasma Energy to move",
+    )
 
 
 def _damage_transfer_sources(board, owner):

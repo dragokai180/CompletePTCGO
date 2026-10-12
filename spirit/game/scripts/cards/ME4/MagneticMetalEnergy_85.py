@@ -1,5 +1,6 @@
 from spirit.game.data_utils import EnergyCardDef
-from spirit.game.attributes import AttrID, PokemonTypes, Rarities
+from spirit.game.attributes import PokemonTypes, Rarities
+from spirit.game.card_effects.energies import _pokemon_has_type
 from spirit.game.card_effects.passives_common import retreat_free_when
 from spirit.game.session.passives import carrier_pokemon
 
@@ -8,8 +9,7 @@ def _metal_holder(pokemon, carrier):
     holder = carrier_pokemon(carrier)
     if holder is not pokemon:
         return False
-    types = pokemon.get_attribute(AttrID.POKEMON_TYPES) or []
-    return PokemonTypes.METAL.value in types
+    return _pokemon_has_type(pokemon, PokemonTypes.METAL)
 
 
 card = EnergyCardDef(

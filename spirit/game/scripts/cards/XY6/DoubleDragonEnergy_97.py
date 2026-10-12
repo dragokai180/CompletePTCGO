@@ -23,18 +23,19 @@ playing the card from hand, and that flag makes the engine re-read the same
 predicate after an effect moves or attaches the card, which is how Elgyem's
 Slight Shift stops being a way to park this on a Klefki.
 
-Still not covered: a Dragon that stops being a Dragon while the card sits on
-it (evolving into a non-Dragon, Kecleon's Chromashift). Nothing re-reads the
-restriction on evolution, only on attach and move.
+The attachment predicate uses the Pokémon's current type, including types
+granted by Abilities. Evolution and devolution re-check the restriction.
 
 Roaring Skies is registered in sets.json as "XY6" (externalId "ROS"), and
 that is the value AutoBundle matches on -- see the note in SM5/DialgaGX_100.py
 about "UPR" for why the canonical name, not the externalId, is the set_code.
 """
 
-from spirit.game.card_effects.energies import ALL_TYPES_ONE_AT_A_TIME
+from spirit.game.card_effects.energies import (
+    ALL_TYPES_ONE_AT_A_TIME, _pokemon_has_type,
+)
 from spirit.game.data_utils import EnergyCardDef
-from spirit.game.attributes import AttrID, PokemonTypes, Rarities
+from spirit.game.attributes import PokemonTypes, Rarities
 
 # Every type of Energy, two at a time. PokemonTypes members (not .value)
 # because `provides` is declared in terms of the enum; the passive-side
@@ -45,10 +46,8 @@ ALL_TYPES_TWO_AT_A_TIME = [
 
 
 def _is_dragon(pokemon) -> bool:
-    """The printed types, matching how the other type-gated Special Energies
-    (Speed Lightning, Heat Fire) read their target."""
-    types = pokemon.get_attribute(AttrID.POKEMON_TYPES) or []
-    return PokemonTypes.DRAGON.value in types
+    """A Dragon Pokémon can have gained its type through an Ability."""
+    return _pokemon_has_type(pokemon, PokemonTypes.DRAGON)
 
 
 card = EnergyCardDef(

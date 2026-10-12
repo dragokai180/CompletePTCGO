@@ -40,19 +40,24 @@ class OwnBenchAttackDamageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.choose_cards.call_args.kwargs['minimum'], 2)
 
     async def test_grenade_hammer_hits_available_bench_without_extra_choice(self):
-        rig, _, ctx = self.ctx('XY3.SeismitoadEX_20', 'Grenade Hammer')
-        bench = list(ctx.my_bench())
-        for pokemon in bench[1:]:
-            rig.to_area(pokemon, ctx.player_id, 'discard')
-        target = bench[0]
-        target.set_attribute(AttrID.HP, 200)
-        ctx.choose_cards = AsyncMock(
-            side_effect=AssertionError('no target choice with one Pokemon'))
+        for count in (1, 2):
+            with self.subTest(bench=count):
+                rig, _, ctx = self.ctx('XY3.SeismitoadEX_20',
+                                       'Grenade Hammer')
+                bench = list(ctx.my_bench())
+                for pokemon in bench[count:]:
+                    rig.to_area(pokemon, ctx.player_id, 'discard')
+                for pokemon in bench[:count]:
+                    pokemon.set_attribute(AttrID.HP, 200)
+                ctx.choose_cards = AsyncMock(
+                    side_effect=AssertionError('no target choice needed'))
 
-        await ctx.ability.effect(ctx)
+                await ctx.ability.effect(ctx)
 
-        self.assertEqual(target.get_attribute(AttrID.HP), 170)
-        ctx.choose_cards.assert_not_awaited()
+                self.assertEqual(
+                    [pokemon.get_attribute(AttrID.HP)
+                     for pokemon in bench[:count]], [170] * count)
+                ctx.choose_cards.assert_not_awaited()
 
     async def test_other_attacks_select_own_bench_only(self):
         cases = (

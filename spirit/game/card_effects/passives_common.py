@@ -295,9 +295,8 @@ def attack_discount_passive(count, self_only=True, pred=None) -> Passive:
 class AnyTypeAttackDiscountPassive(Passive):
     """Attacks cost 1 Energy less of any type (Sparkling Crystal).
 
-    Colorless is removed first when present. Otherwise one typed symbol is
-    dropped — preferring a reduction that the attached Energy can still pay
-    (so [R][P] with only Fire attached becomes [R], not [P]).
+    Prefer Colorless only when that reduction leaves a payable cost. A typed
+    symbol may be the one that must be removed for the attached Energy to pay.
     """
 
     def __init__(self, count=1, holder_pred=None):
@@ -312,46 +311,28 @@ class AnyTypeAttackDiscountPassive(Passive):
         if not cost or self.count <= 0:
             return cost
 
-        remaining = self.count
-        if cost.get("Colorless", 0) > 0:
-            take = min(remaining, cost["Colorless"])
-            left = cost["Colorless"] - take
-            if left > 0:
-                cost["Colorless"] = left
-            else:
-                del cost["Colorless"]
-            remaining -= take
-            if remaining <= 0:
-                return cost
-
-        if remaining <= 0 or not cost:
-            return cost
-
         # Lazy import: legal_actions imports passives at module load.
         from spirit.game.session.legal_actions import attack_cost_satisfied
 
         energies = board.attached_energies(pokemon) if board is not None else []
-        typed_keys = [k for k, n in cost.items() if k != "Colorless" and n > 0]
-        for _ in range(remaining):
-            if not typed_keys:
+        for _ in range(self.count):
+            keys = [key for key in cost if cost[key] > 0]
+            if not keys:
                 break
-            chosen = None
-            for key in typed_keys:
+            keys.sort(key=lambda key: key != "Colorless")
+            trials = []
+            for key in keys:
                 trial = dict(cost)
                 if trial[key] <= 1:
                     del trial[key]
                 else:
                     trial[key] -= 1
-                if attack_cost_satisfied(trial, energies, board):
-                    chosen = key
-                    break
-            if chosen is None:
-                chosen = typed_keys[0]
-            if cost[chosen] <= 1:
-                del cost[chosen]
-                typed_keys = [k for k in typed_keys if k in cost]
-            else:
-                cost[chosen] -= 1
+                trials.append(trial)
+            cost = next(
+                (trial for trial in trials
+                 if attack_cost_satisfied(trial, energies, board)),
+                trials[0],
+            )
         return cost
 
 
@@ -396,6 +377,14 @@ def weakness_multiplier_passive(mult, when=None) -> Passive:
     """Rewrites the Weakness multiplier; defaults to the holder attacking,
     or gate with when(calc, carrier)."""
     return WeaknessMultiplierPassive(mult, when)
+
+
+class BenchWeaknessResistancePassive(Passive):
+    """Wide Lens: the holder's attack damage applies W/R on the opposing Bench."""
+
+    def apply_bench_weakness_resistance(self, calc, carrier):
+        return (calc.is_attack and calc.is_opposing and not calc.to_active
+                and carrier_pokemon(carrier) is calc.attacker)
 
 
 class NoResistancePassive(Passive):
@@ -644,6 +633,8 @@ class TrainerEffectShieldPassive(Passive):
                                trainer_type, carrier, affected_entity=None,
                                board=None):
         if self.supporters_only and trainer_type != TrainerType.SUPPORTER.value:
+            return False
+        if trainer_card.owning_player_id == carrier.owning_player_id:
             return False
         if affected_player_id != carrier.owning_player_id:
             return False

@@ -1,12 +1,11 @@
-from spirit.game.card_effects.pokemon import energy_card_types
+from spirit.game.card_effects.pokemon import energy_provides_type
 from spirit.game.data_utils import PokemonCardDef, Attack, Ability
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities, AttrID, CardType
 
 
 def _is_water_energy_card(card):
-    types = energy_card_types(card) or []
     return card.get_attribute(AttrID.CARD_TYPE) == CardType.ENERGY.value \
-        and PokemonTypes.WATER.value in types
+        and energy_provides_type(card, PokemonTypes.WATER.value)
 
 
 async def multishot_star(ctx):
@@ -21,13 +20,9 @@ async def multishot_star(ctx):
     if not discarded:
         return
     await ctx.discard_cards(discarded)
-    targets = ctx.opponent_pokemon_in_play()
-    if not targets:
-        return
-    for _ in discarded:
-        target = await ctx.choose_pokemon(targets, "Choose 1 of your opponent's Pokémon")
-        if target is not None:
-            await ctx.deal_damage(30, target=target, apply_modifiers=False)
+    # The text counts Energy cards, so a card providing 2 Water still gives
+    # only one hit. The picker allows repeated clicks on the same target.
+    await ctx.distribute_repeated_damage(len(discarded), 30)
 
 
 card = PokemonCardDef(

@@ -4,6 +4,7 @@ from spirit.game.card_effects.standard_era import (
     standard_attack, standard_passive, standard_stadium_ability,
     standard_trainer_condition, standard_trainer_effect,
 )
+from spirit.game.card_effects.passives_common import BenchWeaknessResistancePassive
 
 
 card = PokemonToolCardDef(
@@ -17,5 +18,5 @@ card = PokemonToolCardDef(
     set_code='XY6',
     regulation_mark=None,
     rarity=Rarities.Uncommon,
-    passive=standard_passive("Damage from the attacks of the Pokémon this card is attached to is affected by Weakness and Resistance for your opponent's Benched Pokémon. You may play as many Item cards as you like during your turn (before your attack)."),
+    passive=BenchWeaknessResistancePassive(),
 )

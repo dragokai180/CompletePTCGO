@@ -23,9 +23,9 @@ async def cell_fork(ctx):
     bench = ctx.opponent_bench()
     if not bench:
         return
-    count = min(2, len(bench))
-    targets = await ctx.choose_cards(
-        bench, count, prompt="Choose 2 of your opponent's Benched Pokémon",
+    targets = list(bench) if len(bench) <= 2 else await ctx.choose_cards(
+        bench, 2, minimum=2,
+        prompt="Choose 2 of your opponent's Benched Pokémon",
     )
     for target in targets:
         await ctx.deal_damage(30, target=target, apply_modifiers=False, as_counters=True)

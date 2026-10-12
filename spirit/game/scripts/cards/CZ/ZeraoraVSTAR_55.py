@@ -11,14 +11,7 @@ async def crushing_beat(ctx):
 
 async def lightning_storm_star(ctx):
     """VSTAR Power: choose an opponent's Pokemon 4 times, 60 raw damage each."""
-    for _ in range(4):
-        targets = ctx.opponent_pokemon_in_play()
-        if not targets:
-            break
-        target = await ctx.choose_pokemon(
-            targets, "Choose 1 of your opponent's Pokémon"
-        ) or targets[0]
-        await ctx.deal_damage(60, target=target, apply_modifiers=False)
+    await ctx.distribute_repeated_damage(4, 60)
 
 
 card = PokemonCardDef(

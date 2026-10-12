@@ -1,8 +1,9 @@
-from spirit.game.data_utils import ItemCardDef
+from spirit.game.data_utils import ItemCardDef, Ability, Triggers
 from spirit.game.attributes import PokemonTypes, Rarities
+from spirit.game.card_effects.trainers import dream_ball_playable, greedy_dice_prize_window
 from spirit.game.card_effects.standard_era import (
     standard_attack, standard_passive, standard_stadium_ability,
-    standard_trainer_condition, standard_trainer_effect,
+    standard_trainer_effect,
 )
 
 
@@ -18,5 +19,11 @@ card = ItemCardDef(
     regulation_mark=None,
     rarity=Rarities.Uncommon,
     effect=standard_trainer_effect('You can play this card only if you took it as a face-down Prize card, before you put it into your hand. Flip a coin. If heads, take 1 more Prize card. You may play as many Item cards as you like during your turn (before your attack).'),
-    condition=standard_trainer_condition('You can play this card only if you took it as a face-down Prize card, before you put it into your hand. Flip a coin. If heads, take 1 more Prize card. You may play as many Item cards as you like during your turn (before your attack).'),
+    condition=dream_ball_playable,
+    abilities=[Ability(
+        title='Greedy Dice',
+        game_text='You can play this card only if you took it as a face-down Prize card, before you put it into your hand.',
+        trigger=Triggers.ON_TAKEN_AS_PRIZE,
+        effect=greedy_dice_prize_window,
+    )],
 )

@@ -1,14 +1,28 @@
-from spirit.game.data_utils import PokemonCardDef, Attack, Ability
+from spirit.game.data_utils import PokemonCardDef, Attack, Ability, def_for
 from spirit.game.attributes import PokemonTypes, PokemonStage, Rarities
 from spirit.game.card_effects.passives_common import (
-    ability_lock_passive,
     is_in_active_spot,
     opposing_active,
 )
+from spirit.game.session.passives import Passive
 
 
 def _midnight_fluttering_target(pokemon, carrier):
     return opposing_active(pokemon, carrier) and is_in_active_spot(carrier)
+
+
+class MidnightFlutteringPassive(Passive):
+    def blocks_abilities(self, pokemon, carrier):
+        if not _midnight_fluttering_target(pokemon, carrier):
+            return False
+        return not any(
+            ability.title == 'Midnight Fluttering'
+            for ability in def_for(pokemon.archetype_id).abilities
+        )
+
+    def blocks_ability(self, pokemon, ability, carrier):
+        return _midnight_fluttering_target(pokemon, carrier) \
+            and ability.title != 'Midnight Fluttering'
 
 
 async def hex_hurl(ctx):
@@ -39,7 +53,7 @@ card = PokemonCardDef(
         Ability(
             title="Midnight Fluttering",
             game_text="As long as this Pokémon is in the Active Spot, your opponent's Active Pokémon has no Abilities, except for Midnight Fluttering.",
-            passive=ability_lock_passive(_midnight_fluttering_target),
+            passive=MidnightFlutteringPassive(),
         ),
         Attack(
             title="Hex Hurl",
